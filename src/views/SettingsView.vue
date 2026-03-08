@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import Card from 'primevue/card'
 import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
+import Divider from 'primevue/divider'
 import { usePreset } from '@primeuix/themes'
 import Aura from '@primevue/themes/aura'
 import Material from '@primevue/themes/material'
@@ -34,6 +35,9 @@ function onDarkModeChange() {
   <Card>
     <template #title>Settings</template>
     <template #content>
+      <Divider align="left" type="solid">
+        <b>Visual</b>
+      </Divider>
       <div class="flex flex-col gap-4">
         <div class="flex items-center justify-between">
           <label for="theme-preset">Theme preset</label>
