@@ -36,6 +36,11 @@ const toggleIcon = computed(() => {
   return isExpanded.value ? 'pi pi-chevron-left' : 'pi pi-chevron-right'
 })
 
+const toggleLabel = computed(() => {
+  if (!isExpanded.value) return undefined
+  return isExpanded.value && layoutStore.isTemporarilyToggled ? 'Unpin' : 'Pin'
+})
+
 function toggleSidebar() {
   layoutStore.isTemporarilyToggled = !layoutStore.isTemporarilyToggled
 }
@@ -45,7 +50,7 @@ function toggleSidebar() {
   <nav
     class="h-screen flex flex-col transition-all duration-200 overflow-hidden"
     :class="[
-      isExpanded ? 'w-56' : 'w-16',
+      isExpanded ? 'w-56' : 'w-16', 'shrink-0',
       layoutStore.navPosition === 'right' ? 'border-l border-gray-200' : 'border-r border-gray-200'
     ]"
     @mouseenter="isHovered = true"
@@ -65,6 +70,7 @@ function toggleSidebar() {
       />
       <Button
         :icon="toggleIcon"
+        :label="toggleLabel"
         severity="secondary"
         text
         size="small"

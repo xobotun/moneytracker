@@ -29,7 +29,7 @@ const isLeft = computed(() => position.value === 'left')
     <AppSidebar v-if="!isHorizontal && isLeft" />
 
     <!-- Content -->
-    <main class="flex-1">
+    <main class="flex-1 min-w-0 overflow-auto">
       <RouterView />
     </main>
 
