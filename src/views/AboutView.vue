@@ -1,15 +1,13 @@
-<template>
-  <div class="about">
-    <h1>This is an about page</h1>
-  </div>
-</template>
+<script setup lang="ts">
+import Card from 'primevue/card'
+</script>
 
-<style>
-@media (min-width: 1024px) {
-  .about {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-  }
-}
-</style>
+<template>
+  <Card>
+    <template #title>About</template>
+    <template #content>
+      <p>Money Tracker is a personal finance app that works offline and syncs to the cloud.</p>
+      <p>Built with Vue 3, TypeScript, Tailwind CSS, and PrimeVue.</p>
+    </template>
+  </Card>
+</template>

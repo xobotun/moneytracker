@@ -4,9 +4,9 @@ import Card from 'primevue/card'
 
 <template>
   <Card>
-    <template #title>Home</template>
+    <template #title>Page Two</template>
     <template #content>
-      <p>Welcome to Money Tracker — your offline-first personal finance app.</p>
+      <p>This page will become something useful later.</p>
     </template>
   </Card>
 </template>
