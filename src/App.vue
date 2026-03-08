@@ -11,13 +11,6 @@ const items = ref([
   { label: 'Page Two', command: () => router.push('/page-two') },
   { label: 'About', command: () => router.push('/about') },
 ])
-
-const isDark = ref(document.documentElement.classList.contains('dark'))
-
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-}
 </script>
 
 <template>
@@ -28,11 +21,11 @@ function toggleTheme() {
       </template>
       <template #end>
         <Button
-          :icon="isDark ? 'pi pi-sun' : 'pi pi-moon'"
+          icon="pi pi-cog"
           severity="secondary"
           text
           rounded
-          @click="toggleTheme"
+          @click="router.push('/settings')"
         />
       </template>
     </Menubar>
