@@ -43,7 +43,7 @@ function toggleSidebar() {
 
 <template>
   <nav
-    class="h-screen flex flex-col transition-all duration-200"
+    class="h-screen flex flex-col transition-all duration-200 overflow-hidden"
     :class="[
       isExpanded ? 'w-56' : 'w-16',
       layoutStore.navPosition === 'right' ? 'border-l border-gray-200' : 'border-r border-gray-200'
@@ -54,7 +54,7 @@ function toggleSidebar() {
     <div class="p-3 font-bold text-center">
       {{ isExpanded ? 'MoneyTracker' : 'MT' }}
     </div>
-    <Menu :model="menuItems" class="flex-1 border-0" />
+    <Menu :model="menuItems" class="flex-1 border-0 w-full min-w-0 overflow-hidden" />
     <div class="flex flex-col gap-1 p-2">
       <Button
         icon="pi pi-cog"
