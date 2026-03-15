@@ -1,10 +1,31 @@
-import { ref, computed } from 'vue'
+import { type Ref, ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { getSettingsRepository } from '@/db/init'
+import { settingsKey, type SettingsKey } from '@/db/repositories/SettingsRepository'
 
 export type NavPosition = 'auto' | 'top' | 'bottom' | 'left' | 'right'
 export type CollapseMode = 'always-collapsed' | 'opens-on-hover' | 'always-expanded'
 export type ThemePreset = 'Aura' | 'Material' | 'Lara' | 'Nora'
+
+// Typed settings keys — the type parameter ensures get/set are type-safe
+const Keys = {
+  navPosition: settingsKey<NavPosition>('layout.navPosition'),
+  collapseMode: settingsKey<CollapseMode>('layout.collapseMode'),
+  isDark: settingsKey<boolean>('layout.isDark'),
+  themePreset: settingsKey<ThemePreset>('layout.themePreset'),
+}
+
+/** Load a persisted value into a ref. No-op if the key doesn't exist in the DB. */
+async function hydrateRef<T>(key: SettingsKey<T>, target: Ref<T>): Promise<void> {
+  const stored = await getSettingsRepository().get(key)
+  if (stored !== null) target.value = stored
+}
+
+/** Persist a value, then update the ref (write-through). */
+async function persistRef<T>(key: SettingsKey<T>, target: Ref<T>, value: T): Promise<void> {
+  await getSettingsRepository().set(key, value)
+  target.value = value
+}
 
 const MOBILE_BREAKPOINT = 768
 
@@ -22,40 +43,29 @@ export const useLayoutStore = defineStore('layout', () => {
   ])
 
   async function hydrate(): Promise<void> {
-    const repo = getSettingsRepository()
-    const storedNavPos = await repo.get<NavPosition>('layout.navPosition')
-    if (storedNavPos) navPosition.value = storedNavPos
-    const storedCollapse = await repo.get<CollapseMode>('layout.collapseMode')
-    if (storedCollapse) collapseMode.value = storedCollapse
-    const storedDark = await repo.get<boolean>('layout.isDark')
-    if (storedDark !== null) isDark.value = storedDark
-    const storedPreset = await repo.get<ThemePreset>('layout.themePreset')
-    if (storedPreset) themePreset.value = storedPreset
+    await Promise.all([
+      hydrateRef(Keys.navPosition, navPosition),
+      hydrateRef(Keys.collapseMode, collapseMode),
+      hydrateRef(Keys.isDark, isDark),
+      hydrateRef(Keys.themePreset, themePreset),
+    ])
   }
 
   async function setNavPosition(value: NavPosition): Promise<void> {
-    const repo = getSettingsRepository()
-    await repo.set('layout.navPosition', value)
-    navPosition.value = value
+    await persistRef(Keys.navPosition, navPosition, value)
   }
 
   async function setCollapseMode(value: CollapseMode): Promise<void> {
-    const repo = getSettingsRepository()
-    await repo.set('layout.collapseMode', value)
-    collapseMode.value = value
+    await persistRef(Keys.collapseMode, collapseMode, value)
   }
 
   async function setDarkMode(value: boolean): Promise<void> {
-    const repo = getSettingsRepository()
-    await repo.set('layout.isDark', value)
-    isDark.value = value
+    await persistRef(Keys.isDark, isDark, value)
     document.documentElement.classList.toggle('dark', value)
   }
 
   async function setThemePreset(value: ThemePreset): Promise<void> {
-    const repo = getSettingsRepository()
-    await repo.set('layout.themePreset', value)
-    themePreset.value = value
+    await persistRef(Keys.themePreset, themePreset, value)
   }
 
   function effectivePosition(windowWidth: number): Exclude<NavPosition, 'auto'> {

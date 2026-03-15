@@ -2,17 +2,17 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useLayoutStore } from '../layout'
 
-// Mock the db/init module
+// Mock the db/init module — SettingsKey objects have a .key string property
 const mockStore = new Map<string, unknown>()
 vi.mock('@/db/init', () => ({
   getSettingsRepository: () => ({
-    get: async (key: string) => mockStore.get(key) ?? null,
-    set: async (key: string, value: unknown) => {
-      mockStore.set(key, value)
+    get: async (key: { key: string }) => mockStore.get(key.key) ?? null,
+    set: async (key: { key: string }, value: unknown) => {
+      mockStore.set(key.key, value)
     },
     getAll: async () => Object.fromEntries(mockStore),
-    delete: async (key: string) => {
-      mockStore.delete(key)
+    delete: async (key: { key: string }) => {
+      mockStore.delete(key.key)
     },
   }),
 }))

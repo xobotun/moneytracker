@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
-import { SettingsRepository } from '../SettingsRepository'
+import { SettingsRepository, settingsKey } from '../SettingsRepository'
+
+const THEME = settingsKey<string>('theme')
+const FONT_SIZE = settingsKey<number>('fontSize')
+const ENABLED = settingsKey<boolean>('enabled')
+const COMPLEX = settingsKey<{ a: number; b: string }>('complex')
+const KEY = settingsKey<string>('key')
+const A = settingsKey<number>('a')
+const B = settingsKey<string>('b')
 
 describe('SettingsRepository', () => {
   let db: Database
@@ -20,45 +28,45 @@ describe('SettingsRepository', () => {
   })
 
   it('returns null for a missing key', async () => {
-    expect(await repo.get('nonexistent')).toBeNull()
+    expect(await repo.get(settingsKey('nonexistent'))).toBeNull()
   })
 
   it('stores and retrieves a string value', async () => {
-    await repo.set('theme', 'dark')
-    expect(await repo.get<string>('theme')).toBe('dark')
+    await repo.set(THEME, 'dark')
+    expect(await repo.get(THEME)).toBe('dark')
   })
 
   it('stores and retrieves a number value', async () => {
-    await repo.set('fontSize', 14)
-    expect(await repo.get<number>('fontSize')).toBe(14)
+    await repo.set(FONT_SIZE, 14)
+    expect(await repo.get(FONT_SIZE)).toBe(14)
   })
 
   it('stores and retrieves a boolean value', async () => {
-    await repo.set('enabled', true)
-    expect(await repo.get<boolean>('enabled')).toBe(true)
+    await repo.set(ENABLED, true)
+    expect(await repo.get(ENABLED)).toBe(true)
   })
 
   it('stores and retrieves an object value', async () => {
     const obj = { a: 1, b: 'two' }
-    await repo.set('complex', obj)
-    expect(await repo.get('complex')).toEqual(obj)
+    await repo.set(COMPLEX, obj)
+    expect(await repo.get(COMPLEX)).toEqual(obj)
   })
 
   it('overwrites an existing key', async () => {
-    await repo.set('key', 'first')
-    await repo.set('key', 'second')
-    expect(await repo.get<string>('key')).toBe('second')
+    await repo.set(KEY, 'first')
+    await repo.set(KEY, 'second')
+    expect(await repo.get(KEY)).toBe('second')
   })
 
   it('deletes a key', async () => {
-    await repo.set('key', 'value')
-    await repo.delete('key')
-    expect(await repo.get('key')).toBeNull()
+    await repo.set(KEY, 'value')
+    await repo.delete(KEY)
+    expect(await repo.get(KEY)).toBeNull()
   })
 
   it('getAll() returns all settings as a record', async () => {
-    await repo.set('a', 1)
-    await repo.set('b', 'two')
+    await repo.set(A, 1)
+    await repo.set(B, 'two')
     const all = await repo.getAll()
     expect(all).toEqual({ a: 1, b: 'two' })
   })
