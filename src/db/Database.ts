@@ -18,12 +18,15 @@ export interface RunResult {
  */
 async function createSQLiteModule(): Promise<ReturnType<typeof SQLiteESMFactory>> {
   // In Node-like environments (Vitest/jsdom), load WASM from disk
-  if (typeof process !== 'undefined' && process.versions?.node) {
-    const { readFile } = await import('node:fs/promises')
-    const { createRequire } = await import('node:module')
-    const require = createRequire(import.meta.url)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const proc = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined
+  if (proc?.versions?.node) {
+    const fs = await import('node:fs/promises')
+    const mod = await import('node:module')
+
+    const require = mod.createRequire(import.meta.url)
     const wasmPath = require.resolve('wa-sqlite/dist/wa-sqlite.wasm')
-    const wasmBinary = await readFile(wasmPath)
+    const wasmBinary = await fs.readFile(wasmPath)
     return SQLiteESMFactory({ wasmBinary })
   }
   // In browser environments, the default fetch-based loading works fine

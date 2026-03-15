@@ -6,6 +6,9 @@
     // Extra safety for array and object lookups, but may have false positives.
     "noUncheckedIndexedAccess": true,
 
+    // Needed for wa-sqlite WASM loading helper which uses node:fs/promises in Node environments.
+    "types": ["node"],
+
     // Path mapping for cleaner imports.
     "paths": {
       "@/*": ["./src/*"]
