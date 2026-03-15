@@ -20,10 +20,17 @@ export async function runMigrations(db: Database, migrations: Migration[]): Prom
 
   for (const migration of sorted) {
     if (appliedVersions.has(migration.version)) continue
-    await db.run(migration.up)
-    await db.run('INSERT INTO migrations (version, applied_at_utc) VALUES (?, ?)', [
-      migration.version,
-      new Date().toISOString(),
-    ])
+    await db.run('BEGIN')
+    try {
+      await db.run(migration.up)
+      await db.run('INSERT INTO migrations (version, applied_at_utc) VALUES (?, ?)', [
+        migration.version,
+        new Date().toISOString(),
+      ])
+      await db.run('COMMIT')
+    } catch (e) {
+      await db.run('ROLLBACK')
+      throw e
+    }
   }
 }
