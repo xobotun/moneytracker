@@ -9,28 +9,30 @@ import Aura from '@primevue/themes/aura'
 import Material from '@primevue/themes/material'
 import Lara from '@primevue/themes/lara'
 import Nora from '@primevue/themes/nora'
-import { useLayoutStore, type NavPosition, type CollapseMode } from '@/stores/layout'
+import { useLayoutStore, type NavPosition, type CollapseMode, type ThemePreset } from '@/stores/layout'
 
 const layoutStore = useLayoutStore()
 
 const presets = [
-  { name: 'Aura', value: Aura },
-  { name: 'Material', value: Material },
-  { name: 'Lara', value: Lara },
-  { name: 'Nora', value: Nora },
+  { name: 'Aura' as ThemePreset, value: Aura },
+  { name: 'Material' as ThemePreset, value: Material },
+  { name: 'Lara' as ThemePreset, value: Lara },
+  { name: 'Nora' as ThemePreset, value: Nora },
 ]
 
-const selectedPreset = ref(presets[0])
-const isDark = ref(document.documentElement.classList.contains('dark'))
+const selectedPreset = ref(
+  presets.find((p) => p.name === layoutStore.themePreset) ?? presets[0]
+)
 
-function onPresetChange() {
+async function onPresetChange() {
   if (selectedPreset.value) {
     usePreset(selectedPreset.value.value)
+    await layoutStore.setThemePreset(selectedPreset.value.name)
   }
 }
 
-function onDarkModeChange() {
-  document.documentElement.classList.toggle('dark', isDark.value)
+async function onDarkModeChange(value: boolean) {
+  await layoutStore.setDarkMode(value)
 }
 
 const navPositionOptions = [
@@ -95,7 +97,7 @@ const showCollapseMode = computed(() => {
           <label for="dark-mode">Dark mode</label>
           <ToggleSwitch
             id="dark-mode"
-            v-model="isDark"
+            v-model="layoutStore.isDark"
             @update:modelValue="onDarkModeChange"
           />
         </div>

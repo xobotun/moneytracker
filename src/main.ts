@@ -4,12 +4,24 @@ import 'primeicons/primeicons.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
+import { usePreset } from '@primeuix/themes'
 import Aura from '@primevue/themes/aura'
+import Material from '@primevue/themes/material'
+import Lara from '@primevue/themes/lara'
+import Nora from '@primevue/themes/nora'
 
 import App from './App.vue'
 import router from './router'
 import { initDatabase } from './db/init'
-import { useLayoutStore } from './stores/layout'
+import { useLayoutStore, type ThemePreset } from './stores/layout'
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const themePresets: Record<ThemePreset, any> = {
+  Aura,
+  Material,
+  Lara,
+  Nora,
+}
 
 async function bootstrap(): Promise<void> {
   await initDatabase()
@@ -29,6 +41,12 @@ async function bootstrap(): Promise<void> {
 
   const layoutStore = useLayoutStore()
   await layoutStore.hydrate()
+
+  // Apply persisted theme settings
+  if (layoutStore.themePreset !== 'Aura') {
+    usePreset(themePresets[layoutStore.themePreset])
+  }
+  document.documentElement.classList.toggle('dark', layoutStore.isDark)
 
   app.mount('#app')
 }
