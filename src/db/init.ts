@@ -10,7 +10,7 @@ let settingsRepository: SettingsRepository | null = null
 
 export async function initDatabase(): Promise<void> {
   database = new Database()
-  await database.init({ filePath: 'moneytracker.db', useOPFS: true })
+  await database.init({ filePath: 'moneytracker.db', persist: true })
   await runMigrations(database, allMigrations)
   settingsRepository = new SettingsRepository(database)
 }

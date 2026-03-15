@@ -1,9 +1,11 @@
 import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs'
+import SQLiteAsyncESMFactory from 'wa-sqlite/dist/wa-sqlite-async.mjs'
 import * as SQLite from 'wa-sqlite'
 
 export interface DatabaseOptions {
   filePath?: string
-  useOPFS?: boolean
+  /** Use persistent storage (IndexedDB via IDBBatchAtomicVFS). Requires async WASM build. */
+  persist?: boolean
 }
 
 export interface RunResult {
@@ -16,7 +18,9 @@ export interface RunResult {
  * support the file:// URLs that wa-sqlite uses, so we read the .wasm file
  * from disk and pass it directly as `wasmBinary`.
  */
-async function createSQLiteModule(): Promise<ReturnType<typeof SQLiteESMFactory>> {
+async function createSQLiteModule(async_: boolean): Promise<ReturnType<typeof SQLiteESMFactory>> {
+  const factory = async_ ? SQLiteAsyncESMFactory : SQLiteESMFactory
+
   // In Node-like environments (Vitest/jsdom), load WASM from disk
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined
@@ -25,12 +29,13 @@ async function createSQLiteModule(): Promise<ReturnType<typeof SQLiteESMFactory>
     const mod = await import('node:module')
 
     const require = mod.createRequire(import.meta.url)
-    const wasmPath = require.resolve('wa-sqlite/dist/wa-sqlite.wasm')
+    const wasmFile = async_ ? 'wa-sqlite/dist/wa-sqlite-async.wasm' : 'wa-sqlite/dist/wa-sqlite.wasm'
+    const wasmPath = require.resolve(wasmFile)
     const wasmBinary = await fs.readFile(wasmPath)
-    return SQLiteESMFactory({ wasmBinary })
+    return factory({ wasmBinary })
   }
   // In browser environments, the default fetch-based loading works fine
-  return SQLiteESMFactory()
+  return factory()
 }
 
 export class Database {
@@ -39,12 +44,12 @@ export class Database {
 
   async init(options: DatabaseOptions = {}): Promise<void> {
     if (this.isOpen()) throw new Error('Database is already initialized')
-    const module = await createSQLiteModule()
+    const module = await createSQLiteModule(!!options.persist)
     this.sqlite3 = SQLite.Factory(module)
 
-    if (options.useOPFS) {
+    if (options.persist) {
       // IDBBatchAtomicVFS persists to IndexedDB and works on the main thread.
-      // True OPFS (OriginPrivateFileSystemVFS) requires a Web Worker context.
+      // Requires the async WASM build (wa-sqlite-async.mjs).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { IDBBatchAtomicVFS } = await import('wa-sqlite/src/examples/IDBBatchAtomicVFS.js' as any)
       const vfs = new IDBBatchAtomicVFS('moneytracker')
