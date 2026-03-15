@@ -45,7 +45,7 @@ export class Database {
     if (options.useOPFS) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { OriginPrivateFileSystemVFS } = await import('wa-sqlite/src/examples/OriginPrivateFileSystemVFS.js' as any)
-      const vfs = await OriginPrivateFileSystemVFS.create('opfs', module)
+      const vfs = new OriginPrivateFileSystemVFS()
       this.sqlite3.vfs_register(vfs, true)
     }
 
