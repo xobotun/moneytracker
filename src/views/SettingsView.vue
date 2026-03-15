@@ -54,15 +54,15 @@ const selectedCollapseMode = ref(
   collapseModeOptions.find((o) => o.value === layoutStore.collapseMode) ?? collapseModeOptions[1]
 )
 
-function onNavPositionChange() {
+async function onNavPositionChange() {
   if (selectedNavPosition.value) {
-    layoutStore.navPosition = selectedNavPosition.value.value
+    await layoutStore.setNavPosition(selectedNavPosition.value.value)
   }
 }
 
-function onCollapseModeChange() {
+async function onCollapseModeChange() {
   if (selectedCollapseMode.value) {
-    layoutStore.collapseMode = selectedCollapseMode.value.value
+    await layoutStore.setCollapseMode(selectedCollapseMode.value.value)
   }
 }
 

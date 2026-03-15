@@ -8,18 +8,29 @@ import Aura from '@primevue/themes/aura'
 
 import App from './App.vue'
 import router from './router'
+import { initDatabase } from './db/init'
+import { useLayoutStore } from './stores/layout'
 
-const app = createApp(App)
+async function bootstrap(): Promise<void> {
+  await initDatabase()
 
-app.use(createPinia())
-app.use(router)
-app.use(PrimeVue, {
-  theme: {
-    preset: Aura,
-    options: {
-      darkModeSelector: '.dark',
+  const app = createApp(App)
+  const pinia = createPinia()
+  app.use(pinia)
+  app.use(router)
+  app.use(PrimeVue, {
+    theme: {
+      preset: Aura,
+      options: {
+        darkModeSelector: '.dark',
+      },
     },
-  },
-})
+  })
 
-app.mount('#app')
+  const layoutStore = useLayoutStore()
+  await layoutStore.hydrate()
+
+  app.mount('#app')
+}
+
+bootstrap()
