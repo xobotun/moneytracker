@@ -1,6 +1,11 @@
 import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs'
 import * as SQLite from 'wa-sqlite'
 
+export interface DatabaseOptions {
+  filePath?: string
+  useOPFS?: boolean
+}
+
 export interface RunResult {
   changes: number
   lastInsertRowId: number
@@ -29,11 +34,23 @@ export class Database {
   private sqlite3: SQLiteAPI | null = null
   private db: number | null = null
 
-  async init(filePath?: string): Promise<void> {
+  async init(options: DatabaseOptions = {}): Promise<void> {
     const module = await createSQLiteModule()
     this.sqlite3 = SQLite.Factory(module)
-    const path = filePath ?? ':memory:'
-    this.db = await this.sqlite3.open_v2(path)
+
+    if (options.useOPFS) {
+      // OriginPrivateFileSystemVFS is browser-only; use a computed string so Vite
+      // does not try to resolve this import during test/build analysis in Node.
+      const vfsModulePath = 'wa-sqlite/src/examples/' + 'OriginPrivateFileSystemVFS.js'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const vfsMod: any = await import(/* @vite-ignore */ vfsModulePath)
+      const OriginPrivateFileSystemVFS = vfsMod.OriginPrivateFileSystemVFS ?? vfsMod.default
+      const vfs = await OriginPrivateFileSystemVFS.create('opfs', module)
+      this.sqlite3.vfs_register(vfs, true)
+    }
+
+    const filePath = options.filePath ?? ':memory:'
+    this.db = await this.sqlite3.open_v2(filePath)
   }
 
   isOpen(): boolean {
