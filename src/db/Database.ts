@@ -43,12 +43,8 @@ export class Database {
     this.sqlite3 = SQLite.Factory(module)
 
     if (options.useOPFS) {
-      // OriginPrivateFileSystemVFS is browser-only; use a computed string so Vite
-      // does not try to resolve this import during test/build analysis in Node.
-      const vfsModulePath = 'wa-sqlite/src/examples/' + 'OriginPrivateFileSystemVFS.js'
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const vfsMod: any = await import(/* @vite-ignore */ vfsModulePath)
-      const OriginPrivateFileSystemVFS = vfsMod.OriginPrivateFileSystemVFS ?? vfsMod.default
+      const { OriginPrivateFileSystemVFS } = await import('wa-sqlite/src/examples/OriginPrivateFileSystemVFS.js' as any)
       const vfs = await OriginPrivateFileSystemVFS.create('opfs', module)
       this.sqlite3.vfs_register(vfs, true)
     }
