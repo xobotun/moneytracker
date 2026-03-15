@@ -38,6 +38,7 @@ export class Database {
   private db: number | null = null
 
   async init(options: DatabaseOptions = {}): Promise<void> {
+    if (this.isOpen()) throw new Error('Database is already initialized')
     const module = await createSQLiteModule()
     this.sqlite3 = SQLite.Factory(module)
 

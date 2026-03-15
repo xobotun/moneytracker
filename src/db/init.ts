@@ -24,3 +24,12 @@ export function getSettingsRepository(): SettingsRepository {
   if (!settingsRepository) throw new Error('Database not initialized. Call initDatabase() first.')
   return settingsRepository
 }
+
+/** Closes the database and resets module-level singletons. Useful for testing. */
+export async function closeDatabase(): Promise<void> {
+  if (database) {
+    await database.close()
+  }
+  database = null
+  settingsRepository = null
+}

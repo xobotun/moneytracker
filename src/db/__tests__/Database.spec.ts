@@ -44,6 +44,12 @@ describe('Database', () => {
     expect(rows[0]!.val).toBe('b')
   })
 
+  it('throws on double init()', async () => {
+    db = new Database()
+    await db.init()
+    await expect(db.init()).rejects.toThrow('already initialized')
+  })
+
   it('close() prevents further operations', async () => {
     db = new Database()
     await db.init()

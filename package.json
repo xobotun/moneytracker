@@ -14,7 +14,8 @@
     "lint": "run-s lint:*",
     "lint:oxlint": "oxlint . --fix --ignore-pattern node_modules --ignore-pattern dist",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "prettier --write --experimental-cli src/"
+    "format": "prettier --write --experimental-cli src/",
+    "postinstall": "cp node_modules/coi-serviceworker/coi-serviceworker.min.js public/coi-serviceworker.min.js"
   },
   "dependencies": {
     "@primevue/themes": "^4.5.4",
