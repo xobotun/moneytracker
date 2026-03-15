@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
-import { SettingsRepository, settingsKey } from '../SettingsRepository'
+import { SettingsRepository } from '../SettingsRepository'
+import { settingsKey } from '../../SettingsKey'
 
 const THEME = settingsKey<string>('theme')
 const FONT_SIZE = settingsKey<number>('fontSize')

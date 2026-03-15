@@ -5,23 +5,13 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import { usePreset } from '@primeuix/themes'
-import type { Preset } from '@primeuix/themes/types'
 import Aura from '@primevue/themes/aura'
-import Material from '@primevue/themes/material'
-import Lara from '@primevue/themes/lara'
-import Nora from '@primevue/themes/nora'
 
 import App from './App.vue'
 import router from './router'
 import { initDatabase } from './db/init'
-import { useLayoutStore, type ThemePreset } from './stores/layout'
-
-const themePresets: Record<ThemePreset, Preset> = {
-  Aura,
-  Material,
-  Lara,
-  Nora,
-}
+import { useLayoutStore } from './stores/layout'
+import { themePresets } from './stores/layout-types'
 
 async function bootstrap(): Promise<void> {
   await initDatabase()
