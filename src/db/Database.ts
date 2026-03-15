@@ -43,9 +43,11 @@ export class Database {
     this.sqlite3 = SQLite.Factory(module)
 
     if (options.useOPFS) {
+      // IDBBatchAtomicVFS persists to IndexedDB and works on the main thread.
+      // True OPFS (OriginPrivateFileSystemVFS) requires a Web Worker context.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { OriginPrivateFileSystemVFS } = await import('wa-sqlite/src/examples/OriginPrivateFileSystemVFS.js' as any)
-      const vfs = new OriginPrivateFileSystemVFS()
+      const { IDBBatchAtomicVFS } = await import('wa-sqlite/src/examples/IDBBatchAtomicVFS.js' as any)
+      const vfs = new IDBBatchAtomicVFS('moneytracker')
       this.sqlite3.vfs_register(vfs, true)
     }
 
