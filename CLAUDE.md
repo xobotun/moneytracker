@@ -21,13 +21,14 @@ Personal money tracker application. Must work as a standalone app on PCs and mob
 
 ### Data & State
 - **Pinia** for state management — used as a **write-through cache**. SQLite is the source of truth; Pinia stores call repositories to persist changes, then update reactive state.
-- **wa-sqlite + OPFS** for local SQLite database (offline storage, exportable).
+- **wa-sqlite + IDBBatchAtomicVFS** for local SQLite database (IndexedDB-backed, offline, exportable).
 - **Vue Router** for navigation.
 
 ### SQLite Conventions (TODO: refine as schema grows)
 - **Primary keys:** UUIDs (`TEXT`), generated client-side. Sync-friendly from day one.
 - **Timestamps:** Always stored as ISO 8601 UTC strings with `Z` suffix (e.g., `2026-03-15T14:30:00.000Z`). Column names must include `_utc` suffix to make the format explicit (e.g., `updated_at_utc`, `created_at_utc`).
 - **Migrations:** Ordered `.ts` files, tracked in a `migrations` table. Run on `Database.init()`.
+- **No concurrent DB operations.** The async wa-sqlite build (used for IDBBatchAtomicVFS persistence) relies on Asyncify, which cannot handle multiple in-flight operations on the same connection. Always `await` each query sequentially — never use `Promise.all` with multiple DB calls.
 
 ### Quality
 - **ESLint** + **Prettier** for linting/formatting.

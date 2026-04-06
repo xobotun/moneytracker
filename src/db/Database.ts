@@ -41,6 +41,8 @@ async function createSQLiteModule(async_: boolean): Promise<ReturnType<typeof SQ
 export class Database {
   private sqlite3: SQLiteAPI | null = null
   private db: number | null = null
+  /** Serializes all async operations — Asyncify cannot handle concurrent WASM calls. */
+  private mutex: Promise<void> = Promise.resolve()
 
   async init(options: DatabaseOptions = {}): Promise<void> {
     if (this.isOpen()) throw new Error('Database is already initialized')
@@ -65,6 +67,30 @@ export class Database {
   }
 
   async exec<T extends Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
+    return this.serialized(() => this.execUnsafe<T>(sql, params))
+  }
+
+  async run(sql: string, params?: unknown[]): Promise<RunResult> {
+    return this.serialized(() => this.runUnsafe(sql, params))
+  }
+
+  /**
+   * Queues `fn` behind any pending operation so that only one WASM call
+   * chain is active at a time. Errors are propagated to the caller without
+   * blocking subsequent operations.
+   */
+  private serialized<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutex.then(fn, fn)
+    // Keep the chain alive but swallow errors so a failed query doesn't
+    // block everything that follows.
+    this.mutex = next.then(() => {}, () => {})
+    return next
+  }
+
+  private async execUnsafe<T extends Record<string, unknown>>(
+    sql: string,
+    params?: unknown[],
+  ): Promise<T[]> {
     this.ensureOpen()
     const rows: T[] = []
     for await (const stmt of this.sqlite3!.statements(this.db!, sql)) {
@@ -81,7 +107,7 @@ export class Database {
     return rows
   }
 
-  async run(sql: string, params?: unknown[]): Promise<RunResult> {
+  private async runUnsafe(sql: string, params?: unknown[]): Promise<RunResult> {
     this.ensureOpen()
     for await (const stmt of this.sqlite3!.statements(this.db!, sql)) {
       if (params) {
