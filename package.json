@@ -14,13 +14,11 @@
     "lint": "run-s lint:*",
     "lint:oxlint": "oxlint . --fix --ignore-pattern node_modules --ignore-pattern dist",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "prettier --write --experimental-cli src/",
-    "postinstall": "cp node_modules/coi-serviceworker/coi-serviceworker.min.js public/coi-serviceworker.min.js"
+    "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
     "@primevue/themes": "^4.5.4",
     "@tailwindcss/vite": "^4.2.1",
-    "coi-serviceworker": "^0.1.7",
     "pinia": "^3.0.4",
     "primeicons": "^7.0.0",
     "primevue": "^4.5.4",
