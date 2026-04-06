@@ -1,5 +1,7 @@
 # Persistence Layer Implementation Plan
 
+Status: **COMPLETED** — Implemented with IDBBatchAtomicVFS instead of OPFS/OPFSCoopSyncVFS. All OPFS references in this document are outdated; the actual implementation uses IndexedDB-backed persistence via IDBBatchAtomicVFS and the async WASM build with a mutex for Asyncify safety (see commits dc38b6b, 0f0244f).
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Set up wa-sqlite with OPFS persistence and migrate the layout settings store to use SQLite as source of truth via a write-through Pinia cache.

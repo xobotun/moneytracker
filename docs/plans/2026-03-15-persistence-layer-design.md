@@ -1,6 +1,7 @@
 # Persistence Layer Design
 
 Date: 2026-03-15
+Status: **COMPLETED** — Implemented with IDBBatchAtomicVFS instead of OPFS. All OPFS references in this document are outdated; the actual implementation uses IndexedDB-backed persistence via IDBBatchAtomicVFS (see commit dc38b6b).
 
 ## Context
 
