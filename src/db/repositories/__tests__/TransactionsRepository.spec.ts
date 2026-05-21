@@ -272,7 +272,7 @@ describe('TransactionsRepository', () => {
 
     const transactions = await repo.list()
     expect(transactions.length).toBe(1)
-    expect(transactions[0].id).toBe(id1)
+    expect(transactions[0]!.id).toBe(id1)
   })
 
   it('listByAccountId returns transactions on either leg, excludes soft-deleted', async () => {

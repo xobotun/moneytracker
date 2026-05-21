@@ -3,7 +3,7 @@ import type { AccountGrouping } from '../types'
 import { newId } from '../uuid'
 import { jsonArrayToColumn, jsonArrayFromColumn } from '../columnMappers'
 
-interface AccountGroupingRow {
+type AccountGroupingRow = {
   id: string
   name: string
   colour: string

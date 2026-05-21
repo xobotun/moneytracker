@@ -3,7 +3,7 @@ import type { Account } from '../types'
 import { moneyFromRow, moneyToColumns, jsonArrayToColumn, jsonArrayFromColumn } from '../columnMappers'
 import { newId } from '../uuid'
 
-interface AccountRow {
+type AccountRow = {
   id: string
   name: string
   currency: string

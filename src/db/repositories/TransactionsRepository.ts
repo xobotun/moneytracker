@@ -10,7 +10,7 @@ import {
 } from '../columnMappers'
 import { newId } from '../uuid'
 
-interface TransactionRow {
+type TransactionRow = {
   id: string
   account_id__from: string | null
   account_id__to: string | null
@@ -60,7 +60,7 @@ function rowToTransaction(row: TransactionRow): Transaction {
     transaction_at: localMomentFromRow('transaction_at', {
       transaction_at_local: row.transaction_at_local,
       transaction_at_zone: row.transaction_at_zone,
-    }),
+    })!,
     date_override: localMomentFromRow('date_override', {
       date_override_local: row.date_override_local,
       date_override_zone: row.date_override_zone,

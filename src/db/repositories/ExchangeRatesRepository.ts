@@ -3,7 +3,7 @@ import type { ExchangeRate } from '../types'
 import { jsonObjectFromColumn, jsonObjectToColumn } from '../columnMappers'
 import { newId } from '../uuid'
 
-interface ExchangeRateRow {
+type ExchangeRateRow = {
   id: string
   date: string
   base_currency: string

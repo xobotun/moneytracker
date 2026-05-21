@@ -2,7 +2,7 @@ import type { Database } from '../Database'
 import type { Location } from '../types'
 import { newId } from '../uuid'
 
-interface LocationRow {
+type LocationRow = {
   id: string
   name: string
   description: string | null

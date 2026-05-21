@@ -1,7 +1,7 @@
 import type { Database } from '../Database'
 import type { Tag } from '../types'
 
-interface TagRow {
+type TagRow = {
   tag: string
   description: string | null
   synonyms: string

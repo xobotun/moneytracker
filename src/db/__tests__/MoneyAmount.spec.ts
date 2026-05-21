@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { MoneyAmount, moneyAmount, zeroMoney } from '../MoneyAmount'
+import type { MoneyAmount } from '../MoneyAmount'
+import { moneyAmount, zeroMoney } from '../MoneyAmount'
 
 describe('MoneyAmount', () => {
   it('factory returns a frozen object with the three fields', () => {
