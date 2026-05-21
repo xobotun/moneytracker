@@ -60,6 +60,7 @@ export class Database {
 
     const filePath = options.filePath ?? ':memory:'
     this.db = await this.sqlite3.open_v2(filePath)
+    await this.run('PRAGMA foreign_keys = ON')
   }
 
   isOpen(): boolean {

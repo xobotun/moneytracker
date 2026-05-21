@@ -56,4 +56,21 @@ describe('Database', () => {
     await db.close()
     await expect(db.exec('SELECT 1')).rejects.toThrow()
   })
+
+  it('has foreign_keys pragma enabled', async () => {
+    db = new Database()
+    await db.init()
+    const rows = await db.exec<{ foreign_keys: number }>('PRAGMA foreign_keys')
+    expect(rows[0]!.foreign_keys).toBe(1)
+  })
+
+  it('enforces foreign key constraints', async () => {
+    db = new Database()
+    await db.init()
+    await db.run('CREATE TABLE parent (id TEXT PRIMARY KEY)')
+    await db.run('CREATE TABLE child (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parent(id))')
+    await expect(
+      db.run('INSERT INTO child (id, parent_id) VALUES (?, ?)', ['c1', 'missing'])
+    ).rejects.toThrow()
+  })
 })
