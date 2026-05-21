@@ -1,7 +1,17 @@
 import type { Database } from '../Database'
 import type { Account } from '../types'
-import { moneyFromRow, moneyToColumns, jsonArrayToColumn, jsonArrayFromColumn } from '../columnMappers'
-import { newId } from '../uuid'
+import {
+  instantFromColumn,
+  instantFromNullableColumn,
+  instantToColumn,
+  jsonArrayFromColumn,
+  jsonArrayToColumn,
+  moneyFromRow,
+  moneyToColumns,
+  uuidFromColumn,
+  uuidFromNullableColumn,
+} from '../columnMappers'
+import { newId, type UUID } from '../uuid'
 
 type AccountRow = {
   id: string
@@ -24,7 +34,7 @@ type AccountUpdateInput = Partial<Omit<Account, 'id' | 'created_at_utc' | 'updat
 
 function rowToAccount(row: AccountRow): Account {
   return {
-    id: row.id,
+    id: uuidFromColumn(row.id),
     name: row.name,
     balance: moneyFromRow('balance', {
       balance_value: row.balance_value,
@@ -32,12 +42,12 @@ function rowToAccount(row: AccountRow): Account {
       balance_currency: row.currency,
     }),
     tags: jsonArrayFromColumn<string>(row.tags),
-    location_id: row.location_id,
+    location_id: uuidFromNullableColumn(row.location_id),
     colour: row.colour,
     icon: row.icon,
-    created_at_utc: row.created_at_utc,
-    updated_at_utc: row.updated_at_utc,
-    deleted_at_utc: row.deleted_at_utc,
+    created_at_utc: instantFromColumn(row.created_at_utc),
+    updated_at_utc: instantFromColumn(row.updated_at_utc),
+    deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
 }
 
@@ -46,7 +56,7 @@ export class AccountsRepository {
 
   async create(input: AccountCreateInput): Promise<Account> {
     const id = newId()
-    const now = new Date().toISOString()
+    const now = instantToColumn(new Date())
     const moneyColumns = moneyToColumns('balance', input.balance)
     const tagsJson = jsonArrayToColumn(input.tags)
 
@@ -71,7 +81,7 @@ export class AccountsRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: string): Promise<Account | null> {
+  async findById(id: UUID): Promise<Account | null> {
     const rows = await this.db.exec<AccountRow>(
       'SELECT * FROM accounts WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -86,7 +96,7 @@ export class AccountsRepository {
     return rows.map(rowToAccount)
   }
 
-  async update(id: string, patch: AccountUpdateInput): Promise<void> {
+  async update(id: UUID, patch: AccountUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
 
@@ -123,7 +133,7 @@ export class AccountsRepository {
     if (sets.length === 0) return
 
     sets.push('updated_at_utc = ?')
-    params.push(new Date().toISOString())
+    params.push(instantToColumn(new Date()))
     params.push(id)
 
     await this.db.run(
@@ -132,8 +142,8 @@ export class AccountsRepository {
     )
   }
 
-  async softDelete(id: string): Promise<void> {
-    const now = new Date().toISOString()
+  async softDelete(id: UUID): Promise<void> {
+    const now = instantToColumn(new Date())
     await this.db.run(
       'UPDATE accounts SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
       [now, now, id],

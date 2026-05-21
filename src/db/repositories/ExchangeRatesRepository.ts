@@ -1,7 +1,14 @@
 import type { Database } from '../Database'
 import type { ExchangeRate } from '../types'
-import { jsonObjectFromColumn, jsonObjectToColumn } from '../columnMappers'
-import { newId } from '../uuid'
+import {
+  instantFromColumn,
+  instantFromNullableColumn,
+  instantToColumn,
+  jsonObjectFromColumn,
+  jsonObjectToColumn,
+  uuidFromColumn,
+} from '../columnMappers'
+import { newId, type UUID } from '../uuid'
 
 type ExchangeRateRow = {
   id: string
@@ -20,14 +27,14 @@ type ExchangeRateUpdateInput = Partial<Pick<ExchangeRate, 'rates' | 'provider'>>
 
 function rowToExchangeRate(row: ExchangeRateRow): ExchangeRate {
   return {
-    id: row.id,
+    id: uuidFromColumn(row.id),
     date: row.date,
     base_currency: row.base_currency,
-    rates: jsonObjectFromColumn(row.rates),
+    rates: jsonObjectFromColumn<number>(row.rates),
     provider: row.provider,
-    created_at_utc: row.created_at_utc,
-    updated_at_utc: row.updated_at_utc,
-    deleted_at_utc: row.deleted_at_utc,
+    created_at_utc: instantFromColumn(row.created_at_utc),
+    updated_at_utc: instantFromColumn(row.updated_at_utc),
+    deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
 }
 
@@ -36,7 +43,7 @@ export class ExchangeRatesRepository {
 
   async create(input: ExchangeRateCreateInput): Promise<ExchangeRate> {
     const id = newId()
-    const now = new Date().toISOString()
+    const now = instantToColumn(new Date())
     await this.db.run(
       `INSERT INTO exchange_rates (id, date, base_currency, rates, provider, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -53,7 +60,7 @@ export class ExchangeRatesRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: string): Promise<ExchangeRate | null> {
+  async findById(id: UUID): Promise<ExchangeRate | null> {
     const rows = await this.db.exec<ExchangeRateRow>(
       'SELECT * FROM exchange_rates WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -76,7 +83,7 @@ export class ExchangeRatesRepository {
     return rows.map(rowToExchangeRate)
   }
 
-  async update(id: string, patch: ExchangeRateUpdateInput): Promise<void> {
+  async update(id: UUID, patch: ExchangeRateUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
     if (patch.rates !== undefined) {
@@ -89,13 +96,13 @@ export class ExchangeRatesRepository {
     }
     if (sets.length === 0) return
     sets.push('updated_at_utc = ?')
-    params.push(new Date().toISOString())
+    params.push(instantToColumn(new Date()))
     params.push(id)
     await this.db.run(`UPDATE exchange_rates SET ${sets.join(', ')} WHERE id = ?`, params)
   }
 
-  async softDelete(id: string): Promise<void> {
-    const now = new Date().toISOString()
+  async softDelete(id: UUID): Promise<void> {
+    const now = instantToColumn(new Date())
     await this.db.run(
       'UPDATE exchange_rates SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
       [now, now, id],

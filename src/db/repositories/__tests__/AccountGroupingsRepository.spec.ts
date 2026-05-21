@@ -4,6 +4,7 @@ import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
 import { AccountGroupingsRepository } from '../AccountGroupingsRepository'
+import { asUuid } from '../../uuid'
 
 describe('AccountGroupingsRepository', () => {
   let db: Database
@@ -39,7 +40,7 @@ describe('AccountGroupingsRepository', () => {
   })
 
   it('returns null for a missing account grouping', async () => {
-    expect(await repo.findById('nonexistent')).toBeNull()
+    expect(await repo.findById(asUuid('nonexistent'))).toBeNull()
   })
 
   it('round-trips accounts_ids with 0 entries', async () => {
@@ -54,7 +55,7 @@ describe('AccountGroupingsRepository', () => {
   })
 
   it('round-trips accounts_ids with 1 entry', async () => {
-    const accountId = 'account-uuid-1'
+    const accountId = asUuid('account-uuid-1')
     const grouping = await repo.create({
       name: 'Single Account',
       colour: '#111111',
@@ -66,7 +67,7 @@ describe('AccountGroupingsRepository', () => {
   })
 
   it('round-trips accounts_ids with many entries', async () => {
-    const accountIds = ['uuid-1', 'uuid-2', 'uuid-3']
+    const accountIds = ['uuid-1', 'uuid-2', 'uuid-3'].map(asUuid)
     const grouping = await repo.create({
       name: 'Multi Account',
       colour: '#222222',
@@ -116,14 +117,14 @@ describe('AccountGroupingsRepository', () => {
       name: 'Test',
       colour: '#EEEEEE',
       icon: 'test',
-      accounts_ids: ['id-1', 'id-2'],
+      accounts_ids: [asUuid('id-1'), asUuid('id-2')],
     })
     await repo.update(grouping.id, { name: 'Changed' })
     const after = await repo.findById(grouping.id)
     expect(after?.name).toBe('Changed')
     expect(after?.colour).toBe('#EEEEEE')
     expect(after?.icon).toBe('test')
-    expect(after?.accounts_ids).toEqual(['id-1', 'id-2'])
+    expect(after?.accounts_ids).toEqual([asUuid('id-1'), asUuid('id-2')])
   })
 
   it('updates accounts_ids', async () => {
@@ -131,11 +132,11 @@ describe('AccountGroupingsRepository', () => {
       name: 'IDs Test',
       colour: '#FFFFFF',
       icon: 'ids',
-      accounts_ids: ['old-id'],
+      accounts_ids: [asUuid('old-id')],
     })
-    await repo.update(grouping.id, { accounts_ids: ['new-id-1', 'new-id-2'] })
+    await repo.update(grouping.id, { accounts_ids: [asUuid('new-id-1'), asUuid('new-id-2')] })
     const after = await repo.findById(grouping.id)
-    expect(after?.accounts_ids).toEqual(['new-id-1', 'new-id-2'])
+    expect(after?.accounts_ids).toEqual([asUuid('new-id-1'), asUuid('new-id-2')])
   })
 
   it('soft-deletes an account grouping', async () => {

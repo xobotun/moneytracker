@@ -1,5 +1,6 @@
 import { type MoneyAmount, moneyAmount } from './MoneyAmount'
 import { type LocalMoment, localMoment } from './LocalMoment'
+import { type UUID, asUuid } from './uuid'
 
 // ---------- MoneyAmount ↔ three columns ----------
 
@@ -70,6 +71,42 @@ export function jsonObjectFromColumn<V>(text: string): Record<string, V> {
     throw new Error('Expected JSON object')
   }
   return parsed as Record<string, V>
+}
+
+// ---------- Date (Instant) ↔ ISO 8601 UTC TEXT column ----------
+//
+// SQLite stores `_utc` timestamps as ISO 8601 TEXT (e.g. '2026-03-15T14:30:00.000Z').
+// Domain entities expose them as `Date` (the JS equivalent of java.time.Instant).
+// Use these helpers at the repository boundary.
+
+export function instantToColumn(d: Date): string {
+  return d.toISOString()
+}
+
+export function instantToNullableColumn(d: Date | null): string | null {
+  return d === null ? null : d.toISOString()
+}
+
+export function instantFromColumn(text: string): Date {
+  return new Date(text)
+}
+
+export function instantFromNullableColumn(text: string | null): Date | null {
+  return text === null ? null : new Date(text)
+}
+
+// ---------- UUID ↔ TEXT column ----------
+//
+// SQLite stores UUIDv7 ids as plain TEXT. Domain entities expose them as the
+// branded `UUID` type so that raw strings cannot be mistakenly passed where a
+// UUID is expected. The runtime representation is unchanged.
+
+export function uuidFromColumn(text: string): UUID {
+  return asUuid(text)
+}
+
+export function uuidFromNullableColumn(text: string | null): UUID | null {
+  return text === null ? null : asUuid(text)
 }
 
 // ---------- helpers ----------

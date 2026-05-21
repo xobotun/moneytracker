@@ -4,6 +4,7 @@ import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
 import { LocationsRepository } from '../LocationsRepository'
+import { asUuid } from '../../uuid'
 
 describe('LocationsRepository', () => {
   let db: Database
@@ -41,7 +42,7 @@ describe('LocationsRepository', () => {
   })
 
   it('returns null for a missing location id', async () => {
-    expect(await repo.findById('nonexistent')).toBeNull()
+    expect(await repo.findById(asUuid('nonexistent'))).toBeNull()
   })
 
   it('returns the location for a present id', async () => {

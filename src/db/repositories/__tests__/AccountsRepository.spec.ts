@@ -5,6 +5,7 @@ import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
 import { AccountsRepository } from '../AccountsRepository'
 import { moneyAmount } from '../../MoneyAmount'
+import { asUuid } from '../../uuid'
 
 describe('AccountsRepository', () => {
   let db: Database
@@ -42,7 +43,7 @@ describe('AccountsRepository', () => {
   })
 
   it('returns null for a missing account', async () => {
-    expect(await repo.findById('nonexistent')).toBeNull()
+    expect(await repo.findById(asUuid('nonexistent'))).toBeNull()
   })
 
   it('round-trips balance MoneyAmount with scale=2', async () => {
@@ -180,7 +181,7 @@ describe('AccountsRepository', () => {
         name: 'Bad Location',
         balance: moneyAmount(1000, 2, 'USD'),
         tags: [],
-        location_id: 'nonexistent-location-id',
+        location_id: asUuid('nonexistent-location-id'),
         colour: '#000',
         icon: 'bank',
       }),

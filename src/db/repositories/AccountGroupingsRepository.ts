@@ -1,7 +1,14 @@
 import type { Database } from '../Database'
 import type { AccountGrouping } from '../types'
-import { newId } from '../uuid'
-import { jsonArrayToColumn, jsonArrayFromColumn } from '../columnMappers'
+import { newId, type UUID } from '../uuid'
+import {
+  instantFromColumn,
+  instantFromNullableColumn,
+  instantToColumn,
+  jsonArrayFromColumn,
+  jsonArrayToColumn,
+  uuidFromColumn,
+} from '../columnMappers'
 
 type AccountGroupingRow = {
   id: string
@@ -22,14 +29,14 @@ type AccountGroupingUpdateInput = Partial<
 
 function rowToAccountGrouping(row: AccountGroupingRow): AccountGrouping {
   return {
-    id: row.id,
+    id: uuidFromColumn(row.id),
     name: row.name,
     colour: row.colour,
     icon: row.icon,
-    accounts_ids: jsonArrayFromColumn<string>(row.accounts_ids),
-    created_at_utc: row.created_at_utc,
-    updated_at_utc: row.updated_at_utc,
-    deleted_at_utc: row.deleted_at_utc,
+    accounts_ids: jsonArrayFromColumn<UUID>(row.accounts_ids),
+    created_at_utc: instantFromColumn(row.created_at_utc),
+    updated_at_utc: instantFromColumn(row.updated_at_utc),
+    deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
 }
 
@@ -38,7 +45,7 @@ export class AccountGroupingsRepository {
 
   async create(input: AccountGroupingCreateInput): Promise<AccountGrouping> {
     const id = newId()
-    const now = new Date().toISOString()
+    const now = instantToColumn(new Date())
     await this.db.run(
       `INSERT INTO account_groupings (id, name, colour, icon, accounts_ids, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -55,7 +62,7 @@ export class AccountGroupingsRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: string): Promise<AccountGrouping | null> {
+  async findById(id: UUID): Promise<AccountGrouping | null> {
     const rows = await this.db.exec<AccountGroupingRow>(
       'SELECT * FROM account_groupings WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -70,7 +77,7 @@ export class AccountGroupingsRepository {
     return rows.map(rowToAccountGrouping)
   }
 
-  async update(id: string, patch: AccountGroupingUpdateInput): Promise<void> {
+  async update(id: UUID, patch: AccountGroupingUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
 
@@ -82,14 +89,14 @@ export class AccountGroupingsRepository {
     if (sets.length === 0) return
 
     sets.push('updated_at_utc = ?')
-    params.push(new Date().toISOString())
+    params.push(instantToColumn(new Date()))
     params.push(id)
 
     await this.db.run(`UPDATE account_groupings SET ${sets.join(', ')} WHERE id = ?`, params)
   }
 
-  async softDelete(id: string): Promise<void> {
-    const now = new Date().toISOString()
+  async softDelete(id: UUID): Promise<void> {
+    const now = instantToColumn(new Date())
     await this.db.run(
       'UPDATE account_groupings SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
       [now, now, id],

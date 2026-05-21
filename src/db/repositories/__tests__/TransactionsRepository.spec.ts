@@ -4,16 +4,16 @@ import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainSchemaMigration } from '../../migrations/002_domain_schema'
 import { TransactionsRepository } from '../TransactionsRepository'
-import { newId } from '../../uuid'
+import { newId, asUuid, type UUID } from '../../uuid'
 import { moneyAmount } from '../../MoneyAmount'
 import { localMoment } from '../../LocalMoment'
 
 describe('TransactionsRepository', () => {
   let db: Database
   let repo: TransactionsRepository
-  let accountId1: string
-  let accountId2: string
-  let locationId: string
+  let accountId1: UUID
+  let accountId2: UUID
+  let locationId: UUID
 
   beforeEach(async () => {
     db = new Database()
@@ -52,8 +52,8 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves a normal transfer (both account_id__* set)', async () => {
     const input = {
-      account_id__from: accountId1,
-      account_id__to: accountId2,
+      account_id__from: asUuid(accountId1),
+      account_id__to: asUuid(accountId2),
       amount__from: moneyAmount(10000, 2, 'USD'),
       amount__to: moneyAmount(9500, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -85,7 +85,7 @@ describe('TransactionsRepository', () => {
   it('creates and retrieves income from Global Economy (account_id__from IS NULL)', async () => {
     const input = {
       account_id__from: null,
-      account_id__to: accountId1,
+      account_id__to: asUuid(accountId1),
       amount__from: moneyAmount(5000, 2, 'USD'),
       amount__to: moneyAmount(5000, 2, 'USD'),
       transaction_at: localMoment('2026-03-15T10:00:00.000+00:00', 'UTC'),
@@ -107,7 +107,7 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves spend into Global Economy (account_id__to IS NULL)', async () => {
     const input = {
-      account_id__from: accountId1,
+      account_id__from: asUuid(accountId1),
       account_id__to: null,
       amount__from: moneyAmount(2000, 2, 'USD'),
       amount__to: moneyAmount(2000, 2, 'USD'),
@@ -131,8 +131,8 @@ describe('TransactionsRepository', () => {
   it('creates and retrieves a transaction with date_override set', async () => {
     const dateOverride = localMoment('2026-02-28T23:59:59.999+00:00', 'UTC')
     const input = {
-      account_id__from: accountId1,
-      account_id__to: accountId2,
+      account_id__from: asUuid(accountId1),
+      account_id__to: asUuid(accountId2),
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(950, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -153,8 +153,8 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves a transaction with location_lat/location_lon only', async () => {
     const input = {
-      account_id__from: accountId1,
-      account_id__to: accountId2,
+      account_id__from: asUuid(accountId1),
+      account_id__to: asUuid(accountId2),
       amount__from: moneyAmount(500, 2, 'USD'),
       amount__to: moneyAmount(475, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -179,8 +179,8 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves a transaction with location_id set', async () => {
     const input = {
-      account_id__from: accountId1,
-      account_id__to: accountId2,
+      account_id__from: asUuid(accountId1),
+      account_id__to: asUuid(accountId2),
       amount__from: moneyAmount(800, 2, 'USD'),
       amount__to: moneyAmount(760, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -188,7 +188,7 @@ describe('TransactionsRepository', () => {
       tags: [],
       location_lat: null,
       location_lon: null,
-      location_id: locationId,
+      location_id: asUuid(locationId),
     }
 
     const created = await repo.create(input)
@@ -201,7 +201,7 @@ describe('TransactionsRepository', () => {
 
   it('throws on FK violation: bad account_id__from', async () => {
     const input = {
-      account_id__from: 'nonexistent-account-id',
+      account_id__from: asUuid('nonexistent-account-id'),
       account_id__to: accountId1,
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(1000, 2, 'USD'),
@@ -227,7 +227,7 @@ describe('TransactionsRepository', () => {
       tags: [],
       location_lat: null,
       location_lon: null,
-      location_id: 'nonexistent-location-id',
+      location_id: asUuid('nonexistent-location-id'),
     }
 
     await expect(repo.create(input)).rejects.toThrow()
@@ -332,7 +332,7 @@ describe('TransactionsRepository', () => {
       ],
     )
 
-    const transactions = await repo.listByAccountId(accountId1)
+    const transactions = await repo.listByAccountId(asUuid(accountId1))
     expect(transactions.length).toBe(2)
     expect(transactions.map(t => t.id)).toContain(id1)
     expect(transactions.map(t => t.id)).toContain(id2)
@@ -341,8 +341,8 @@ describe('TransactionsRepository', () => {
 
   it('findById returns null for soft-deleted transaction', async () => {
     const input = {
-      account_id__from: accountId1,
-      account_id__to: accountId2,
+      account_id__from: asUuid(accountId1),
+      account_id__to: asUuid(accountId2),
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(950, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -362,8 +362,8 @@ describe('TransactionsRepository', () => {
 
   it('updates a transaction', async () => {
     const input = {
-      account_id__from: accountId1,
-      account_id__to: accountId2,
+      account_id__from: asUuid(accountId1),
+      account_id__to: asUuid(accountId2),
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(950, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),

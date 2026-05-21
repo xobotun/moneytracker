@@ -1,14 +1,19 @@
 import type { Database } from '../Database'
 import type { Transaction } from '../types'
 import {
-  moneyFromRow,
-  moneyToColumns,
+  instantFromColumn,
+  instantFromNullableColumn,
+  instantToColumn,
+  jsonArrayFromColumn,
+  jsonArrayToColumn,
   localMomentFromRow,
   localMomentToColumns,
-  jsonArrayToColumn,
-  jsonArrayFromColumn,
+  moneyFromRow,
+  moneyToColumns,
+  uuidFromColumn,
+  uuidFromNullableColumn,
 } from '../columnMappers'
-import { newId } from '../uuid'
+import { newId, type UUID } from '../uuid'
 
 type TransactionRow = {
   id: string
@@ -44,9 +49,9 @@ type TransactionUpdateInput = Partial<
 
 function rowToTransaction(row: TransactionRow): Transaction {
   return {
-    id: row.id,
-    account_id__from: row.account_id__from,
-    account_id__to: row.account_id__to,
+    id: uuidFromColumn(row.id),
+    account_id__from: uuidFromNullableColumn(row.account_id__from),
+    account_id__to: uuidFromNullableColumn(row.account_id__to),
     amount__from: moneyFromRow('amount__from', {
       amount_value__from: row.amount_value__from,
       amount_scale__from: row.amount_scale__from,
@@ -68,10 +73,10 @@ function rowToTransaction(row: TransactionRow): Transaction {
     tags: jsonArrayFromColumn<string>(row.tags),
     location_lat: row.location_lat,
     location_lon: row.location_lon,
-    location_id: row.location_id,
-    created_at_utc: row.created_at_utc,
-    updated_at_utc: row.updated_at_utc,
-    deleted_at_utc: row.deleted_at_utc,
+    location_id: uuidFromNullableColumn(row.location_id),
+    created_at_utc: instantFromColumn(row.created_at_utc),
+    updated_at_utc: instantFromColumn(row.updated_at_utc),
+    deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
 }
 
@@ -80,7 +85,7 @@ export class TransactionsRepository {
 
   async create(input: TransactionCreateInput): Promise<Transaction> {
     const id = newId()
-    const now = new Date().toISOString()
+    const now = instantToColumn(new Date())
 
     const amountFromColumns = moneyToColumns('amount__from', input.amount__from)
     const amountToColumns = moneyToColumns('amount__to', input.amount__to)
@@ -126,7 +131,7 @@ export class TransactionsRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: string): Promise<Transaction | null> {
+  async findById(id: UUID): Promise<Transaction | null> {
     const rows = await this.db.exec<TransactionRow>(
       'SELECT * FROM transactions WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -141,7 +146,7 @@ export class TransactionsRepository {
     return rows.map(rowToTransaction)
   }
 
-  async listByAccountId(accountId: string): Promise<Transaction[]> {
+  async listByAccountId(accountId: UUID): Promise<Transaction[]> {
     const rows = await this.db.exec<TransactionRow>(
       `SELECT * FROM transactions
        WHERE deleted_at_utc IS NULL
@@ -152,7 +157,7 @@ export class TransactionsRepository {
     return rows.map(rowToTransaction)
   }
 
-  async update(id: string, patch: TransactionUpdateInput): Promise<void> {
+  async update(id: UUID, patch: TransactionUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
 
@@ -225,7 +230,7 @@ export class TransactionsRepository {
     if (sets.length === 0) return
 
     sets.push('updated_at_utc = ?')
-    params.push(new Date().toISOString())
+    params.push(instantToColumn(new Date()))
     params.push(id)
 
     await this.db.run(
@@ -234,8 +239,8 @@ export class TransactionsRepository {
     )
   }
 
-  async softDelete(id: string): Promise<void> {
-    const now = new Date().toISOString()
+  async softDelete(id: UUID): Promise<void> {
+    const now = instantToColumn(new Date())
     await this.db.run(
       'UPDATE transactions SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
       [now, now, id],

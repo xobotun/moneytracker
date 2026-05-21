@@ -1,6 +1,14 @@
 import type { Database } from '../Database'
 import type { Location } from '../types'
-import { newId } from '../uuid'
+import { newId, type UUID } from '../uuid'
+import {
+  instantFromColumn,
+  instantFromNullableColumn,
+  instantToColumn,
+  jsonArrayFromColumn,
+  jsonArrayToColumn,
+  uuidFromColumn,
+} from '../columnMappers'
 
 type LocationRow = {
   id: string
@@ -25,7 +33,7 @@ type LocationUpdateInput = Partial<
 
 function rowToLocation(row: LocationRow): Location {
   return {
-    id: row.id,
+    id: uuidFromColumn(row.id),
     name: row.name,
     description: row.description,
     address: row.address,
@@ -33,10 +41,10 @@ function rowToLocation(row: LocationRow): Location {
     country: row.country,
     latitude: row.latitude,
     longitude: row.longitude,
-    tags: JSON.parse(row.tags) as string[],
-    created_at_utc: row.created_at_utc,
-    updated_at_utc: row.updated_at_utc,
-    deleted_at_utc: row.deleted_at_utc,
+    tags: jsonArrayFromColumn<string>(row.tags),
+    created_at_utc: instantFromColumn(row.created_at_utc),
+    updated_at_utc: instantFromColumn(row.updated_at_utc),
+    deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
 }
 
@@ -45,7 +53,7 @@ export class LocationsRepository {
 
   async create(input: LocationCreateInput): Promise<Location> {
     const id = newId()
-    const now = new Date().toISOString()
+    const now = instantToColumn(new Date())
     await this.db.run(
       `INSERT INTO locations (id, name, description, address, city, country, latitude, longitude, tags, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -58,7 +66,7 @@ export class LocationsRepository {
         input.country ?? null,
         input.latitude ?? null,
         input.longitude ?? null,
-        JSON.stringify(input.tags),
+        jsonArrayToColumn(input.tags),
         now,
         now,
       ],
@@ -66,7 +74,7 @@ export class LocationsRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: string): Promise<Location | null> {
+  async findById(id: UUID): Promise<Location | null> {
     const rows = await this.db.exec<LocationRow>(
       'SELECT * FROM locations WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -81,7 +89,7 @@ export class LocationsRepository {
     return rows.map(rowToLocation)
   }
 
-  async update(id: string, patch: LocationUpdateInput): Promise<void> {
+  async update(id: UUID, patch: LocationUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
 
@@ -92,19 +100,19 @@ export class LocationsRepository {
     if (patch.country !== undefined) { sets.push('country = ?'); params.push(patch.country) }
     if (patch.latitude !== undefined) { sets.push('latitude = ?'); params.push(patch.latitude) }
     if (patch.longitude !== undefined) { sets.push('longitude = ?'); params.push(patch.longitude) }
-    if (patch.tags !== undefined) { sets.push('tags = ?'); params.push(JSON.stringify(patch.tags)) }
+    if (patch.tags !== undefined) { sets.push('tags = ?'); params.push(jsonArrayToColumn(patch.tags)) }
 
     if (sets.length === 0) return
 
     sets.push('updated_at_utc = ?')
-    params.push(new Date().toISOString())
+    params.push(instantToColumn(new Date()))
     params.push(id)
 
     await this.db.run(`UPDATE locations SET ${sets.join(', ')} WHERE id = ?`, params)
   }
 
-  async softDelete(id: string): Promise<void> {
-    const now = new Date().toISOString()
+  async softDelete(id: UUID): Promise<void> {
+    const now = instantToColumn(new Date())
     await this.db.run(
       'UPDATE locations SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
       [now, now, id],
