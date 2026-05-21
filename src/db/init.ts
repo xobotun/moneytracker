@@ -1,9 +1,10 @@
 import { Database } from './Database'
 import { runMigrations } from './migrations'
 import { migration as settingsMigration } from './migrations/001_settings'
+import { migration as domainMigration } from './migrations/002_domain_schema'
 import { SettingsRepository } from './repositories/SettingsRepository'
 
-const allMigrations = [settingsMigration]
+const allMigrations = [settingsMigration, domainMigration]
 
 let database: Database | null = null
 let settingsRepository: SettingsRepository | null = null
