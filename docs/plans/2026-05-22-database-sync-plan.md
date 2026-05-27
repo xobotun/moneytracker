@@ -1695,6 +1695,17 @@ describe('runSync', () => {
     const provider = new FakeSyncProvider()
     const d = deps(provider)
     const remoteDb = await newMigratedDb()
+    // Seed a row so the remote hash differs from the local hash. The fake codec
+    // only serializes domain rows (not the `migrations` table), so two empty
+    // DBs at different schema versions would hash equal and decideSync would
+    // short-circuit to 'none', never reaching the schema gate. The real codec
+    // (full .sqlite blob) doesn't have this aliasing.
+    await seedLocation(remoteDb, {
+      id: 'loc-future',
+      name: 'From newer schema',
+      created: '2026-05-21T00:00:00.000Z',
+      updated: '2026-05-21T00:00:00.000Z',
+    })
     const remoteBlob = await d.codec.export(remoteDb)
     await remoteDb.close()
     provider.forceState(
