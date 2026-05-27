@@ -17,6 +17,10 @@
 
 This plan produces a complete, fully-tested sync core. The follow-up plan only supplies the two real adapters and the Vue UI; it changes no logic written here.
 
+**Assumptions accepted on purpose (don't try to harden these):**
+- **Schema gate runs only on the `merge` branch.** A device cannot end up with a *newer* remote schema than its own local schema unless someone manually downgrades the PWA (browsers auto-update PWAs), so `upload-local` and `first-sync-upload` skip the gate. If a user does manage this — they have bigger problems than sync.
+- **First-sync upload doesn't check the CAS return value.** Two devices creating an account *at the same moment* and racing for first upload is treated as a one-time bring-up concern handled by humans (don't log in on the second device until the first one has synced once). With a single household of devices, this is fine.
+
 ---
 
 ## File Structure
@@ -378,6 +382,12 @@ export interface SyncTable {
  * The `settings` and `migrations` tables are intentionally absent: settings are
  * device-local-ish and ride along inside the uploaded blob without row merge;
  * migrations are reconciled by the schema gate, not by row merge.
+ *
+ * NOTE: `account_groupings` is currently covered only by the SYNC_TABLES
+ * presence assertion below. It has no FK to other tables and behaves like any
+ * other top-tier domain table, so the generic mergeTable tests are
+ * representative — but a dedicated test using its `accounts_ids` JSON column
+ * is worth adding once the table has real seed helpers.
  */
 export const SYNC_TABLES: readonly SyncTable[] = [
   { name: 'locations', pk: 'id' },
@@ -449,6 +459,20 @@ describe('row helpers', () => {
   it('rowsEqual compares all columns', () => {
     expect(rowsEqual({ id: 'a', name: 'X' }, { id: 'a', name: 'X' })).toBe(true)
     expect(rowsEqual({ id: 'a', name: 'X' }, { id: 'a', name: 'Y' })).toBe(false)
+  })
+
+  it('rowsEqual compares Uint8Array (BLOB) values byte-by-byte', () => {
+    // wa-sqlite returns BLOB columns as Uint8Array, so strict equality would
+    // always declare two equal-content blobs different.
+    expect(
+      rowsEqual({ id: 'a', b: new Uint8Array([1, 2, 3]) }, { id: 'a', b: new Uint8Array([1, 2, 3]) }),
+    ).toBe(true)
+    expect(
+      rowsEqual({ id: 'a', b: new Uint8Array([1, 2, 3]) }, { id: 'a', b: new Uint8Array([1, 2, 4]) }),
+    ).toBe(false)
+    expect(
+      rowsEqual({ id: 'a', b: new Uint8Array([1, 2]) }, { id: 'a', b: new Uint8Array([1, 2, 3]) }),
+    ).toBe(false)
   })
 
   it('isDeleted reflects deleted_at_utc', () => {
@@ -528,11 +552,30 @@ export async function readRows(db: Database, table: string): Promise<SyncRow[]> 
   return db.exec<SyncRow>(`SELECT * FROM ${table}`)
 }
 
+/**
+ * Strict equality, with byte-by-byte comparison for Uint8Array (BLOB) values.
+ * SQLite has five storage classes (NULL, INTEGER, REAL, TEXT, BLOB) and
+ * wa-sqlite maps the first four to JS primitives — strict `===` works for
+ * them. BLOBs come back as Uint8Array, where every read creates a fresh
+ * instance, so `===` would always be false; compare bytes instead.
+ */
+function valueEquals(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a instanceof Uint8Array && b instanceof Uint8Array) {
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false
+    }
+    return true
+  }
+  return false
+}
+
 /** True when two rows have identical values for every column. */
 export function rowsEqual(a: SyncRow, b: SyncRow): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)])
   for (const key of keys) {
-    if (a[key] !== b[key]) return false
+    if (!valueEquals(a[key], b[key])) return false
   }
   return true
 }
@@ -587,7 +630,7 @@ export async function upsertRow(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/sync/__tests__/rows.spec.ts`
-Expected: PASS — 6 tests.
+Expected: PASS — 7 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -906,6 +949,59 @@ describe('mergeTable', () => {
 
     expect(conflicts).toHaveLength(0)
   })
+
+  it('propagates a remote soft-delete onto an unchanged local row', async () => {
+    // One-sided delete: remote deleted, local untouched. Not a conflict —
+    // the delete is just a "remote changed" upsert that brings the tombstone over.
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    await seedLocation(local, { id: 'g', name: 'Doomed', created: CUTOFF, updated: CUTOFF })
+    await seedLocation(remote, {
+      id: 'g',
+      name: 'Doomed',
+      created: CUTOFF,
+      updated: '2026-05-10T00:00:00.000Z',
+      deleted: '2026-05-10T00:00:00.000Z',
+    })
+
+    const conflicts = await mergeTable(local, remote, LOCATIONS, CUTOFF)
+
+    expect(conflicts).toHaveLength(0)
+    const rows = await readRows(local, 'locations')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.deleted_at_utc).toBe('2026-05-10T00:00:00.000Z')
+  })
+
+  it('lets a delete win over a concurrent edit even when the edit is newer', async () => {
+    // Both sides changed: local edited later than the remote delete. The
+    // delete-wins rule overrides "latest timestamp wins", so the tombstone lands.
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    await seedLocation(local, {
+      id: 'h',
+      name: 'Edited locally',
+      created: CUTOFF,
+      updated: '2026-05-09T00:00:00.000Z',
+    })
+    await seedLocation(remote, {
+      id: 'h',
+      name: 'About to be deleted',
+      created: CUTOFF,
+      updated: '2026-05-05T00:00:00.000Z',
+      deleted: '2026-05-05T00:00:00.000Z',
+    })
+
+    const conflicts = await mergeTable(local, remote, LOCATIONS, CUTOFF)
+
+    expect(conflicts).toHaveLength(1)
+    expect(conflicts[0]!).toMatchObject({
+      table: 'locations',
+      primaryKey: 'h',
+      winner: 'remote',
+      resolution: 'delete-wins',
+    })
+    expect((await readRows(local, 'locations'))[0]!.deleted_at_utc).toBe('2026-05-05T00:00:00.000Z')
+  })
 })
 ```
 
@@ -925,11 +1021,13 @@ import type { SyncTable } from './syncTables'
 import { changedSince, readRows, rowsEqual, upsertRow } from './rows'
 import { resolveConflict } from './resolveConflict'
 
-/** Index a list of rows by the string value of their primary key column. */
+/** Index a list of rows by the value of their primary key column. */
 function indexByPk(rows: SyncRow[], pk: string): Map<string, SyncRow> {
+  // Every PK column in SYNC_TABLES is declared TEXT (UUIDv7 or `tags.tag`),
+  // so the value is already a string — no coercion needed.
   const map = new Map<string, SyncRow>()
   for (const row of rows) {
-    map.set(String(row[pk]), row)
+    map.set(row[pk] as string, row)
   }
   return map
 }
@@ -992,7 +1090,7 @@ export async function mergeTable(
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npx vitest run src/sync/__tests__/mergeTable.spec.ts`
-Expected: PASS — 6 tests.
+Expected: PASS — 8 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -1082,14 +1180,49 @@ describe('mergeDatabases', () => {
     expect(conflicts.map((c) => c.table).sort()).toEqual(['accounts', 'locations'])
   })
 
+  it('captures both local and remote snapshots on every conflict', async () => {
+    // The conflict email (deferred) needs the loser's data. Lock in that
+    // mergeDatabases stashes both row versions, not just the winner.
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    await seedLocation(local, {
+      id: 'snap',
+      name: 'Local snapshot',
+      created: CUTOFF,
+      updated: '2026-05-05T00:00:00.000Z',
+    })
+    await seedLocation(remote, {
+      id: 'snap',
+      name: 'Remote snapshot',
+      created: CUTOFF,
+      updated: '2026-05-06T00:00:00.000Z',
+    })
+
+    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+    expect(conflicts).toHaveLength(1)
+    const c = conflicts[0]!
+    expect(c.local.name).toBe('Local snapshot')
+    expect(c.remote.name).toBe('Remote snapshot')
+    expect(c.winner).toBe('remote')
+    expect(c.resolution).toBe('latest-update-wins')
+  })
+
   it('rolls back the local database when a merge step fails', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()
     await seedLocation(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
-    // A transaction referencing an account that exists nowhere → FK failure mid-merge.
+    // Build a remote whose transaction references a missing account. The
+    // straightforward `DELETE FROM accounts` would itself fail under
+    // PRAGMA foreign_keys = ON (set by Database.init) because the transaction
+    // restricts it; toggle FK off around the delete to construct the
+    // inconsistent state on purpose, then turn FK back on so the merge
+    // really exercises the enforcement path on the local side.
     await seedAccount(remote, { id: 'acc-x', name: 'X', created: CUTOFF, updated: CUTOFF })
     await seedTransaction(remote, { id: 'txn-x', accountFrom: 'acc-x', created: CUTOFF, updated: CUTOFF })
+    await remote.run('PRAGMA foreign_keys = OFF')
     await remote.run('DELETE FROM accounts WHERE id = ?', ['acc-x'])
+    await remote.run('PRAGMA foreign_keys = ON')
 
     await expect(mergeDatabases(local, remote, CUTOFF)).rejects.toThrow()
     // The earlier, successful location upsert must have been rolled back.
@@ -1142,7 +1275,7 @@ Note: keep the existing `import { SYNC_TABLES }` at the top of the file with the
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/sync/__tests__/mergeDatabases.spec.ts`
-Expected: PASS — 4 tests.
+Expected: PASS — 5 tests.
 
 - [ ] **Step 5: Commit**
 
