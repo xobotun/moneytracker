@@ -32,3 +32,11 @@
 ## Import
 - Import bank statements (format TBD).
 - Import push notifications (format TBD).
+
+## Sync
+- Offline-first: the app works fully standalone; sync is opportunistic when online.
+- Multi-device: any number of user devices share one logical database via a chosen cloud target.
+- Pluggable sync provider — at minimum Supabase, S3-compatible (Backblaze B2 / Cloudflare R2), and GitHub repository as candidates. One is active at a time; credentials for all three are persisted so switching is friction-free. (See [docs/scenarios/2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md).)
+- Each device has a user-editable name used as its identity in sync metadata; defaults to a UA-derived name with a random 8-char suffix to keep un-renamed devices distinguishable.
+- Settings exposes sync status as read-only data: last sync (timestamp, uploader, hash), current local-database hash, and the last cached remote snapshot. Opening Settings never triggers a network call. (See [docs/plans/2026-05-27-sync-settings-design.md](docs/plans/2026-05-27-sync-settings-design.md).)
+- Settings exposes per-provider credential fields. Stored plaintext in localStorage — the realistic threat model (XSS) already loses the whole SQLite database, so at-rest encryption of tokens gains nothing meaningful.

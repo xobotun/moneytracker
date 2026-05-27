@@ -175,6 +175,27 @@ and wiring sync into the UI.
   every row conflict is preserved off-device)
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 
+#### Sync settings — device name, status surface, provider credentials
+
+Stage the Settings UI and localStorage scaffolding ahead of the real
+`SyncProvider`, so that when a provider is wired in the data, identity,
+and credentials are already in place.
+
+- Replace UUIDv7 `deviceId` in `src/sync/localState` with a user-editable
+  `deviceName` (default = UA-derived + 8-char random hex suffix); `SyncMetadata.device`
+  carries the name from then on
+- Split `src/sync/localState` into a directory of concerns
+  (`storage.ts` / `deviceName.ts` / `remoteSnapshots.ts` / `providerConfig.ts`
+  + barrel `index.ts`), preserving the existing import path
+- Add `lastFetchedRemoteSnapshot` cache slot — populated by the future
+  app-launch fetch, read-only consumer in Settings (no network calls from
+  Settings ever)
+- Add `providerConfig` storage with three credential blocks
+  (Supabase / S3-compatible / GitHub) and an active-provider selector
+- New `Settings` sub-sections: This device, Sync status, Sync provider —
+  all read-only except the name field, provider radio, and credential inputs
+- Plan: [2026-05-27-sync-settings-design](docs/plans/2026-05-27-sync-settings-design.md) (design only; implementation plan pending)
+
 ### Import
 
 - Bank statement import (format TBD — likely CSV / OFX / institution-specific parsers)

@@ -42,50 +42,106 @@ Visible-at-once + radio-selected-active was the user's preferred shape (see `Ask
 
 A PWA's realistic threat is XSS, and any XSS that reaches localStorage already exfiltrates the SQLite database — encrypting tokens at rest with a passphrase doesn't raise the bar against that threat. Encryption only helps against attackers with disk read but no JS execution, which is a narrow scenario for a browser-hosted PWA. Documented in a `providerConfig`-section header comment in `localState.ts`.
 
-### All sync state in one file, UI in a separate composable
+### All sync state in one module, split into a directory of concerns
 
-`src/sync/localState.ts` keeps everything — device name, last-known-remote-state, last-fetched-remote-snapshot, provider config (types and storage). It stays plain TypeScript with no Vue imports.
+Sync localStorage state grows to four distinct concerns: device name, last-known-remote-state, last-fetched-remote-snapshot, provider config. Folding all four into a single `localState.ts` worked when there were only two; at four it stops reading well. Split into a directory (`src/sync/localState/`) matching the existing project convention (`src/db/migrations/`, `src/db/repositories/`), with a barrel `index.ts` that preserves the current import path.
 
-The UI composable (`src/views/useSyncSettings.ts`) imports from `localState.ts`. That's the decoupling seam: the storage module knows nothing about Vue, PrimeVue, or the DOM. File-count splitting (a separate `providerConfig.ts`) would have been hygiene, not coupling, and the combined file stays ~110 lines.
+A shared `storage.ts` helper factors out the boilerplate every store would otherwise repeat: key-prefixing with `moneytracker.sync.`, JSON parse with `try/catch`, default-merge for forward-compatibility (so adding a new field to `ProviderConfig` next year doesn't break the read of a value persisted today). Each domain file is then ~15–30 lines and reads like a schema declaration.
+
+The whole module stays plain TypeScript with no Vue imports. The UI composable (`src/views/useSyncSettings.ts`) imports from `src/sync/localState/`. That's the decoupling seam: the storage module knows nothing about Vue, PrimeVue, or the DOM.
 
 ## Module shape
 
-### `src/sync/localState.ts` (rewritten)
+### `src/sync/localState/` (rewritten as a directory)
 
-Keys (all prefixed `moneytracker.sync.`):
+Files:
 
-| Key | Value | Status |
-|---|---|---|
-| `deviceName` | string — user-editable | **New (replaces `deviceId`)** |
-| `lastKnownRemoteState` | JSON `{device, uploadedAtUtc, hash}` | Exists |
-| `lastFetchedRemoteSnapshot` | JSON `SyncMetadata` \| null | **New** |
-| `providerConfig` | JSON `ProviderConfig` | **New** |
+```
+src/sync/localState/
+  index.ts              # barrel re-exports — preserves `from './localState'` import path
+  storage.ts            # typed localStorage helpers with "moneytracker.sync." prefix
+  deviceName.ts         # device-name identity
+  remoteSnapshots.ts    # last-known-remote-state + last-fetched-remote-snapshot
+  providerConfig.ts     # provider types, defaults, load/save
+```
 
-Exports:
+Keys (all prefixed `moneytracker.sync.` by `storage.ts`):
+
+| Key | Value | File | Status |
+|---|---|---|---|
+| `deviceName` | string — user-editable | `deviceName.ts` | **New (replaces `deviceId`)** |
+| `lastKnownRemoteState` | JSON `{device, uploadedAtUtc, hash}` | `remoteSnapshots.ts` | Moved from existing |
+| `lastFetchedRemoteSnapshot` | JSON `SyncMetadata` \| null | `remoteSnapshots.ts` | **New** |
+| `providerConfig` | JSON `ProviderConfig` | `providerConfig.ts` | **New** |
+
+#### `storage.ts` — shared helper
+
+Factors out key-prefixing, JSON parse with try/catch, and default-merge for forward-compatibility:
 
 ```typescript
-// Device name — identity for sync, displayed in Settings.
+const PREFIX = 'moneytracker.sync.'
+
+/** Typed JSON-backed slot in localStorage. `defaultValue` is also used as the
+ *  template for default-merge on read: stored objects are spread over it so
+ *  that adding new fields to a type does not break reads of older stored values. */
+export function jsonStore<T extends object>(key: string, defaultValue: T) {
+  const fullKey = PREFIX + key
+  return {
+    load(): T {
+      const raw = localStorage.getItem(fullKey)
+      if (!raw) return { ...defaultValue }
+      try {
+        return { ...defaultValue, ...(JSON.parse(raw) as Partial<T>) }
+      } catch {
+        return { ...defaultValue }
+      }
+    },
+    save(value: T): void {
+      localStorage.setItem(fullKey, JSON.stringify(value))
+    },
+  }
+}
+
+/** Nullable variant: returns null when nothing is stored. No default-merge —
+ *  callers that need defaults wrap with jsonStore instead. */
+export function nullableJsonStore<T>(key: string) { /* … */ }
+
+/** Plain-string slot — no JSON envelope, for short identifiers. */
+export function stringStore(key: string) { /* … */ }
+```
+
+#### Per-concern modules
+
+```typescript
+// src/sync/localState/deviceName.ts
+const slot = stringStore('deviceName')
 export function getDeviceName(): string                       // mints + persists default on first call
 export function setDeviceName(name: string): void
 export function defaultDeviceName(): string                   // exported for tests; UA + 8-char hex suffix
 
-// Already exists, unchanged in behavior:
+// src/sync/localState/remoteSnapshots.ts
+const lastKnown = nullableJsonStore<RemoteState>('lastKnownRemoteState')
+const lastFetched = nullableJsonStore<SyncMetadata>('lastFetchedRemoteSnapshot')
 export function loadLastKnownRemoteState(): RemoteState | null
 export function saveLastKnownRemoteState(state: RemoteState): void
-
-// New — cache of the most recent remote metadata fetched at app launch.
 export function loadLastFetchedRemoteSnapshot(): SyncMetadata | null
 export function saveLastFetchedRemoteSnapshot(snapshot: SyncMetadata | null): void
 
-// New — provider configuration types and storage.
+// src/sync/localState/providerConfig.ts
 export type SyncProviderKind = 'none' | 'supabase' | 's3' | 'github'
 export interface SupabaseConfig { url: string; anonKey: string; bucket: string }
 export interface S3Config { endpoint: string; region: string; accessKeyId: string; secretKey: string; bucket: string; objectKey: string }
 export interface GitHubConfig { repo: string; branch: string; path: string; token: string }
 export interface ProviderConfig { active: SyncProviderKind; supabase: SupabaseConfig; s3: S3Config; github: GitHubConfig }
 export const EMPTY_PROVIDER_CONFIG: ProviderConfig            // sensible defaults (bucket = 'moneytracker', branch = 'main', etc.)
-export function loadProviderConfig(): ProviderConfig          // merges stored config over EMPTY_PROVIDER_CONFIG, so new fields don't break older stored values
+const slot = jsonStore<ProviderConfig>('providerConfig', EMPTY_PROVIDER_CONFIG)
+export function loadProviderConfig(): ProviderConfig
 export function saveProviderConfig(config: ProviderConfig): void
+
+// src/sync/localState/index.ts — barrel
+export * from './deviceName'
+export * from './remoteSnapshots'
+export * from './providerConfig'
 ```
 
 `defaultDeviceName()` builds a string from `navigator.userAgentData` when available (Chromium browsers), falling back to a coarse parse of `navigator.userAgent`. Output examples: `"Chrome on Windows · a3f4b7e1"`, `"Firefox on Linux · 5e72a01b"`. The suffix uses `crypto.getRandomValues(new Uint8Array(4))` rendered as 8 lowercase hex chars.
@@ -168,10 +224,19 @@ Mirrors `useSettingsOptions.ts`'s shape. Responsibilities:
 ### Files touched
 
 ```
-src/sync/localState.ts                            (rewrite — replace deviceId with deviceName, add snapshot + provider state)
+src/sync/localState.ts                            (delete — superseded by the directory below)
+src/sync/localState/index.ts                      (new — barrel)
+src/sync/localState/storage.ts                    (new — jsonStore / nullableJsonStore / stringStore)
+src/sync/localState/deviceName.ts                 (new — replaces deviceId)
+src/sync/localState/remoteSnapshots.ts            (new — both snapshot slots)
+src/sync/localState/providerConfig.ts             (new — provider types + load/save)
 src/sync/types.ts                                 (touch — comment update on `device` field)
-src/sync/syncOrchestrator.ts                      (rename — deviceId → deviceName in SyncDeps)
-src/sync/__tests__/localState.spec.ts             (rewrite — tests for new exports + default-name suffix)
+src/sync/syncOrchestrator.ts                      (rename — deviceId → deviceName in SyncDeps; import path unchanged thanks to barrel)
+src/sync/__tests__/localState.spec.ts             (delete — replaced by per-module tests below)
+src/sync/__tests__/localState/storage.spec.ts    (new)
+src/sync/__tests__/localState/deviceName.spec.ts (new)
+src/sync/__tests__/localState/remoteSnapshots.spec.ts (new)
+src/sync/__tests__/localState/providerConfig.spec.ts (new)
 src/sync/__tests__/syncOrchestrator.spec.ts      (update — rename literals)
 src/views/SettingsView.vue                        (add — three new Divider sections)
 src/views/useSyncSettings.ts                      (new)
@@ -182,7 +247,10 @@ TASKS.md                                          (touch — move new bullet und
 
 ## Testing
 
-- **`localState.spec.ts`** — round-trip each new key, assert default-name format matches `/^.+ · [0-9a-f]{8}$/`, assert two calls to `defaultDeviceName()` produce different suffixes, assert `getDeviceName()` mints once and is stable across reads.
+- **`localState/storage.spec.ts`** — assert key-prefixing, default-merge on read (stored partial spreads over default), graceful fallback on malformed JSON.
+- **`localState/deviceName.spec.ts`** — round-trip set/get, default-name format matches `/^.+ · [0-9a-f]{8}$/`, two calls to `defaultDeviceName()` produce different suffixes, `getDeviceName()` mints once and is stable across reads.
+- **`localState/remoteSnapshots.spec.ts`** — null when never written, round-trip each slot.
+- **`localState/providerConfig.spec.ts`** — `EMPTY_PROVIDER_CONFIG` round-trips, partial stored value merges over the empty default (forward-compatibility for added fields), active-provider radio change persists.
 - **`useSyncSettings.spec.ts`** — mount the composable with fakes injected, assert it renders each state correctly (no remote / cached remote / current-local available / current-local unavailable), assert text-field blur writes through to localStorage, assert provider radio change writes through.
 - **Existing sync-core tests** — no behavior change; only identifier renames.
 - **No new e2e** — keep Playwright untouched until External-sync adds real flows.
