@@ -70,6 +70,30 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
 - SQLite conventions promoted into [CLAUDE.md](CLAUDE.md)
 - Plan: [2026-05-20-database-schema-plan](docs/plans/2026-05-20-database-schema-plan.md)
 
+### Database sync — merge engine & orchestration core
+
+The offline-testable core of database sync, with no real network or
+serialization adapter yet (those are the next plan).
+
+- `src/sync/` module — types, localStorage device id + last-known-remote-state,
+  schema-version gate, FK-ordered table descriptors, generic row helpers
+  (read / compare with byte-by-byte `Uint8Array` support / upsert via
+  `INSERT … ON CONFLICT DO UPDATE`), delete-wins + latest-timestamp-wins
+  conflict resolution
+- Single-transaction full-database merge with parent-before-child ordering and
+  rollback on FK violation
+- `SyncProvider` + `DatabaseCodec` interfaces — the seams where the real
+  provider and codec plug in
+- `syncOrchestrator` — pure `decideSync` scenario logic + `runSync` covering
+  first-sync, identical-DB short-circuit, scenario 2.1 recursive CAS retry,
+  scenario 2.2 merge-and-CAS loop, schema gate (`abort-app-outdated` when the
+  remote is newer)
+- `FakeSyncProvider` + `FakeDatabaseCodec` for in-memory unit tests
+- 49 Vitest tests covering every algorithm branch (concurrent CAS re-merge,
+  delete-wins-over-newer-edit, FK-violating rollback, conflict snapshot capture)
+- Scenarios: [2026-05-22-database-sync-scenarios](docs/scenarios/2026-05-22-database-sync-scenarios.md)
+- Plan: [2026-05-22-database-sync-plan](docs/plans/2026-05-22-database-sync-plan.md), commit `8687e17`
+
 ---
 
 ## To Do
@@ -130,13 +154,25 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 - Charts / tables for each dimension
 - Cross-currency totals using exchange-rate history
 
-### External sync
+### External sync — provider, UI, and adapters
 
-- It is still yet to choose the sync provider. Shortlist is Supabase, Backblaze, and Github. Also, Google Drive sounds good as a backup place.
-- Design an abstraction layer for the sync provider, support operations:
-  - Get a blob of the latest `.sqlite`
-  - Get its hash and modification date that is stored separately
-  - Upload a new `.sqlite` blob and its hash and modification date
+The merge engine and orchestrator are done (see Done above). What remains
+is plugging real adapters into the `SyncProvider` / `DatabaseCodec` seams
+and wiring sync into the UI.
+
+- Choose the sync provider. Shortlist: Supabase, Backblaze, GitHub. Google
+  Drive is appealing as an additional backup target.
+- Implement the real `SyncProvider` against the chosen backend (compare-and-swap
+  upload, metadata read, blob download)
+- Implement the real `DatabaseCodec` — `.sqlite` blob export/import via
+  `VACUUM INTO` + MemoryVFS (see the `reference_sqlite_export` memory)
+- Network state / metered-connection detection (PWA heuristic; Android +
+  Windows scope, no iOS)
+- UI:
+  - Blocking overlay during sync with a "use the local database" interrupt button
+  - "Sync now" button in Settings, always available regardless of network state
+- Conflict-notification email (needs a Supabase Edge Function so the loser of
+  every row conflict is preserved off-device)
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 
 ### Import
