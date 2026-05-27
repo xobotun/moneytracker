@@ -65,8 +65,3 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) for the full list. Key domain concepts:
 
 - Remote: https://github.com/xobotun/moneytracker.git
 - Branch: main
-
-## Developer Context
-
-- Author is experienced in Java/Go (~9 YoE) but new to frontend/JavaScript ecosystem.
-- Prefer explicit, clear code over clever JS idioms. Explain non-obvious JS/Vue patterns when introducing them.
