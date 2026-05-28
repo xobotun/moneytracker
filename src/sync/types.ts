@@ -6,7 +6,9 @@ export type SyncRow = Record<string, unknown>
 
 /** Metadata stored alongside the remote database blob. */
 export interface SyncMetadata {
-  /** Device id of the device that produced this upload. */
+  /** Device name of the device that produced this upload. Stable identity
+   *  for the sync algorithm; carries through to other devices as the value
+   *  shown in their Settings "Uploaded by" rows. */
   device: string
   /** When the upload happened — ISO 8601 UTC. */
   uploadedAtUtc: string
@@ -18,6 +20,7 @@ export interface SyncMetadata {
 
 /** What a device recorded locally at its last successful sync. */
 export interface RemoteState {
+  /** Device name (matches `SyncMetadata.device` of the recorded upload). */
   device: string
   uploadedAtUtc: string
   hash: string

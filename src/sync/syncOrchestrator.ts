@@ -18,10 +18,10 @@ export type SyncDecision = 'none' | 'upload-local' | 'merge'
 export function decideSync(
   localHash: string,
   remoteMeta: SyncMetadata,
-  deviceId: string,
+  deviceName: string,
 ): SyncDecision {
   if (localHash === remoteMeta.hash) return 'none'
-  if (remoteMeta.device === deviceId) return 'upload-local'
+  if (remoteMeta.device === deviceName) return 'upload-local'
   return 'merge'
 }
 
@@ -29,7 +29,8 @@ export function decideSync(
 export interface SyncDeps {
   provider: SyncProvider
   codec: DatabaseCodec
-  deviceId: string
+  /** This device's identity, carried through to other devices in `SyncMetadata.device`. */
+  deviceName: string
   /** Current time — injectable so tests are deterministic. */
   now: () => Date
   /** Brings a downloaded older-schema database up to the current schema. */
@@ -53,7 +54,7 @@ export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOu
   const remoteMeta = await deps.provider.getMetadata()
 
   const stamp = (hash: string): SyncMetadata => ({
-    device: deps.deviceId,
+    device: deps.deviceName,
     uploadedAtUtc: deps.now().toISOString(),
     hash,
     migrationVersion: localVersion,
@@ -67,7 +68,7 @@ export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOu
     return { decision: 'first-sync-upload', conflicts: [], uploaded: true }
   }
 
-  const decision = decideSync(localHash, remoteMeta, deps.deviceId)
+  const decision = decideSync(localHash, remoteMeta, deps.deviceName)
 
   // Scenario 1 — databases already identical.
   if (decision === 'none') {

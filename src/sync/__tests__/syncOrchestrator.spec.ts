@@ -44,7 +44,7 @@ describe('runSync', () => {
     return {
       provider,
       codec: new FakeDatabaseCodec(),
-      deviceId: 'dev-A',
+      deviceName: 'dev-A',
       now: () => new Date('2026-05-22T12:00:00.000Z'),
       migrate: async () => {},
       loadLastKnown: () => state.lastKnown,

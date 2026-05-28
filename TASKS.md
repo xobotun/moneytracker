@@ -94,6 +94,34 @@ serialization adapter yet (those are the next plan).
 - Scenarios: [2026-05-22-database-sync-scenarios](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 - Plan: [2026-05-22-database-sync-plan](docs/plans/2026-05-22-database-sync-plan.md), commit `8687e17`
 
+### Database sync — settings UI, identity, and provider credentials
+
+The localStorage scaffolding, Settings UI, and `deviceName` identity from
+the sync-settings design. The real `SyncProvider` and the app-launch
+remote fetch are still ahead (see "External sync" below).
+
+- `src/sync/localState/` directory — `storage.ts` (jsonStore / nullableJsonStore /
+  stringStore with `moneytracker.sync.` key prefix and shallow default-merge
+  for forward compatibility), `deviceName.ts` (UA-derived default + 8-char
+  random hex suffix from `crypto.getRandomValues`), `remoteSnapshots.ts`
+  (lastKnownRemoteState + lastFetchedRemoteSnapshot), `providerConfig.ts`
+  (Supabase / S3-compatible / GitHub types + `EMPTY_PROVIDER_CONFIG`), plus
+  a barrel `index.ts` preserving the existing import path
+- `SyncMetadata.device` / `RemoteState.device` / `SyncDeps.deviceName` —
+  renamed from the old UUIDv7 `deviceId`; merge logic unchanged because the
+  field is opaque
+- `getDatabaseCodec()` / `setDatabaseCodec()` singleton slot in `src/db/init.ts`
+  — returns null today, populated by the External-sync plan
+- `useSyncSettings` composable + three new Divider sections in
+  `SettingsView.vue` (This device, Sync status, Sync provider). Settings never
+  triggers a network call — the remote row reads only from
+  `lastFetchedRemoteSnapshot`
+- 40 new Vitest tests covering each storage helper, the UA parser, the
+  default-name suffix, snapshot round-trips, provider-config forward
+  compatibility, and the composable's reactive behaviour
+- Design: [2026-05-27-sync-settings-design](docs/plans/2026-05-27-sync-settings-design.md)
+- Plan: [2026-05-28-sync-settings-plan](docs/plans/2026-05-28-sync-settings-plan.md)
+
 ---
 
 ## To Do
@@ -175,26 +203,6 @@ and wiring sync into the UI.
   every row conflict is preserved off-device)
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 
-#### Sync settings — device name, status surface, provider credentials
-
-Stage the Settings UI and localStorage scaffolding ahead of the real
-`SyncProvider`, so that when a provider is wired in the data, identity,
-and credentials are already in place.
-
-- Replace UUIDv7 `deviceId` in `src/sync/localState` with a user-editable
-  `deviceName` (default = UA-derived + 8-char random hex suffix); `SyncMetadata.device`
-  carries the name from then on
-- Split `src/sync/localState` into a directory of concerns
-  (`storage.ts` / `deviceName.ts` / `remoteSnapshots.ts` / `providerConfig.ts`
-  + barrel `index.ts`), preserving the existing import path
-- Add `lastFetchedRemoteSnapshot` cache slot — populated by the future
-  app-launch fetch, read-only consumer in Settings (no network calls from
-  Settings ever)
-- Add `providerConfig` storage with three credential blocks
-  (Supabase / S3-compatible / GitHub) and an active-provider selector
-- New `Settings` sub-sections: This device, Sync status, Sync provider —
-  all read-only except the name field, provider radio, and credential inputs
-- Plan: [2026-05-27-sync-settings-design](docs/plans/2026-05-27-sync-settings-design.md) (design only; implementation plan pending)
 
 ### Import
 

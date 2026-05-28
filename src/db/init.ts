@@ -9,10 +9,12 @@ import { AccountsRepository } from './repositories/AccountsRepository'
 import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
 import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from './repositories/TransactionsRepository'
+import type { DatabaseCodec } from '../sync/DatabaseCodec'
 
 const allMigrations = [settingsMigration, domainMigration]
 
 let database: Database | null = null
+let databaseCodec: DatabaseCodec | null = null
 let settingsRepository: SettingsRepository | null = null
 let tagsRepository: TagsRepository | null = null
 let locationsRepository: LocationsRepository | null = null
@@ -37,6 +39,20 @@ export async function initDatabase(): Promise<void> {
 export function getDatabase(): Database {
   if (!database) throw new Error('Database not initialized. Call initDatabase() first.')
   return database
+}
+
+/**
+ * Registers the codec used to export the local database to a syncable blob.
+ * Called by the External-sync plan once a real codec is wired in. Until then
+ * `getDatabaseCodec()` returns null and consumers must handle that.
+ */
+export function setDatabaseCodec(codec: DatabaseCodec | null): void {
+  databaseCodec = codec
+}
+
+/** Returns the registered codec, or null when none has been registered yet. */
+export function getDatabaseCodec(): DatabaseCodec | null {
+  return databaseCodec
 }
 
 export function getSettingsRepository(): SettingsRepository {
@@ -80,6 +96,7 @@ export async function closeDatabase(): Promise<void> {
     await database.close()
   }
   database = null
+  databaseCodec = null
   settingsRepository = null
   tagsRepository = null
   locationsRepository = null
