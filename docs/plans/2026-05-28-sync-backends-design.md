@@ -42,6 +42,32 @@ Three principles drove the shape:
 
 ---
 
+## Where this fits
+
+This plan is the third leg of the "External sync" work in `TASKS.md`:
+
+- **Already shipped (commit `8687e17`):** the merge engine, `decideSync`
+  scenario logic, `runSync`, `FakeSyncProvider` / `FakeDatabaseCodec`. The
+  49 Vitest tests cover every algorithm branch. Plan:
+  [2026-05-22-database-sync-plan.md](2026-05-22-database-sync-plan.md).
+  This plan **modifies** that core's external seam but leaves the merge
+  algorithm and scenario decisions untouched.
+- **Already shipped (commit `6f488a3`):** the localState directory split,
+  `useSyncSettings` composable, `deviceName` identity, and the Sync
+  sections in `SettingsView.vue`. Today these read placeholder data because
+  no backend exists. Design + plan:
+  [2026-05-27-sync-settings-design.md](2026-05-27-sync-settings-design.md),
+  [2026-05-28-sync-settings-plan.md](2026-05-28-sync-settings-plan.md).
+  This plan **populates** that scaffolding with real backends and adds the
+  Sync now / Validate buttons.
+- **This plan:** the two backends, the unified `SyncBackend` interface,
+  shared content hashing, and the minimal UI trigger.
+- **Still to come (deferred):** app-launch fetch, blocking sync overlay,
+  network/metered-connection detection, conflict-notification email. See
+  `TASKS.md` "External sync" To Do for the running list.
+
+---
+
 ## What changes in the already-shipped sync core
 
 The merge engine and `decideSync` scenario logic stay untouched. The seam
@@ -165,8 +191,17 @@ return Papa.unparse(rows, { header: true, newline: '\n' })
 PapaParse handles quoting, embedded newlines, and JSON-literal columns
 automatically per RFC 4180. Output is deterministic because:
 - Column order comes from `syncColumns` (not from JS object enumeration).
-- Row order comes from `ORDER BY <pk>` — UUIDv7 PKs sort chronologically.
+- Row order comes from `ORDER BY <pk>` — UUIDv7 PKs sort chronologically;
+  `tags.tag` is a natural string key that sorts alphabetically.
 - Newline pinned to `\n` (matches `.gitattributes`).
+
+JSON-typed domain columns (`tags`, `synonyms`, `accounts_ids`,
+`exchange_rates.rates`) are stored in SQLite as `TEXT` containing a JSON
+literal — that's just a string, so PapaParse treats them like any other
+TEXT cell, quoting and escaping as needed. On the way back in,
+`json_extract(value, '$.col')` returns the raw string and `INSERT` stores
+it verbatim; the CHECK(json_valid(col)) on those columns guards against
+corruption.
 
 **Import.** For each table:
 
@@ -401,6 +436,18 @@ again. No reload needed.
   - Errors are stored in a new local-state slot `lastSyncError` (timestamp
     + message) and shown inline; cleared on the next successful sync.
 
+### New localState slot
+
+Follows the existing per-concern split in `src/sync/localState/`:
+
+```
+src/sync/localState/
+  syncError.ts         ← NEW. load / save / clear, mirrors remoteSnapshots.ts.
+                         Stored shape: { atUtc: string, message: string } | null.
+```
+
+Add to `src/sync/localState/index.ts`'s re-exports.
+
 The blocking overlay and "use the local database" interrupt button are
 **not** in this plan.
 
@@ -432,8 +479,18 @@ For **every** codec and backend, the test suite includes:
 ### Targeted deserialise tests
 - The same shapes coming back, asserting both type (e.g., `typeof === 'number'`
   for INTEGER columns post-`json_each` CAST) and value.
-- Forward-compatibility: CSV missing a nullable column the local schema added
-  → row imports with that column NULL.
+- **Forward-compatibility (CSV missing a column local has):** a CSV written
+  by an older app version that doesn't include a nullable column the current
+  schema added. `json_extract` returns NULL for the missing path; the row
+  imports cleanly with the new column NULL. Verified for both nullable and
+  *should-be-nullable-but-wasn't-yet* columns (the second case is a planning
+  reminder — non-nullable additions need a migration, not silent NULL).
+- **Backward-compatibility (CSV has a column local doesn't):** a CSV from a
+  newer app version that includes columns the local schema is missing.
+  Handled by the orchestrator's schema gate (`abort-app-outdated`), not by
+  the codec — the gate aborts before import is even attempted, so the codec
+  never sees the unknown column. The codec test asserts that the schema gate
+  fires on this path rather than the codec silently dropping the column.
 
 ### Backend behaviour
 - `getMetadata()` returns `null` on an empty target.
@@ -520,3 +577,249 @@ These let the backend tests run with no network I/O and no flakiness.
 - **Private repo by default, not enforced.** Settings UI nudges toward
   private and explains why, but the user can configure a public repo if they
   want.
+- **First-sync upload doesn't check the CAS return value.** Inherited from
+  the merge-engine plan's accepted assumption: two devices racing to bring
+  up a fresh sync target at the same moment is a one-time human concern
+  (don't log into the second device until the first one has synced once).
+  With a single household of devices, this is fine. Documented in
+  [2026-05-22-database-sync-plan.md](2026-05-22-database-sync-plan.md).
+- **`tryUpload` requires a prior `getMetadata`.** The GitHub backend
+  internally caches the HEAD commit SHA from `getMetadata()` to use as the
+  parent commit of the upload. Calling `tryUpload` without a prior
+  `getMetadata` is a programming error and throws. The orchestrator already
+  follows this order in `runSync`; the contract is documented and tested.
+
+---
+
+## Alternatives considered
+
+These were evaluated during the brainstorm and rejected. Capturing them
+here so future contributors don't re-litigate.
+
+### Encoding for the GitHub backend
+
+- **Append-only SQL log per table.** Each change appends an INSERT / UPDATE
+  / DELETE statement; full state derived by replay. Rejected: the log grows
+  unboundedly without periodic compaction (and compaction breaks the
+  "1–2 line change" property whenever it runs). Download cost grows with
+  history, not with current row count.
+- **Single canonical SQL `.dump` (one big file).** Rejected: per-table split
+  is awkward (one diff touches one table only), and reviews are noisier than
+  CSV because column names repeat per row.
+- **`VACUUM INTO` binary `.sqlite` in git.** Rejected: even a one-row change
+  causes B-tree page rebalancing, free-page rotation, and header byte
+  changes that make the *entire file* look different to git. Pack-file
+  delta-compression on SQLite pages is poor, and github.com renders the
+  blob as binary with no inline view.
+
+### Codec / provider seam
+
+- **Two parallel interface families (BlobCodec + Provider vs. MultiFileCodec
+  + Provider).** Rejected: the orchestrator has substantive logic (CAS
+  retry, schema gate, scenario 2.1 recursive retry, scenario 2.2 merge-and-
+  CAS loop) we don't want to duplicate. A single `SyncBackend` is cheaper
+  to maintain.
+- **Generalised `SyncSnapshot = Map<path, contents>` exposed to the
+  orchestrator.** This was my first suggestion; the user pushed back. The
+  orchestrator should not know whether a backend stores one file or many —
+  that's an implementation detail. Collapsing to `SyncBackend` (which
+  returns open `Database` instances) hides the count entirely.
+
+### Content hashing
+
+- **Per-backend hash (storage-form hash).** Originally each backend would
+  hash its own bytes (CSV concatenation, or the `.sqlite` file). Rejected:
+  switching providers for the same logical database would yield a different
+  hash, forcing a spurious re-merge and making `lastKnownRemoteState.hash`
+  provider-bound. The shared content hash keeps the "identical-DB
+  short-circuit" meaningful across provider switches.
+
+### GitHub transport
+
+- **`isomorphic-git` via the public CORS proxy** (`cors.isomorphic-git.org`
+  or similar). Rejected: every git operation would pass through a third
+  party we don't control; they can read PATs and database contents. Strong
+  no for a personal-finance app.
+- **`isomorphic-git` via a self-hosted CORS proxy** (CF Worker, Supabase
+  Edge Function). Deferred — not rejected. Would give us true git delta
+  transfer (~200 bytes per row change instead of full-file upload). The
+  cost is infrastructure to deploy and maintain, which conflicts with the
+  PWA's "no backend infra" ethos. Revisit if the REST data API's whole-file
+  upload becomes a bandwidth problem in practice. The `SyncBackend` seam
+  makes this a transport swap, not a redesign.
+- **SSH push (`git push git@github.com:...`).** Structurally impossible
+  from a browser PWA. Browsers expose no raw TCP socket API; there is no
+  SSH stack in any browser. Possible from Electron/Tauri with real
+  sockets; revisit if we ship a desktop wrapper.
+
+### GitHub metadata location
+
+- **Derive `uploadedAtUtc` from the commit's `committer.date`.** Rejected:
+  commit timestamps can drift under rebase or amend, and walking the commit
+  log costs API calls. `metadata.json` is one fetch and deterministic.
+  The commit message still carries the timestamp redundantly for human
+  browsing on github.com (`Sync 2026-05-28T... from Office iMac · 7b22ee01`).
+- **Schema marker file (`schema/version.txt`) alongside
+  `metadata.migrationVersion`.** Initially proposed for human readability
+  on github.com. Dropped per user direction: single source of truth in
+  `metadata.json` is simpler, and the README explains the layout for
+  humans.
+
+### S3 metadata location
+
+- **S3 object metadata headers (`x-amz-meta-*`).** Rejected: ASCII-only,
+  small total size limit, returned only on `HEAD`/`GET`, and support
+  varies across S3-compatible backends (R2, B2, MinIO). A separate JSON
+  sidecar (`db.sqlite.json`) is one HTTP call, always text, and survives
+  transport quirks.
+- **Embed metadata inside the SQLite blob** (a `_sync_metadata` table).
+  Rejected: would require downloading and opening the blob just to read
+  the hash. Defeats the cheap "is the remote ahead of me" check.
+
+### CSV library and import strategy
+
+- **Hand-rolled SQL `.dump` format instead of CSV.** Rejected: PapaParse
+  handles RFC 4180 quoting / embedded newlines / Unicode correctly out of
+  the box; rolling our own would re-implement the same string-escape edge
+  cases. CSV also gets free inline rendering on github.com PR diffs,
+  which `.sql` does not.
+- **Row-by-row parametrized `INSERT` via `upsertRow` from `rows.ts`.**
+  Rejected for the bulk-import path. wa-sqlite's async build is Asyncify-
+  based, which means every `await db.run(...)` is a yield point that
+  unwinds and rewinds the WASM stack. N parametrized INSERTs = N
+  yield-points per table. The `INSERT … SELECT … FROM json_each(?)`
+  approach is one yield-point per table. For a fresh download of a year's
+  transactions (~3000 rows), that's the difference between
+  3000 round-trips and 6.
+- **PapaParse with `dynamicTyping: true`** to let PapaParse coerce strings
+  to numbers/booleans/nulls automatically. Rejected: the coercion rules
+  don't know our domain (e.g., when an empty cell means NULL vs. empty
+  string, when an integer-looking string is actually a UUIDv7 prefix). We
+  control coercion in SQL via explicit `CAST` and `nullif`.
+
+### GitHub commit identity
+
+- **Fixed bot committer** (`Moneytracker Sync <sync@moneytracker.local>`
+  on every commit). Rejected: per-device granularity in github.com's
+  commits view is genuinely useful — you can see at a glance which
+  device made which change. The synthetic-email-with-device-name pattern
+  achieves the same auditability with no extra config.
+
+### First-sync UX
+
+- **Refuse to bootstrap empty repos** — require the user to add a README
+  first so the branch ref exists. Rejected: one extra setup step for no
+  technical gain. `POST /git/refs` after a root commit handles empty
+  repos cleanly.
+
+### Garbage collection
+
+- **Periodic cleanup of orphan blobs in S3** after CAS-failed uploads.
+  Deferred — at the expected sync cadence (few times per day per device,
+  small household), CAS misses are rare and each leaves at most one
+  stale `db.sqlite` blob that the next successful upload overwrites.
+  Revisit if buckets accumulate dozens of orphans.
+
+---
+
+## Pointers for the implementing agent
+
+Read these before touching the sync core. They contain context the design
+doc compresses or assumes.
+
+### Source-of-truth documents
+- [`docs/scenarios/2026-05-22-database-sync-scenarios.md`](../scenarios/2026-05-22-database-sync-scenarios.md)
+  — the scenario decisions the orchestrator implements (1, 2.1, 2.2,
+  schema gate). The `SyncBackend` refactor must preserve every branch.
+- [`2026-05-22-database-sync-plan.md`](2026-05-22-database-sync-plan.md)
+  — the implementation plan for the already-shipped merge engine /
+  orchestrator. Tasks 8 (`SyncProvider` / `DatabaseCodec`) and 11
+  (`syncOrchestrator`) are the ones this plan rewrites.
+- [`2026-05-27-sync-settings-design.md`](2026-05-27-sync-settings-design.md)
+  — design for the localState directory split and Settings UI. The
+  `lastFetchedRemoteSnapshot` and `lastKnownRemoteState` semantics are
+  spelled out there; this plan supplies the writes.
+- [`CLAUDE.md`](../../CLAUDE.md), *SQLite Conventions* section — affinity
+  rules, sync-column conventions (`*_utc`, `*_local` + `*_zone`), money
+  triplets, JSON column CHECK constraints, the "no concurrent DB ops"
+  rule. The codec's import path is one of the few places this rule
+  gets tested at scale.
+
+### Code files the new backends must respect (don't re-derive these)
+- `src/db/Database.ts` — the wa-sqlite wrapper. `exec()` reads, `run()`
+  writes; both are `await`-only. `init()` enables
+  `PRAGMA foreign_keys = ON`. **Adding `mutationCounter` here is the
+  invasive change; keep the diff small.**
+- `src/db/init.ts` — module-level singleton pattern for `database` and
+  every repository. The `setSyncBackend` / `getSyncBackend` pair follows
+  this pattern (the existing `setDatabaseCodec` slot moves and renames).
+- `src/db/migrations/` — `runMigrations(db, allMigrations.slice(0, n))`
+  is the call to bring an empty in-memory DB up to schema version `n`,
+  used by the CSV codec's import path before bulk-inserting rows.
+- `src/db/uuid.ts` — `newId()` produces UUIDv7. Time-ordered, so PK sort
+  is also chronological — that's what makes CSV row order stable.
+- `src/db/columnMappers.ts` — money, LocalMoment, JSON array, JSON
+  object, instant, UUID mappers. **The codec does not call these.** The
+  CSV codec exports raw column values (SQL → CSV → SQL), so the mappers
+  stay at the repository boundary; the codec is intentionally type-blind
+  to keep row-by-row export simple.
+- `src/sync/syncTables.ts` — the **FK-ordered** list of tables. Import
+  must use this order (parents before children) or FKs trip. Export
+  order is less critical but using the same order keeps the file set
+  deterministic.
+- `src/sync/rows.ts` — `rowsEqual` handles `Uint8Array` byte-by-byte.
+  The codec round-trip tests reuse this.
+- `src/sync/mergeEngine.ts` — wraps every cross-table merge in one
+  transaction. **The codec's bulk INSERT path must respect this:** an
+  import that succeeds half-way through and then fails on a later table
+  must not leave a partially-populated DB. Either wrap the whole import
+  in a `BEGIN … COMMIT`, or import into a fresh DB and only swap on
+  success. Recommended: the latter, since the orchestrator already
+  consumes a fresh `Database` from `downloadDatabase()`.
+
+### MEMORY pointers
+- `reference_sqlite_export.md` — the canonical recipe for
+  `VACUUM INTO` + MemoryVFS. The `sqliteBlobCodec` implementation
+  follows it directly.
+- `feedback_workflow.md` — workflow preferences including
+  PrimeVue gotchas relevant to the Settings UI work.
+- `project_status_2026_03_15.md` — older snapshot; out of date now,
+  but useful as a baseline of what existed when sync work started.
+
+### Subtle correctness points easy to miss
+- **`hashDatabase` is content-based**, not storage-form-based. The
+  `metadata.json.hash` value in the GitHub repo is the *content* hash,
+  identical to what `SqliteBlobBackend` would produce for the same logical
+  rows. Don't accidentally implement a per-backend hash and call it
+  "good enough".
+- **`getMetadata()` has a side effect** (caches the CAS handle).
+  Calling `tryUpload` without a prior `getMetadata` is a programming
+  error and throws. This is intentional — it makes the CAS contract
+  legible in test code.
+- **Schema gate runs only on the `merge` branch** of `decideSync`. A
+  device cannot end up with a newer remote than its own local schema
+  unless someone manually downgrades the PWA. The CSV codec must not
+  silently drop unknown columns — if a newer CSV appears, the gate
+  catches it before import.
+- **CSV row order must be deterministic.** `ORDER BY <pk>` per table.
+  Without this, two devices producing the same logical DB write
+  different CSVs, breaking the content hash and diffing each commit
+  pointlessly.
+- **Per-table column order must also be deterministic.** Drive from
+  `syncColumns`, not from `SELECT *` (column order in SQLite for
+  `SELECT *` matches the CREATE TABLE order, but pinning it via the
+  syncColumns descriptor removes the implicit dependency).
+- **`VACUUM INTO` and the mutation counter.** Verify by test that
+  exporting via `sqliteBlobCodec` does not bump the source DB's
+  `mutationCounter`. The export writes to a separate target VFS file,
+  not the source.
+
+### What the future agent should NOT change
+- `mergeEngine.ts`, `resolveConflict.ts`, `schemaVersion.ts`,
+  `syncTables.ts`, `rows.ts`, `decideSync`. These are the algorithm
+  core. This plan touches the *seam around* them, not them.
+- The 49 orchestrator-level tests in
+  `src/sync/__tests__/syncOrchestrator.spec.ts`. Update the `deps`
+  factory to use `backend` instead of `provider` + `codec`; leave the
+  assertions alone. If an assertion is failing, the refactor is wrong
+  — fix the refactor, don't loosen the test.
