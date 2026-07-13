@@ -4,7 +4,9 @@ import { migration as settingsMigration } from '../../db/migrations/001_settings
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import { hashDatabase } from '../hashDatabase'
 import type { SyncBackend } from '../SyncBackend'
+import { metadataEquals } from '../SyncBackend'
 import type { SyncMetadata } from '../types'
+import { SYNC_TABLES } from '../syncTables'
 
 /**
  * In-memory SyncBackend for unit tests. Holds an open Database directly as
@@ -40,7 +42,6 @@ export class FakeSyncBackend implements SyncBackend {
     await runMigrations(clone, [settingsMigration, domainMigration])
     // Copy rows in FK order via the merge engine's helpers. For test
     // simplicity, just re-import via a direct SELECT/INSERT loop per table.
-    const { SYNC_TABLES } = await import('../syncTables')
     for (const t of SYNC_TABLES) {
       const rows = await this.remoteDb.exec<Record<string, unknown>>(`SELECT * FROM ${t.name}`)
       for (const row of rows) {
@@ -69,13 +70,7 @@ export class FakeSyncBackend implements SyncBackend {
       throw new Error('FakeSyncBackend.tryUpload called without prior getMetadata')
     }
     // CAS check: current remote must still equal what the caller saw.
-    const currentEquals =
-      (this.remoteMeta === null && expected === null) ||
-      (this.remoteMeta !== null &&
-        expected !== null &&
-        this.remoteMeta.device === expected.device &&
-        this.remoteMeta.uploadedAtUtc === expected.uploadedAtUtc &&
-        this.remoteMeta.hash === expected.hash)
+    const currentEquals = metadataEquals(this.remoteMeta, expected)
     if (!currentEquals) return false
 
     // Accept the upload: clone localDb into the remote slot the same way
@@ -83,7 +78,6 @@ export class FakeSyncBackend implements SyncBackend {
     const clone = new Database()
     await clone.init()
     await runMigrations(clone, [settingsMigration, domainMigration])
-    const { SYNC_TABLES } = await import('../syncTables')
     for (const t of SYNC_TABLES) {
       const rows = await localDb.exec<Record<string, unknown>>(`SELECT * FROM ${t.name}`)
       for (const row of rows) {

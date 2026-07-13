@@ -34,9 +34,11 @@ describe('decideSync', () => {
 
 describe('runSync', () => {
   let local: Database
+  let backend: FakeSyncBackend
 
   afterEach(async () => {
     if (local) await local.close()
+    if (backend) await backend.close()
   })
 
   function deps(backend: FakeSyncBackend) {
@@ -55,7 +57,7 @@ describe('runSync', () => {
 
   it('uploads the local database on first sync when the remote is empty', async () => {
     local = await newMigratedDb()
-    const backend = new FakeSyncBackend()
+    backend = new FakeSyncBackend()
 
     const outcome = await runSync(local, deps(backend))
 
@@ -66,7 +68,7 @@ describe('runSync', () => {
 
   it('does nothing when local and remote already match', async () => {
     local = await newMigratedDb()
-    const backend = new FakeSyncBackend()
+    backend = new FakeSyncBackend()
     const d = deps(backend)
     const hash = await d.backend.hashDatabase(local)
     const seedDb = await newMigratedDb()
@@ -80,7 +82,7 @@ describe('runSync', () => {
 
   it('merges a foreign upload and writes the result back', async () => {
     local = await newMigratedDb()
-    const backend = new FakeSyncBackend()
+    backend = new FakeSyncBackend()
     const d = deps(backend)
     // Remote, produced by another device, carries a location the local DB lacks.
     const remoteDb = await newMigratedDb()
@@ -102,7 +104,7 @@ describe('runSync', () => {
 
   it('re-merges when a concurrent upload makes the first CAS upload fail', async () => {
     local = await newMigratedDb()
-    const backend = new FakeSyncBackend()
+    backend = new FakeSyncBackend()
     const d = deps(backend)
     const remoteDb = await newMigratedDb()
     await seedLocation(remoteDb, {
@@ -143,7 +145,7 @@ describe('runSync', () => {
 
   it('aborts when the remote schema is newer than this app', async () => {
     local = await newMigratedDb()
-    const backend = new FakeSyncBackend()
+    backend = new FakeSyncBackend()
     const d = deps(backend)
     const remoteDb = await newMigratedDb()
     // Seed a row so the remote hash differs from the local hash. Two empty
