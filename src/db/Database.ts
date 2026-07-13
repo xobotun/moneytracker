@@ -1,4 +1,4 @@
-import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs'
+﻿import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs'
 import SQLiteAsyncESMFactory from 'wa-sqlite/dist/wa-sqlite-async.mjs'
 import * as SQLite from 'wa-sqlite'
 
@@ -41,8 +41,12 @@ async function createSQLiteModule(async_: boolean): Promise<ReturnType<typeof SQ
 export class Database {
   private sqlite3: SQLiteAPI | null = null
   private db: number | null = null
-  /** Serializes all async operations — Asyncify cannot handle concurrent WASM calls. */
+  /** Serializes all async operations â€” Asyncify cannot handle concurrent WASM calls. */
   private mutex: Promise<void> = Promise.resolve()
+  /** Monotonic counter bumped by every write through run(). Used by
+   *  hashDatabase() to short-circuit re-hashing when nothing has changed.
+   *  Reads (exec) do not bump. */
+  mutationCounter = 0
 
   async init(options: DatabaseOptions = {}): Promise<void> {
     if (this.isOpen()) throw new Error('Database is already initialized')
@@ -110,6 +114,22 @@ export class Database {
 
   private async runUnsafe(sql: string, params?: unknown[]): Promise<RunResult> {
     this.ensureOpen()
+    // Bump the mutation counter for write keywords. The check is intentionally
+    // cheap — we look only at the first word, case-insensitive. Statements
+    // without one of these leading keywords are reads (or no-ops like PRAGMA
+    // reads) and do not invalidate cached hashes.
+    const leading = sql.trimStart().slice(0, 8).toUpperCase()
+    if (
+      leading.startsWith('INSERT') ||
+      leading.startsWith('UPDATE') ||
+      leading.startsWith('DELETE') ||
+      leading.startsWith('REPLACE') ||
+      leading.startsWith('ALTER') ||
+      leading.startsWith('CREATE') ||
+      leading.startsWith('DROP')
+    ) {
+      this.mutationCounter++
+    }
     for await (const stmt of this.sqlite3!.statements(this.db!, sql)) {
       if (params) {
         this.sqlite3!.bind_collection(stmt, params as SQLiteCompatibleType[])
@@ -143,3 +163,7 @@ export class Database {
     }
   }
 }
+
+
+
+

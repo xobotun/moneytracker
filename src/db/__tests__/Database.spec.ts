@@ -74,3 +74,68 @@ describe('Database', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('mutationCounter', () => {
+  let db: Database
+
+  afterEach(async () => {
+    if (db) await db.close()
+  })
+
+  it('starts at 0 on a fresh database', async () => {
+    db = new Database()
+    await db.init()
+    expect(db.mutationCounter).toBe(0)
+  })
+
+  it('bumps on INSERT', async () => {
+    db = new Database()
+    await db.init()
+    await db.run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+    const before = db.mutationCounter
+    await db.run('INSERT INTO t (id) VALUES (1)')
+    expect(db.mutationCounter).toBe(before + 1)
+  })
+
+  it('bumps on UPDATE, DELETE, REPLACE', async () => {
+    db = new Database()
+    await db.init()
+    await db.run('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)')
+    await db.run('INSERT INTO t (id, name) VALUES (1, ?)', ['a'])
+    const before = db.mutationCounter
+    await db.run('UPDATE t SET name = ? WHERE id = 1', ['b'])
+    await db.run('DELETE FROM t WHERE id = 1')
+    await db.run('REPLACE INTO t (id, name) VALUES (1, ?)', ['c'])
+    expect(db.mutationCounter).toBe(before + 3)
+  })
+
+  it('bumps on schema changes (CREATE, ALTER, DROP)', async () => {
+    db = new Database()
+    await db.init()
+    const before = db.mutationCounter
+    await db.run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+    await db.run('ALTER TABLE t ADD COLUMN name TEXT')
+    await db.run('DROP TABLE t')
+    expect(db.mutationCounter).toBe(before + 3)
+  })
+
+  it('does not bump on exec() reads', async () => {
+    db = new Database()
+    await db.init()
+    await db.run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+    await db.run('INSERT INTO t (id) VALUES (1)')
+    const before = db.mutationCounter
+    await db.exec('SELECT * FROM t')
+    await db.exec<{ c: number }>('SELECT COUNT(*) AS c FROM t')
+    expect(db.mutationCounter).toBe(before)
+  })
+
+  it('is case-insensitive on the leading keyword', async () => {
+    db = new Database()
+    await db.init()
+    await db.run('CREATE TABLE t (id INTEGER PRIMARY KEY)')
+    const before = db.mutationCounter
+    await db.run('  insert  into t (id) values (1)')
+    expect(db.mutationCounter).toBe(before + 1)
+  })
+})
