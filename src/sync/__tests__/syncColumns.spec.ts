@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { Database } from '../../db/Database'
 import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
@@ -13,6 +13,7 @@ interface PragmaRow {
   notnull: 0 | 1
   dflt_value: string | null
   pk: 0 | 1
+  [key: string]: unknown
 }
 
 describe('SYNC_COLUMNS', () => {
