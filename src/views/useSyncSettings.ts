@@ -1,6 +1,6 @@
 import { ref, type Ref } from 'vue'
 import type { Database } from '@/db/Database'
-import type { DatabaseCodec } from '@/sync/DatabaseCodec'
+import type { SyncBackend } from '@/sync/SyncBackend'
 import {
   getDeviceName,
   setDeviceName,
@@ -15,10 +15,10 @@ import type { RemoteState, SyncMetadata } from '@/sync/types'
 // Composable for the Sync sections of the Settings page. Owns the reactive
 // state and the localStorage writes; the .vue file is presentation-only.
 //
-// Dependencies (database + codec) are passed in explicitly rather than read
+// Dependencies (database + backend) are passed in explicitly rather than read
 // from a module-level singleton inside this function. Two reasons:
-//   1. Tests stay trivial — just call useSyncSettings({db, codec}) with fakes.
-//   2. The codec is legitimately absent today (the External-sync plan is what
+//   1. Tests stay trivial — just call useSyncSettings({db, backend}) with fakes.
+//   2. The backend is legitimately absent today (the External-sync plan is what
 //      registers a real one). Making absence visible in the call signature
 //      forces callers to think about it.
 
@@ -26,10 +26,10 @@ export interface SyncSettingsDeps {
   /** Local database used to compute the current-local-DB hash. May be null
    *  when called from a non-db test fixture. */
   db: Database | null
-  /** Codec used to export the db before hashing. Null until the External-sync
-   *  plan registers one — when null, the "Current local DB" row reads as
-   *  unavailable in the UI. */
-  codec: DatabaseCodec | null
+  /** Backend used to hash the db. Null until the External-sync plan registers
+   *  one — when null, the "Current local DB" row reads as unavailable in
+   *  the UI. */
+  backend: SyncBackend | null
 }
 
 export interface SyncSettings {
@@ -70,18 +70,17 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
   }
 
   async function recomputeLocalHash(): Promise<void> {
-    if (!deps.db || !deps.codec) {
-      // Codec absent → External-sync plan has not landed yet. Leave the
+    if (!deps.db || !deps.backend) {
+      // Backend absent → External-sync plan has not landed yet. Leave the
       // row null so the UI can render "not available".
       localHash.value = null
       localHashComputedAt.value = null
       return
     }
-    // Each call exports the database fresh. Cheap-ish for small DBs but
+    // Each call hashes the database fresh. Cheap-ish for small DBs but
     // explicitly not run reactively on every keystroke — the composable
     // only computes when the caller asks for it (mount + Recompute button).
-    const blob = await deps.codec.export(deps.db)
-    localHash.value = await deps.codec.hash(blob)
+    localHash.value = await deps.backend.hashDatabase(deps.db)
     localHashComputedAt.value = new Date()
   }
 

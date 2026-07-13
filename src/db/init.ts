@@ -9,12 +9,12 @@ import { AccountsRepository } from './repositories/AccountsRepository'
 import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
 import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from './repositories/TransactionsRepository'
-import type { DatabaseCodec } from '../sync/DatabaseCodec'
+import type { SyncBackend } from '../sync/SyncBackend'
 
 const allMigrations = [settingsMigration, domainMigration]
 
 let database: Database | null = null
-let databaseCodec: DatabaseCodec | null = null
+let syncBackend: SyncBackend | null = null
 let settingsRepository: SettingsRepository | null = null
 let tagsRepository: TagsRepository | null = null
 let locationsRepository: LocationsRepository | null = null
@@ -42,17 +42,17 @@ export function getDatabase(): Database {
 }
 
 /**
- * Registers the codec used to export the local database to a syncable blob.
- * Called by the External-sync plan once a real codec is wired in. Until then
- * `getDatabaseCodec()` returns null and consumers must handle that.
+ * Registers the backend used to sync the local database with the remote.
+ * Called by the External-sync plan once a real backend is wired in. Until then
+ * `getSyncBackend()` returns null and consumers must handle that.
  */
-export function setDatabaseCodec(codec: DatabaseCodec | null): void {
-  databaseCodec = codec
+export function setSyncBackend(backend: SyncBackend | null): void {
+  syncBackend = backend
 }
 
-/** Returns the registered codec, or null when none has been registered yet. */
-export function getDatabaseCodec(): DatabaseCodec | null {
-  return databaseCodec
+/** Returns the registered backend, or null when none has been registered yet. */
+export function getSyncBackend(): SyncBackend | null {
+  return syncBackend
 }
 
 export function getSettingsRepository(): SettingsRepository {
@@ -96,7 +96,7 @@ export async function closeDatabase(): Promise<void> {
     await database.close()
   }
   database = null
-  databaseCodec = null
+  syncBackend = null
   settingsRepository = null
   tagsRepository = null
   locationsRepository = null

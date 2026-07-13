@@ -10,7 +10,7 @@ import RadioButton from 'primevue/radiobutton'
 import Button from 'primevue/button'
 import { useSettingsOptions } from './useSettingsOptions'
 import { useSyncSettings } from './useSyncSettings'
-import { getDatabase, getDatabaseCodec } from '@/db/init'
+import { getDatabase, getSyncBackend } from '@/db/init'
 
 const {
   layoutStore,
@@ -27,9 +27,9 @@ const {
   showCollapseMode,
 } = useSettingsOptions()
 
-// The codec is registered by the External-sync plan; for now it returns null
+// The backend is registered by the External-sync plan; for now it returns null
 // and the "Current local database" row will render its "not available" state.
-const sync = useSyncSettings({ db: getDatabase(), codec: getDatabaseCodec() })
+const sync = useSyncSettings({ db: getDatabase(), backend: getSyncBackend() })
 
 // Show a short hash (first 8 chars) inline, full value as a tooltip via `title`.
 function shortHash(hash: string | null | undefined): string {
@@ -176,8 +176,8 @@ const localHashMatchesLastSync = computed(() => {
             </div>
           </template>
           <div v-else class="text-sm text-surface-500">
-            Not available — sync codec not yet registered. Click Recompute after the External-sync
-            plan lands.
+            Not available — sync backend not yet registered. Click Recompute after the
+            External-sync plan lands.
           </div>
         </div>
 
