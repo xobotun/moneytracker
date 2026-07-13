@@ -1,4 +1,4 @@
-﻿import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs'
+import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs'
 import SQLiteAsyncESMFactory from 'wa-sqlite/dist/wa-sqlite-async.mjs'
 import * as SQLite from 'wa-sqlite'
 
@@ -41,7 +41,7 @@ async function createSQLiteModule(async_: boolean): Promise<ReturnType<typeof SQ
 export class Database {
   private sqlite3: SQLiteAPI | null = null
   private db: number | null = null
-  /** Serializes all async operations â€” Asyncify cannot handle concurrent WASM calls. */
+  /** Serializes all async operations — Asyncify cannot handle concurrent WASM calls. */
   private mutex: Promise<void> = Promise.resolve()
   /** Monotonic counter bumped by every write through run(). Used by
    *  hashDatabase() to short-circuit re-hashing when nothing has changed.
@@ -163,7 +163,3 @@ export class Database {
     }
   }
 }
-
-
-
-
