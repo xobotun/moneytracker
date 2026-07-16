@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { Database } from '../Database'
+import { MemoryVFS } from 'wa-sqlite/src/examples/MemoryVFS.js'
 
 describe('Database', () => {
   let db: Database
@@ -72,6 +73,45 @@ describe('Database', () => {
     await expect(
       db.run('INSERT INTO child (id, parent_id) VALUES (?, ?)', ['c1', 'missing'])
     ).rejects.toThrow()
+  })
+
+  it('opens against a caller-supplied VFS pre-loaded with an existing file', async () => {
+    // Build a source database, then hand-roll a MemoryVFS file the way
+    // sqliteBlobCodec.exportDatabaseToBlob does (via VACUUM INTO), and
+    // verify Database.init({ vfs, filePath }) opens straight into it rather
+    // than creating a fresh empty database under that name.
+    const source = new Database()
+    await source.init()
+    await source.run('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)')
+    await source.run("INSERT INTO t (id, name) VALUES (1, 'hello')")
+
+    const exportVfs = new MemoryVFS()
+    exportVfs.name = 'database-spec-export-vfs'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    source.registerVfs(exportVfs as any)
+    await source.run(`VACUUM INTO 'file:exported?vfs=${exportVfs.name}'`)
+    await source.close()
+
+    const [file] = exportVfs.mapNameToFile.values() as IterableIterator<{
+      data: ArrayBuffer
+      size: number
+    }>
+    expect(file).toBeDefined()
+
+    const importVfs = new MemoryVFS()
+    importVfs.name = 'database-spec-import-vfs'
+    importVfs.mapNameToFile.set('imported', {
+      name: 'imported',
+      flags: 0,
+      size: file!.size,
+      data: file!.data.slice(0, file!.size),
+    })
+
+    db = new Database()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await db.init({ filePath: 'imported', vfs: importVfs as any })
+    const rows = await db.exec<{ id: number; name: string }>('SELECT * FROM t')
+    expect(rows).toEqual([{ id: 1, name: 'hello' }])
   })
 })
 

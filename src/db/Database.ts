@@ -6,6 +6,16 @@ export interface DatabaseOptions {
   filePath?: string
   /** Use persistent storage (IndexedDB via IDBBatchAtomicVFS). Requires async WASM build. */
   persist?: boolean
+  /**
+   * Advanced: register this VFS as the connection's default VFS instead of
+   * IDBBatchAtomicVFS (`persist: true`) or SQLite's built-in `:memory:`
+   * handling (the default). Used by sqliteBlobCodec.openDatabaseFromBlob to
+   * open a fresh Database against a wa-sqlite MemoryVFS pre-loaded with
+   * blob bytes. Mutually exclusive with `persist` — both register a VFS as
+   * default, so combining them would just mean the last one registered
+   * (`vfs`, since it is checked first) wins silently.
+   */
+  vfs?: SQLiteVFS
 }
 
 export interface RunResult {
@@ -53,7 +63,13 @@ export class Database {
     const module = await createSQLiteModule(!!options.persist)
     this.sqlite3 = SQLite.Factory(module)
 
-    if (options.persist) {
+    if (options.vfs) {
+      // Caller-supplied VFS (e.g. a MemoryVFS pre-loaded with blob bytes for
+      // import). Registered as default so a plain open_v2(filePath) below
+      // resolves through it, same as the persist branch does for
+      // IDBBatchAtomicVFS.
+      this.sqlite3.vfs_register(options.vfs, true)
+    } else if (options.persist) {
       // IDBBatchAtomicVFS persists to IndexedDB and works on the main thread.
       // Requires the async WASM build (wa-sqlite-async.mjs).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,12 +79,35 @@ export class Database {
     }
 
     const filePath = options.filePath ?? ':memory:'
-    this.db = await this.sqlite3.open_v2(filePath)
+    // SQLITE_OPEN_URI (in addition to the READWRITE|CREATE wa-sqlite
+    // otherwise defaults to) lets `file:...?vfs=...` strings be parsed as
+    // URIs by this connection — needed so that sqliteBlobCodec's
+    // `VACUUM INTO 'file:name?vfs=name'` can target a specific MemoryVFS.
+    // Plain filenames (':memory:', bare names) are unaffected: URI parsing
+    // only activates for strings that start with the "file:" scheme.
+    this.db = await this.sqlite3.open_v2(
+      filePath,
+      SQLite.SQLITE_OPEN_CREATE | SQLite.SQLITE_OPEN_READWRITE | SQLite.SQLITE_OPEN_URI,
+    )
     await this.run('PRAGMA foreign_keys = ON')
   }
 
   isOpen(): boolean {
     return this.sqlite3 !== null && this.db !== null
+  }
+
+  /**
+   * Advanced escape hatch: registers `vfs` (non-default) on this Database's
+   * own WASM module instance. Used by sqliteBlobCodec.exportDatabaseToBlob
+   * to make a MemoryVFS reachable via `VACUUM INTO '...?vfs=<name>'` — the
+   * target VFS named in that URI must be registered on the *same* module
+   * that owns this connection, not a separate one, so this cannot be done
+   * from outside without an accessor. Only registers the VFS; it does not
+   * open or query anything, so it does not touch mutationCounter.
+   */
+  registerVfs(vfs: SQLiteVFS): void {
+    this.ensureOpen()
+    this.sqlite3!.vfs_register(vfs, false)
   }
 
   async exec<T extends Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
