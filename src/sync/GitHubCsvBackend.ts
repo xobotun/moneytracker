@@ -1,7 +1,5 @@
 import { Database } from '../db/Database'
-import { runMigrations } from '../db/migrations'
-import { migration as settingsMigration } from '../db/migrations/001_settings'
-import { migration as domainMigration } from '../db/migrations/002_domain_schema'
+import { ALL_MIGRATIONS, runMigrations } from '../db/migrations'
 import { exportAllTables, importAllTables } from './csvCodec'
 import { hashDatabase } from './hashDatabase'
 import type { GitHubTransport, TreeEntry } from './GitHubTransport'
@@ -96,8 +94,7 @@ export class GitHubCsvBackend implements SyncBackend {
     // the local version when required.
     const db = new Database()
     await db.init()
-    const allMigrations = [settingsMigration, domainMigration]
-    await runMigrations(db, allMigrations.slice(0, meta.migrationVersion))
+    await runMigrations(db, ALL_MIGRATIONS.slice(0, meta.migrationVersion))
     await importAllTables(db, bundle)
     return db
   }

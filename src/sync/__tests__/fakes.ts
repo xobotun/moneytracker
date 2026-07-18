@@ -18,8 +18,9 @@ import { type GitHubFetch, GitHubTransport, type TreeEntry } from '../GitHubTran
 export class FakeSyncBackend implements SyncBackend {
   private remoteDb: Database | null = null
   private remoteMeta: SyncMetadata | null = null
-  /** Stub for the CAS handle the real backends cache from getMetadata(). */
-  private metadataReadAt: SyncMetadata | null = null
+  /** Matches both real backends' field name for the "has getMetadata been
+   *  called yet" guard on tryUpload. */
+  private getMetadataCalled = false
 
   /** Test hook: simulate the remote being updated by some other writer. */
   async setRemote(db: Database, meta: SyncMetadata): Promise<void> {
@@ -29,7 +30,7 @@ export class FakeSyncBackend implements SyncBackend {
   }
 
   async getMetadata(): Promise<SyncMetadata | null> {
-    this.metadataReadAt = this.remoteMeta
+    this.getMetadataCalled = true
     return this.remoteMeta
   }
 
@@ -66,8 +67,9 @@ export class FakeSyncBackend implements SyncBackend {
     metadata: SyncMetadata,
     expected: SyncMetadata | null,
   ): Promise<boolean> {
-    if (this.metadataReadAt === null && expected !== null) {
-      // The orchestrator must have called getMetadata() first.
+    if (!this.getMetadataCalled) {
+      // The orchestrator must have called getMetadata() first — matches the
+      // unconditional guard in both real backends.
       throw new Error('FakeSyncBackend.tryUpload called without prior getMetadata')
     }
     // CAS check: current remote must still equal what the caller saw.

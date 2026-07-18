@@ -1,9 +1,20 @@
 import type { Database } from '../Database'
+import { migration as settingsMigration } from './001_settings'
+import { migration as domainMigration } from './002_domain_schema'
 
 export interface Migration {
   version: number
   up: string
 }
+
+/**
+ * Authoritative, ordered list of every migration. Both init.ts (bringing the
+ * local DB up to the latest schema) and GitHubCsvBackend.downloadDatabase
+ * (bringing a fresh in-memory DB up to a remote snapshot's schema version)
+ * must use this single list — a second, independently maintained copy would
+ * silently drift the moment a new migration is added to only one of them.
+ */
+export const ALL_MIGRATIONS: Migration[] = [settingsMigration, domainMigration]
 
 export async function runMigrations(db: Database, migrations: Migration[]): Promise<void> {
   await db.run(`

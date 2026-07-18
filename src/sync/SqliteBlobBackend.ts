@@ -68,7 +68,7 @@ export class SqliteBlobBackend implements SyncBackend {
     const blob = await exportDatabaseToBlob(localDb)
     await this.transport.putBlob(blob)
     const ok = await this.transport.putSidecar(
-      JSON.stringify(metadata, null, 2) + '\n',
+      JSON.stringify(metadata) + '\n',
       expected === null ? null : this.cachedSidecarEtag,
     )
     if (ok) {

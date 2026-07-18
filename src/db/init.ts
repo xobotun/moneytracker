@@ -1,7 +1,5 @@
 import { Database } from './Database'
-import { runMigrations } from './migrations'
-import { migration as settingsMigration } from './migrations/001_settings'
-import { migration as domainMigration } from './migrations/002_domain_schema'
+import { ALL_MIGRATIONS, runMigrations } from './migrations'
 import { SettingsRepository } from './repositories/SettingsRepository'
 import { TagsRepository } from './repositories/TagsRepository'
 import { LocationsRepository } from './repositories/LocationsRepository'
@@ -12,8 +10,6 @@ import { TransactionsRepository } from './repositories/TransactionsRepository'
 import type { SyncBackend } from '../sync/SyncBackend'
 import { buildBackend } from '../sync/backendFactory'
 import { loadProviderConfig } from '../sync/localState'
-
-const allMigrations = [settingsMigration, domainMigration]
 
 let database: Database | null = null
 let syncBackend: SyncBackend | null = null
@@ -28,7 +24,7 @@ let transactionsRepository: TransactionsRepository | null = null
 export async function initDatabase(): Promise<void> {
   database = new Database()
   await database.init({ filePath: 'moneytracker.db', persist: true })
-  await runMigrations(database, allMigrations)
+  await runMigrations(database, ALL_MIGRATIONS)
   settingsRepository = new SettingsRepository(database)
   tagsRepository = new TagsRepository(database)
   locationsRepository = new LocationsRepository(database)
