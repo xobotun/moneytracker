@@ -10,6 +10,8 @@ import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
 import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from './repositories/TransactionsRepository'
 import type { SyncBackend } from '../sync/SyncBackend'
+import { buildBackend } from '../sync/backendFactory'
+import { loadProviderConfig } from '../sync/localState'
 
 const allMigrations = [settingsMigration, domainMigration]
 
@@ -34,6 +36,12 @@ export async function initDatabase(): Promise<void> {
   exchangeRatesRepository = new ExchangeRatesRepository(database)
   accountGroupingsRepository = new AccountGroupingsRepository(database)
   transactionsRepository = new TransactionsRepository(database)
+
+  // Build the sync backend from the stored provider config. null when the
+  // user has not configured a provider; Settings.vue's "Sync now" button
+  // disables itself in that case.
+  const cfg = loadProviderConfig()
+  setSyncBackend(buildBackend(cfg))
 }
 
 export function getDatabase(): Database {
