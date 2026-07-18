@@ -117,4 +117,12 @@ describe('SqliteBlobBackend', () => {
     const m = META({ hash: await backend.hashDatabase(local) })
     await expect(backend.tryUpload(local, m, m)).rejects.toThrow(/getMetadata/)
   })
+
+  it('tryUpload throws if called without prior getMetadata even with expected === null', async () => {
+    const { backend } = setup()
+    const local = await migratedDb()
+    dbs.push(local)
+    const m = META({ hash: await backend.hashDatabase(local) })
+    await expect(backend.tryUpload(local, m, null)).rejects.toThrow(/getMetadata/)
+  })
 })

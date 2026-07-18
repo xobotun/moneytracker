@@ -16,6 +16,18 @@ import type { SyncMetadata } from './types'
  *
  * If step 2 fails after step 1 succeeded, the orphan blob is left in
  * place. The next successful upload overwrites it. No GC in this plan.
+ *
+ * Contract notes:
+ *  - getMetadata() caches the current sidecar ETag as the CAS handle for
+ *    the next tryUpload(). The cache is on this instance only, so a fresh
+ *    SqliteBlobBackend must call getMetadata() before its first tryUpload
+ *    — verified by test. Calling tryUpload without prior getMetadata throws
+ *    unconditionally, making the CAS contract legible in test code.
+ *  - downloadDatabase() returns a fresh in-memory Database with the synced
+ *    blob opened directly via openDatabaseFromBlob.
+ *  - tryUpload exports the entire database on every call (full blob upload
+ *    — see the design doc's "Assumptions accepted on purpose" for why this
+ *    is acceptable at personal-finance scale).
  */
 export class SqliteBlobBackend implements SyncBackend {
   private cachedSidecarEtag: string | null = null
@@ -48,7 +60,7 @@ export class SqliteBlobBackend implements SyncBackend {
     metadata: SyncMetadata,
     expected: SyncMetadata | null,
   ): Promise<boolean> {
-    if (!this.getMetadataCalled && expected !== null) {
+    if (!this.getMetadataCalled) {
       throw new Error(
         'SqliteBlobBackend.tryUpload called without prior getMetadata — the backend needs the cached sidecar etag',
       )
