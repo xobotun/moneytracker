@@ -91,3 +91,35 @@ describe('FakeSyncBackend', () => {
     await expect(backend.tryUpload(local, META(), META())).rejects.toThrow(/prior getMetadata/)
   })
 })
+
+import { FakeBlobTransport } from './fakes'
+
+describe('FakeBlobTransport', () => {
+  it('returns null sidecar when empty', async () => {
+    expect(await new FakeBlobTransport().getSidecar()).toBeNull()
+  })
+
+  it('putSidecar(text, null) succeeds when empty, fails when not empty', async () => {
+    const t = new FakeBlobTransport()
+    expect(await t.putSidecar('a', null)).toBe(true)
+    expect(await t.putSidecar('b', null)).toBe(false)
+  })
+
+  it('putSidecar(text, etag) succeeds when etag matches and fails otherwise', async () => {
+    const t = new FakeBlobTransport()
+    await t.putSidecar('a', null)
+    const first = (await t.getSidecar())!
+    expect(await t.putSidecar('b', first.etag)).toBe(true)
+    expect(await t.putSidecar('c', first.etag)).toBe(false) // stale etag
+  })
+
+  it('getBlob throws when no blob has been put', async () => {
+    await expect(new FakeBlobTransport().getBlob()).rejects.toThrow(/no blob/)
+  })
+
+  it('putBlob then getBlob round-trips bytes', async () => {
+    const t = new FakeBlobTransport()
+    await t.putBlob(new Uint8Array([1, 2, 3]))
+    expect(Array.from(await t.getBlob())).toEqual([1, 2, 3])
+  })
+})

@@ -277,3 +277,42 @@ function decodeBase64Utf8(b64: string): string {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return new TextDecoder().decode(bytes)
 }
+
+import type { BlobTransport } from '../BlobTransport'
+
+/** In-memory BlobTransport. Tracks etags so conditional PUT works. */
+export class FakeBlobTransport implements BlobTransport {
+  private blob: Uint8Array | null = null
+  private sidecar: { text: string; etag: string } | null = null
+  private nextEtag = 1
+
+  async validate(): Promise<void> {}
+
+  async getSidecar(): Promise<{ text: string; etag: string } | null> {
+    return this.sidecar ? { ...this.sidecar } : null
+  }
+
+  async putBlob(bytes: Uint8Array): Promise<void> {
+    this.blob = new Uint8Array(bytes)
+  }
+
+  async putSidecar(text: string, expectedEtag: string | null): Promise<boolean> {
+    if (expectedEtag === null) {
+      if (this.sidecar !== null) return false // 412: was not absent
+    } else {
+      if (!this.sidecar || this.sidecar.etag !== expectedEtag) return false // 412
+    }
+    this.sidecar = { text, etag: `e${this.nextEtag++}` }
+    return true
+  }
+
+  async getBlob(): Promise<Uint8Array> {
+    if (!this.blob) throw new Error('FakeBlobTransport: no blob')
+    return new Uint8Array(this.blob)
+  }
+
+  /** Test hook: simulate a foreign upload. */
+  forceSidecar(text: string): void {
+    this.sidecar = { text, etag: `e${this.nextEtag++}` }
+  }
+}
