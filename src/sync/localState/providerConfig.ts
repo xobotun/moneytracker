@@ -28,7 +28,6 @@ export interface S3Config {
 export interface GitHubConfig {
   repo: string
   branch: string
-  path: string
   token: string
 }
 
@@ -50,7 +49,7 @@ export const EMPTY_PROVIDER_CONFIG: ProviderConfig = {
     bucket: 'moneytracker',
     objectKey: 'moneytracker.sqlite',
   },
-  github: { repo: '', branch: 'main', path: 'moneytracker.sqlite', token: '' },
+  github: { repo: '', branch: 'main', token: '' },
 }
 
 const slot = jsonStore<ProviderConfig>('providerConfig', EMPTY_PROVIDER_CONFIG)

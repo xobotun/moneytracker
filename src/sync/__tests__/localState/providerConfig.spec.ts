@@ -20,7 +20,6 @@ describe('providerConfig', () => {
     expect(EMPTY_PROVIDER_CONFIG.supabase.bucket).toBe('moneytracker')
     expect(EMPTY_PROVIDER_CONFIG.s3.objectKey).toBe('moneytracker.sqlite')
     expect(EMPTY_PROVIDER_CONFIG.github.branch).toBe('main')
-    expect(EMPTY_PROVIDER_CONFIG.github.path).toBe('moneytracker.sqlite')
   })
 
   it('round-trips a fully populated config', () => {
@@ -35,7 +34,7 @@ describe('providerConfig', () => {
         bucket: 'mt',
         objectKey: 'db.sqlite',
       },
-      github: { repo: 'me/mt', branch: 'main', path: 'db.sqlite', token: 'ghp_x' },
+      github: { repo: 'me/mt', branch: 'main', token: 'ghp_x' },
     }
     saveProviderConfig(cfg)
     expect(loadProviderConfig()).toEqual(cfg)

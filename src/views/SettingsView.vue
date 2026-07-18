@@ -371,15 +371,6 @@ const localHashMatchesLastSync = computed(() => {
             />
           </div>
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-            <label for="gh-path">Path</label>
-            <InputText
-              id="gh-path"
-              v-model="sync.providerConfig.value.github.path"
-              class="sm:w-80"
-              @blur="sync.saveProviderConfig()"
-            />
-          </div>
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <label for="gh-token">Token (PAT)</label>
             <Password
               inputId="gh-token"
