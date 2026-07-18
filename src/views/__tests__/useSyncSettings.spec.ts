@@ -1,14 +1,27 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useSyncSettings } from '../useSyncSettings'
-import type { Database } from '../../db/Database'
+import { Database } from '../../db/Database'
 import type { SyncBackend } from '../../sync/SyncBackend'
+import { runMigrations } from '../../db/migrations'
+import { migration as settingsMigration } from '../../db/migrations/001_settings'
+import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
+import { FakeSyncBackend } from '../../sync/__tests__/fakes'
 import {
   saveLastKnownRemoteState,
   saveLastFetchedRemoteSnapshot,
   EMPTY_PROVIDER_CONFIG,
   loadProviderConfig,
   getDeviceName,
+  saveSyncError,
+  loadSyncError,
 } from '../../sync/localState'
+
+async function migratedDb(): Promise<Database> {
+  const db = new Database()
+  await db.init()
+  await runMigrations(db, [settingsMigration, domainMigration])
+  return db
+}
 
 // A minimal backend stub — only the method the composable uses.
 function fakeBackend(hash: string): SyncBackend {
@@ -118,5 +131,71 @@ describe('useSyncSettings', () => {
       expect(reloaded.active).toBe('s3')
       expect(reloaded.s3.bucket).toBe('my-bucket')
     })
+  })
+})
+
+describe('useSyncSettings — syncNow + lastSyncError', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('exposes syncing = false initially', () => {
+    const s = useSyncSettings({ db: null, backend: null })
+    expect(s.syncing.value).toBe(false)
+  })
+
+  it('exposes lastSyncError loaded from localState', () => {
+    saveSyncError({ atUtc: '2026-05-28T10:00:00.000Z', message: 'Auth failed' })
+    const s = useSyncSettings({ db: null, backend: null })
+    expect(s.lastSyncError.value?.message).toBe('Auth failed')
+  })
+
+  it('syncNow toggles syncing during the call', async () => {
+    const db = await migratedDb()
+    const backend = new FakeSyncBackend()
+    const s = useSyncSettings({ db, backend })
+    const p = s.syncNow()
+    expect(s.syncing.value).toBe(true)
+    await p
+    expect(s.syncing.value).toBe(false)
+    await db.close()
+    await backend.close()
+  })
+
+  it('syncNow clears lastSyncError on success', async () => {
+    saveSyncError({ atUtc: '2026-05-28T10:00:00.000Z', message: 'old' })
+    const db = await migratedDb()
+    const backend = new FakeSyncBackend()
+    const s = useSyncSettings({ db, backend })
+    await s.syncNow()
+    expect(s.lastSyncError.value).toBeNull()
+    expect(loadSyncError()).toBeNull()
+    await db.close()
+    await backend.close()
+  })
+
+  it('syncNow records an error when the backend throws', async () => {
+    const db = await migratedDb()
+    const failingBackend = {
+      getMetadata: async () => {
+        throw new Error('boom')
+      },
+      downloadDatabase: async () => {
+        throw new Error('boom')
+      },
+      hashDatabase: async () => 'sha256:0',
+      tryUpload: async () => false,
+    }
+    const s = useSyncSettings({ db, backend: failingBackend })
+    await s.syncNow()
+    expect(s.lastSyncError.value?.message).toMatch(/boom/)
+    await db.close()
+  })
+
+  it('syncNow is a no-op when no backend is registered', async () => {
+    const db = await migratedDb()
+    const s = useSyncSettings({ db, backend: null })
+    await s.syncNow()
+    expect(s.syncing.value).toBe(false)
+    expect(s.lastSyncError.value).toBeNull()
+    await db.close()
   })
 })

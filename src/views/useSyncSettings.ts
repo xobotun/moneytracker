@@ -5,11 +5,17 @@ import {
   getDeviceName,
   setDeviceName,
   loadLastKnownRemoteState,
+  saveLastKnownRemoteState,
   loadLastFetchedRemoteSnapshot,
   loadProviderConfig,
   saveProviderConfig,
+  loadSyncError,
+  saveSyncError,
+  clearSyncError,
   type ProviderConfig,
+  type SyncError,
 } from '@/sync/localState'
+import { runSync } from '@/sync/syncOrchestrator'
 import type { RemoteState, SyncMetadata } from '@/sync/types'
 
 // Composable for the Sync sections of the Settings page. Owns the reactive
@@ -50,6 +56,11 @@ export interface SyncSettings {
   // Provider config — editable through the reactive ref, persisted on save.
   providerConfig: Ref<ProviderConfig>
   saveProviderConfig: () => void
+
+  // Sync-now flow.
+  syncing: Ref<boolean>
+  lastSyncError: Ref<SyncError | null>
+  syncNow: () => Promise<void>
 }
 
 export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
@@ -60,6 +71,9 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
 
   const localHash = ref<string | null>(null)
   const localHashComputedAt = ref<Date | null>(null)
+
+  const syncing = ref(false)
+  const lastSyncError = ref<SyncError | null>(loadSyncError())
 
   function saveDeviceNameNow(): void {
     setDeviceName(deviceName.value)
@@ -84,6 +98,45 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
     localHashComputedAt.value = new Date()
   }
 
+  async function syncNow(): Promise<void> {
+    if (!deps.db || !deps.backend) return
+    if (syncing.value) return
+    syncing.value = true
+    try {
+      await runSync(deps.db, {
+        backend: deps.backend,
+        deviceName: deviceName.value,
+        now: () => new Date(),
+        migrate: async () => {
+          // PLAN-MANDATED STUB: real schema migration of a remote DB is
+          // deferred to a follow-up plan (see Task 16 brief + design doc's
+          // Out of scope). If the schema gate ever asks for migration in
+          // the UI path, we surface it as a loud error rather than silently
+          // proceed with the wrong schema.
+          throw new Error(
+            'useSyncSettings.syncNow: schema migration of remote DB is not wired in the minimal UI slice — surface this to the user',
+          )
+        },
+        loadLastKnown: loadLastKnownRemoteState,
+        saveLastKnown: saveLastKnownRemoteState,
+      })
+      clearSyncError()
+      lastSyncError.value = null
+      // Refresh displayed snapshots on success.
+      lastKnownRemoteState.value = loadLastKnownRemoteState()
+      await recomputeLocalHash()
+    } catch (e) {
+      const err: SyncError = {
+        atUtc: new Date().toISOString(),
+        message: (e as Error).message ?? String(e),
+      }
+      saveSyncError(err)
+      lastSyncError.value = err
+    } finally {
+      syncing.value = false
+    }
+  }
+
   return {
     deviceName,
     saveDeviceName: saveDeviceNameNow,
@@ -94,5 +147,8 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
     recomputeLocalHash,
     providerConfig,
     saveProviderConfig: saveProviderConfigNow,
+    syncing,
+    lastSyncError,
+    syncNow,
   }
 }
