@@ -3,6 +3,9 @@ import SQLiteAsyncESMFactory from 'wa-sqlite/dist/wa-sqlite-async.mjs'
 import * as SQLite from 'wa-sqlite'
 
 export interface DatabaseOptions {
+  /** Path to open. URI parsing is enabled globally (SQLITE_OPEN_URI), so a
+   *  future caller must never thread a user-supplied string here unsanitized —
+   *  a raw `file:...?vfs=X` URI could redirect to an unexpected VFS. */
   filePath?: string
   /** Use persistent storage (IndexedDB via IDBBatchAtomicVFS). Requires async WASM build. */
   persist?: boolean

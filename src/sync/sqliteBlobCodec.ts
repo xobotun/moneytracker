@@ -52,6 +52,11 @@ export async function exportDatabaseToBlob(db: Database): Promise<Uint8Array> {
   // string is not stripped before reaching the VFS layer), so looking up
   // by the bare `fileName` misses. Read back whatever got stored instead of
   // assuming the exact key.
+  if (vfs.mapNameToFile.size !== 1) {
+    throw new Error(
+      `sqliteBlobCodec.exportDatabaseToBlob: expected exactly 1 file in export VFS, got ${vfs.mapNameToFile.size}`,
+    )
+  }
   const [file] = vfs.mapNameToFile.values() as IterableIterator<{
     data: ArrayBuffer
     size: number
@@ -62,7 +67,14 @@ export async function exportDatabaseToBlob(db: Database): Promise<Uint8Array> {
   // file.data may be larger than file.size (MemoryVFS doubles its backing
   // ArrayBuffer on growth rather than resizing exactly); slice to the
   // logical size to get exactly the bytes SQLite wrote.
-  return new Uint8Array(file.data.slice(0, file.size))
+  const bytes = new Uint8Array(file.data.slice(0, file.size))
+  // Clear the VFS's file map to prevent unbounded memory retention on
+  // long-lived source connections that repeatedly call exportDatabaseToBlob.
+  // ArrayBuffer.slice() already produced an independent copy, so clearing
+  // after slicing is safe. The (now-empty) VFS registration itself is still
+  // permanently retained on the module, but that's a fixed-cost residual.
+  vfs.mapNameToFile.clear()
+  return bytes
 }
 
 /**
