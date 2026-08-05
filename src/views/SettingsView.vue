@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, reactive } from 'vue'
 import Card from 'primevue/card'
 import Select from 'primevue/select'
 import ToggleSwitch from 'primevue/toggleswitch'
@@ -8,9 +8,13 @@ import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import RadioButton from 'primevue/radiobutton'
 import Button from 'primevue/button'
+import Message from 'primevue/message'
 import { useSettingsOptions } from './useSettingsOptions'
 import { useSyncSettings } from './useSyncSettings'
-import { getDatabase, getDatabaseCodec } from '@/db/init'
+import { getDatabase, getSyncBackend } from '@/db/init'
+import { GitHubTransport } from '@/sync/GitHubTransport'
+import { SupabaseStorageTransport } from '@/sync/SupabaseStorageTransport'
+import { S3Transport } from '@/sync/S3Transport'
 
 const {
   layoutStore,
@@ -27,9 +31,14 @@ const {
   showCollapseMode,
 } = useSettingsOptions()
 
-// The codec is registered by the External-sync plan; for now it returns null
+// The backend is registered by the External-sync plan; for now it returns null
 // and the "Current local database" row will render its "not available" state.
-const sync = useSyncSettings({ db: getDatabase(), codec: getDatabaseCodec() })
+const sync = useSyncSettings({ db: getDatabase(), backend: getSyncBackend() })
+
+// getSyncBackend() reads the backend registered at app launch from the
+// stored provider config. This is read once at mount, not reactive to
+// in-page provider-config edits — matching the minimal UI slice's scope.
+const backendAvailable = computed(() => getSyncBackend() !== null)
 
 // Show a short hash (first 8 chars) inline, full value as a tooltip via `title`.
 function shortHash(hash: string | null | undefined): string {
@@ -48,6 +57,86 @@ const localHashMatchesLastSync = computed(() => {
   const last = sync.lastKnownRemoteState.value?.hash
   return local !== null && last !== undefined && local === last
 })
+
+// Validate is an auth-only ping — it builds a transport directly from the
+// in-form provider config, not from getSyncBackend(). getSyncBackend()
+// returns the CONFIGURED (active) backend, which may be a different
+// provider than the one the user is currently editing/validating.
+type ValidateStatus = 'idle' | 'ok' | 'fail'
+const validating = reactive<{ supabase: boolean; s3: boolean; github: boolean }>({
+  supabase: false,
+  s3: false,
+  github: false,
+})
+const validateStatus = reactive<{ supabase: ValidateStatus; s3: ValidateStatus; github: ValidateStatus }>({
+  supabase: 'idle',
+  s3: 'idle',
+  github: 'idle',
+})
+const validateMessage = reactive<{ supabase: string; s3: string; github: string }>({
+  supabase: '',
+  s3: '',
+  github: '',
+})
+
+const canValidateGitHub = computed(
+  () => !!sync.providerConfig.value.github.repo && !!sync.providerConfig.value.github.token,
+)
+const canValidateSupabase = computed(
+  () => !!sync.providerConfig.value.supabase.url && !!sync.providerConfig.value.supabase.anonKey,
+)
+const canValidateS3 = computed(
+  () =>
+    !!sync.providerConfig.value.s3.endpoint &&
+    !!sync.providerConfig.value.s3.accessKeyId &&
+    !!sync.providerConfig.value.s3.secretKey,
+)
+
+async function onValidateGitHub(): Promise<void> {
+  validating.github = true
+  try {
+    const t = new GitHubTransport(sync.providerConfig.value.github)
+    await t.validate()
+    validateStatus.github = 'ok'
+    validateMessage.github = ''
+  } catch (e) {
+    validateStatus.github = 'fail'
+    validateMessage.github = (e as Error).message
+  } finally {
+    validating.github = false
+  }
+}
+
+async function onValidateSupabase(): Promise<void> {
+  validating.supabase = true
+  try {
+    const t = new SupabaseStorageTransport(sync.providerConfig.value.supabase, 'db.sqlite', 'db.sqlite.json')
+    await t.validate()
+    validateStatus.supabase = 'ok'
+    validateMessage.supabase = ''
+  } catch (e) {
+    validateStatus.supabase = 'fail'
+    validateMessage.supabase = (e as Error).message
+  } finally {
+    validating.supabase = false
+  }
+}
+
+async function onValidateS3(): Promise<void> {
+  validating.s3 = true
+  try {
+    const cfg = sync.providerConfig.value.s3
+    const t = new S3Transport(cfg, cfg.objectKey, `${cfg.objectKey}.json`)
+    await t.validate()
+    validateStatus.s3 = 'ok'
+    validateMessage.s3 = ''
+  } catch (e) {
+    validateStatus.s3 = 'fail'
+    validateMessage.s3 = (e as Error).message
+  } finally {
+    validating.s3 = false
+  }
+}
 </script>
 
 <template>
@@ -176,8 +265,8 @@ const localHashMatchesLastSync = computed(() => {
             </div>
           </template>
           <div v-else class="text-sm text-surface-500">
-            Not available — sync codec not yet registered. Click Recompute after the External-sync
-            plan lands.
+            Not available — sync backend not yet registered. Click Recompute after the
+            External-sync plan lands.
           </div>
         </div>
 
@@ -203,6 +292,30 @@ const localHashMatchesLastSync = computed(() => {
             </div>
           </template>
           <div v-else class="text-sm text-surface-500">No remote connection.</div>
+        </div>
+
+        <div class="flex flex-col gap-2 mt-2">
+          <div class="flex items-center justify-between gap-2">
+            <Button
+              label="Sync now"
+              icon="pi pi-sync"
+              :loading="sync.syncing.value"
+              :disabled="sync.syncing.value || !backendAvailable"
+              @click="sync.syncNow()"
+            />
+            <span v-if="!backendAvailable" class="text-sm text-surface-500">
+              No sync provider configured.
+            </span>
+          </div>
+          <Message
+            v-if="sync.lastSyncError.value"
+            severity="error"
+            :closable="false"
+            class="text-sm"
+          >
+            Sync failed at {{ formatInstant(sync.lastSyncError.value.atUtc) }}:
+            {{ sync.lastSyncError.value.message }}
+          </Message>
         </div>
       </div>
 
@@ -284,6 +397,20 @@ const localHashMatchesLastSync = computed(() => {
               @blur="sync.saveProviderConfig()"
             />
           </div>
+          <div class="flex items-end gap-2">
+            <Button
+              label="Validate"
+              :loading="validating.supabase"
+              :disabled="!canValidateSupabase"
+              @click="onValidateSupabase"
+            />
+            <span v-if="validateStatus.supabase === 'ok'" class="text-sm text-green-600">
+              Connected.
+            </span>
+            <span v-if="validateStatus.supabase === 'fail'" class="text-sm text-red-600">
+              {{ validateMessage.supabase }}
+            </span>
+          </div>
         </div>
 
         <!-- S3-compatible block -->
@@ -346,6 +473,20 @@ const localHashMatchesLastSync = computed(() => {
               @blur="sync.saveProviderConfig()"
             />
           </div>
+          <div class="flex items-end gap-2">
+            <Button
+              label="Validate"
+              :loading="validating.s3"
+              :disabled="!canValidateS3"
+              @click="onValidateS3"
+            />
+            <span v-if="validateStatus.s3 === 'ok'" class="text-sm text-green-600">
+              Connected.
+            </span>
+            <span v-if="validateStatus.s3 === 'fail'" class="text-sm text-red-600">
+              {{ validateMessage.s3 }}
+            </span>
+          </div>
         </div>
 
         <!-- GitHub block -->
@@ -371,15 +512,6 @@ const localHashMatchesLastSync = computed(() => {
             />
           </div>
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-            <label for="gh-path">Path</label>
-            <InputText
-              id="gh-path"
-              v-model="sync.providerConfig.value.github.path"
-              class="sm:w-80"
-              @blur="sync.saveProviderConfig()"
-            />
-          </div>
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <label for="gh-token">Token (PAT)</label>
             <Password
               inputId="gh-token"
@@ -389,6 +521,20 @@ const localHashMatchesLastSync = computed(() => {
               inputClass="sm:w-80"
               @blur="sync.saveProviderConfig()"
             />
+          </div>
+          <div class="flex items-end gap-2">
+            <Button
+              label="Validate"
+              :loading="validating.github"
+              :disabled="!canValidateGitHub"
+              @click="onValidateGitHub"
+            />
+            <span v-if="validateStatus.github === 'ok'" class="text-sm text-green-600">
+              Connected.
+            </span>
+            <span v-if="validateStatus.github === 'fail'" class="text-sm text-red-600">
+              {{ validateMessage.github }}
+            </span>
           </div>
         </div>
       </div>

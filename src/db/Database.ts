@@ -3,9 +3,22 @@ import SQLiteAsyncESMFactory from 'wa-sqlite/dist/wa-sqlite-async.mjs'
 import * as SQLite from 'wa-sqlite'
 
 export interface DatabaseOptions {
+  /** Path to open. URI parsing is enabled globally (SQLITE_OPEN_URI), so a
+   *  future caller must never thread a user-supplied string here unsanitized —
+   *  a raw `file:...?vfs=X` URI could redirect to an unexpected VFS. */
   filePath?: string
   /** Use persistent storage (IndexedDB via IDBBatchAtomicVFS). Requires async WASM build. */
   persist?: boolean
+  /**
+   * Advanced: register this VFS as the connection's default VFS instead of
+   * IDBBatchAtomicVFS (`persist: true`) or SQLite's built-in `:memory:`
+   * handling (the default). Used by sqliteBlobCodec.openDatabaseFromBlob to
+   * open a fresh Database against a wa-sqlite MemoryVFS pre-loaded with
+   * blob bytes. Mutually exclusive with `persist` — both register a VFS as
+   * default, so combining them would just mean the last one registered
+   * (`vfs`, since it is checked first) wins silently.
+   */
+  vfs?: SQLiteVFS
 }
 
 export interface RunResult {
@@ -43,13 +56,23 @@ export class Database {
   private db: number | null = null
   /** Serializes all async operations — Asyncify cannot handle concurrent WASM calls. */
   private mutex: Promise<void> = Promise.resolve()
+  /** Monotonic counter bumped by every write through run(). Used by
+   *  hashDatabase() to short-circuit re-hashing when nothing has changed.
+   *  Reads (exec) do not bump. */
+  mutationCounter = 0
 
   async init(options: DatabaseOptions = {}): Promise<void> {
     if (this.isOpen()) throw new Error('Database is already initialized')
     const module = await createSQLiteModule(!!options.persist)
     this.sqlite3 = SQLite.Factory(module)
 
-    if (options.persist) {
+    if (options.vfs) {
+      // Caller-supplied VFS (e.g. a MemoryVFS pre-loaded with blob bytes for
+      // import). Registered as default so a plain open_v2(filePath) below
+      // resolves through it, same as the persist branch does for
+      // IDBBatchAtomicVFS.
+      this.sqlite3.vfs_register(options.vfs, true)
+    } else if (options.persist) {
       // IDBBatchAtomicVFS persists to IndexedDB and works on the main thread.
       // Requires the async WASM build (wa-sqlite-async.mjs).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,12 +82,35 @@ export class Database {
     }
 
     const filePath = options.filePath ?? ':memory:'
-    this.db = await this.sqlite3.open_v2(filePath)
+    // SQLITE_OPEN_URI (in addition to the READWRITE|CREATE wa-sqlite
+    // otherwise defaults to) lets `file:...?vfs=...` strings be parsed as
+    // URIs by this connection — needed so that sqliteBlobCodec's
+    // `VACUUM INTO 'file:name?vfs=name'` can target a specific MemoryVFS.
+    // Plain filenames (':memory:', bare names) are unaffected: URI parsing
+    // only activates for strings that start with the "file:" scheme.
+    this.db = await this.sqlite3.open_v2(
+      filePath,
+      SQLite.SQLITE_OPEN_CREATE | SQLite.SQLITE_OPEN_READWRITE | SQLite.SQLITE_OPEN_URI,
+    )
     await this.run('PRAGMA foreign_keys = ON')
   }
 
   isOpen(): boolean {
     return this.sqlite3 !== null && this.db !== null
+  }
+
+  /**
+   * Advanced escape hatch: registers `vfs` (non-default) on this Database's
+   * own WASM module instance. Used by sqliteBlobCodec.exportDatabaseToBlob
+   * to make a MemoryVFS reachable via `VACUUM INTO '...?vfs=<name>'` — the
+   * target VFS named in that URI must be registered on the *same* module
+   * that owns this connection, not a separate one, so this cannot be done
+   * from outside without an accessor. Only registers the VFS; it does not
+   * open or query anything, so it does not touch mutationCounter.
+   */
+  registerVfs(vfs: SQLiteVFS): void {
+    this.ensureOpen()
+    this.sqlite3!.vfs_register(vfs, false)
   }
 
   async exec<T extends Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
@@ -110,6 +156,22 @@ export class Database {
 
   private async runUnsafe(sql: string, params?: unknown[]): Promise<RunResult> {
     this.ensureOpen()
+    // Bump the mutation counter for write keywords. The check is intentionally
+    // cheap — we look only at the first word, case-insensitive. Statements
+    // without one of these leading keywords are reads (or no-ops like PRAGMA
+    // reads) and do not invalidate cached hashes.
+    const leading = sql.trimStart().slice(0, 8).toUpperCase()
+    if (
+      leading.startsWith('INSERT') ||
+      leading.startsWith('UPDATE') ||
+      leading.startsWith('DELETE') ||
+      leading.startsWith('REPLACE') ||
+      leading.startsWith('ALTER') ||
+      leading.startsWith('CREATE') ||
+      leading.startsWith('DROP')
+    ) {
+      this.mutationCounter++
+    }
     for await (const stmt of this.sqlite3!.statements(this.db!, sql)) {
       if (params) {
         this.sqlite3!.bind_collection(stmt, params as SQLiteCompatibleType[])

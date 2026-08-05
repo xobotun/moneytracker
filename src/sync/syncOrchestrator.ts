@@ -1,8 +1,7 @@
 import type { Database } from '../db/Database'
 import type { RemoteState, SyncMetadata, SyncOutcome } from './types'
 import { EPOCH_UTC } from './types'
-import type { SyncProvider } from './SyncProvider'
-import type { DatabaseCodec } from './DatabaseCodec'
+import type { SyncBackend } from './SyncBackend'
 import { readSchemaVersion, decideSchemaAction } from './schemaVersion'
 import { mergeDatabases } from './mergeEngine'
 
@@ -27,9 +26,8 @@ export function decideSync(
 
 /** Everything `runSync` needs, injected so the orchestrator stays testable. */
 export interface SyncDeps {
-  provider: SyncProvider
-  codec: DatabaseCodec
-  /** This device's identity, carried through to other devices in `SyncMetadata.device`. */
+  backend: SyncBackend
+  /** This device's identity, carried through to other devices in SyncMetadata.device. */
   deviceName: string
   /** Current time — injectable so tests are deterministic. */
   now: () => Date
@@ -49,9 +47,8 @@ function remoteStateOf(meta: SyncMetadata): RemoteState {
  */
 export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOutcome> {
   const localVersion = await readSchemaVersion(localDb)
-  const localBlob = await deps.codec.export(localDb)
-  const localHash = await deps.codec.hash(localBlob)
-  const remoteMeta = await deps.provider.getMetadata()
+  const localHash = await deps.backend.hashDatabase(localDb)
+  const remoteMeta = await deps.backend.getMetadata()
 
   const stamp = (hash: string): SyncMetadata => ({
     device: deps.deviceName,
@@ -63,7 +60,7 @@ export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOu
   // First sync — the remote has no database yet. Nothing to merge; upload local.
   if (remoteMeta === null) {
     const meta = stamp(localHash)
-    await deps.provider.upload(localBlob, meta, null)
+    await deps.backend.tryUpload(localDb, meta, null)
     deps.saveLastKnown(remoteStateOf(meta))
     return { decision: 'first-sync-upload', conflicts: [], uploaded: true }
   }
@@ -80,7 +77,7 @@ export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOu
   // foreign, so just upload the local database.
   if (decision === 'upload-local') {
     const meta = stamp(localHash)
-    const ok = await deps.provider.upload(localBlob, meta, remoteMeta)
+    const ok = await deps.backend.tryUpload(localDb, meta, remoteMeta)
     if (ok) {
       deps.saveLastKnown(remoteStateOf(meta))
       return { decision: 'upload-local', conflicts: [], uploaded: true }
@@ -97,8 +94,7 @@ export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOu
       return { decision: 'aborted-app-outdated', conflicts: [], uploaded: false }
     }
 
-    const remoteBlob = await deps.provider.download()
-    const remoteDb = await deps.codec.openFromBlob(remoteBlob)
+    const remoteDb = await deps.backend.downloadDatabase()
     try {
       if (schemaAction === 'migrate-remote-then-merge') {
         await deps.migrate(remoteDb)
@@ -106,17 +102,16 @@ export async function runSync(localDb: Database, deps: SyncDeps): Promise<SyncOu
       const cutoff = deps.loadLastKnown()?.uploadedAtUtc ?? EPOCH_UTC
       const conflicts = await mergeDatabases(localDb, remoteDb, cutoff)
 
-      const mergedBlob = await deps.codec.export(localDb)
-      const mergedHash = await deps.codec.hash(mergedBlob)
-      const meta = stamp(mergedHash)
+      const finalHash = await deps.backend.hashDatabase(localDb)
+      const meta = stamp(finalHash)
 
-      const ok = await deps.provider.upload(mergedBlob, meta, expected)
+      const ok = await deps.backend.tryUpload(localDb, meta, expected)
       if (ok) {
         deps.saveLastKnown(remoteStateOf(meta))
         return { decision: 'merge', conflicts, uploaded: true }
       }
       // Another device uploaded during our merge — re-merge against the new remote.
-      const fresh = await deps.provider.getMetadata()
+      const fresh = await deps.backend.getMetadata()
       if (fresh === null) throw new Error('runSync: remote metadata disappeared mid-sync')
       expected = fresh
     } finally {

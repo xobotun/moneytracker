@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import type { Database } from '../../db/Database'
 import type { SyncMetadata } from '../types'
 import { decideSync, runSync } from '../syncOrchestrator'
-import { FakeSyncProvider, FakeDatabaseCodec } from './fakes'
+import { FakeSyncBackend } from './fakes'
 import { readRows } from '../rows'
 import { newMigratedDb, seedLocation } from './helpers'
 
@@ -34,16 +34,17 @@ describe('decideSync', () => {
 
 describe('runSync', () => {
   let local: Database
+  let backend: FakeSyncBackend
 
   afterEach(async () => {
     if (local) await local.close()
+    if (backend) await backend.close()
   })
 
-  function deps(provider: FakeSyncProvider) {
+  function deps(backend: FakeSyncBackend) {
     const state: { lastKnown: import('../types').RemoteState | null } = { lastKnown: null }
     return {
-      provider,
-      codec: new FakeDatabaseCodec(),
+      backend,
       deviceName: 'dev-A',
       now: () => new Date('2026-05-22T12:00:00.000Z'),
       migrate: async () => {},
@@ -56,22 +57,22 @@ describe('runSync', () => {
 
   it('uploads the local database on first sync when the remote is empty', async () => {
     local = await newMigratedDb()
-    const provider = new FakeSyncProvider()
+    backend = new FakeSyncBackend()
 
-    const outcome = await runSync(local, deps(provider))
+    const outcome = await runSync(local, deps(backend))
 
     expect(outcome.decision).toBe('first-sync-upload')
     expect(outcome.uploaded).toBe(true)
-    expect(await provider.getMetadata()).not.toBeNull()
+    expect(await backend.getMetadata()).not.toBeNull()
   })
 
   it('does nothing when local and remote already match', async () => {
     local = await newMigratedDb()
-    const provider = new FakeSyncProvider()
-    const d = deps(provider)
-    const blob = await d.codec.export(local)
-    const hash = await d.codec.hash(blob)
-    provider.forceState(blob, META({ device: 'dev-B', hash }))
+    backend = new FakeSyncBackend()
+    const d = deps(backend)
+    const hash = await d.backend.hashDatabase(local)
+    const seedDb = await newMigratedDb()
+    await backend.setRemote(seedDb, META({ device: 'dev-B', hash }))
 
     const outcome = await runSync(local, d)
 
@@ -81,8 +82,8 @@ describe('runSync', () => {
 
   it('merges a foreign upload and writes the result back', async () => {
     local = await newMigratedDb()
-    const provider = new FakeSyncProvider()
-    const d = deps(provider)
+    backend = new FakeSyncBackend()
+    const d = deps(backend)
     // Remote, produced by another device, carries a location the local DB lacks.
     const remoteDb = await newMigratedDb()
     await seedLocation(remoteDb, {
@@ -91,9 +92,8 @@ describe('runSync', () => {
       created: '2026-05-21T00:00:00.000Z',
       updated: '2026-05-21T00:00:00.000Z',
     })
-    const remoteBlob = await d.codec.export(remoteDb)
-    await remoteDb.close()
-    provider.forceState(remoteBlob, META({ device: 'dev-B', hash: await d.codec.hash(remoteBlob) }))
+    const remoteHash = await d.backend.hashDatabase(remoteDb)
+    await backend.setRemote(remoteDb, META({ device: 'dev-B', hash: remoteHash }))
 
     const outcome = await runSync(local, d)
 
@@ -104,8 +104,8 @@ describe('runSync', () => {
 
   it('re-merges when a concurrent upload makes the first CAS upload fail', async () => {
     local = await newMigratedDb()
-    const provider = new FakeSyncProvider()
-    const d = deps(provider)
+    backend = new FakeSyncBackend()
+    const d = deps(backend)
     const remoteDb = await newMigratedDb()
     await seedLocation(remoteDb, {
       id: 'loc-1',
@@ -113,22 +113,26 @@ describe('runSync', () => {
       created: '2026-05-21T00:00:00.000Z',
       updated: '2026-05-21T00:00:00.000Z',
     })
-    const remoteBlob = await d.codec.export(remoteDb)
-    await remoteDb.close()
-    provider.forceState(remoteBlob, META({ device: 'dev-B', hash: await d.codec.hash(remoteBlob) }))
+    const remoteHash = await d.backend.hashDatabase(remoteDb)
+    await backend.setRemote(remoteDb, META({ device: 'dev-B', hash: remoteHash }))
 
     // Simulate device C uploading once, during our first upload attempt.
-    provider.beforeUpload = async () => {
-      const otherDb = await newMigratedDb()
-      await seedLocation(otherDb, {
-        id: 'loc-2',
-        name: 'Sneaked in',
-        created: '2026-05-21T12:00:00.000Z',
-        updated: '2026-05-21T12:00:00.000Z',
-      })
-      const blob = await d.codec.export(otherDb)
-      await otherDb.close()
-      provider.forceState(blob, META({ device: 'dev-C', hash: await d.codec.hash(blob) }))
+    const originalTryUpload = backend.tryUpload.bind(backend)
+    let firstCall = true
+    backend.tryUpload = async (localDb, metadata, expected) => {
+      if (firstCall) {
+        firstCall = false
+        const otherDb = await newMigratedDb()
+        await seedLocation(otherDb, {
+          id: 'loc-2',
+          name: 'Sneaked in',
+          created: '2026-05-21T12:00:00.000Z',
+          updated: '2026-05-21T12:00:00.000Z',
+        })
+        const otherHash = await d.backend.hashDatabase(otherDb)
+        await backend.setRemote(otherDb, META({ device: 'dev-C', hash: otherHash }))
+      }
+      return originalTryUpload(localDb, metadata, expected)
     }
 
     const outcome = await runSync(local, d)
@@ -141,25 +145,22 @@ describe('runSync', () => {
 
   it('aborts when the remote schema is newer than this app', async () => {
     local = await newMigratedDb()
-    const provider = new FakeSyncProvider()
-    const d = deps(provider)
+    backend = new FakeSyncBackend()
+    const d = deps(backend)
     const remoteDb = await newMigratedDb()
-    // Seed a row so the remote hash differs from the local hash. The fake codec
-    // only serializes domain rows (not the `migrations` table), so two empty
-    // DBs at different schema versions would hash equal and decideSync would
-    // short-circuit to 'none', never reaching the schema gate. The real codec
-    // (full .sqlite blob) doesn't have this aliasing.
+    // Seed a row so the remote hash differs from the local hash. Two empty
+    // DBs would hash equal and decideSync would short-circuit to 'none',
+    // never reaching the schema gate.
     await seedLocation(remoteDb, {
       id: 'loc-future',
       name: 'From newer schema',
       created: '2026-05-21T00:00:00.000Z',
       updated: '2026-05-21T00:00:00.000Z',
     })
-    const remoteBlob = await d.codec.export(remoteDb)
-    await remoteDb.close()
-    provider.forceState(
-      remoteBlob,
-      META({ device: 'dev-B', hash: await d.codec.hash(remoteBlob), migrationVersion: 99 }),
+    const remoteHash = await d.backend.hashDatabase(remoteDb)
+    await backend.setRemote(
+      remoteDb,
+      META({ device: 'dev-B', hash: remoteHash, migrationVersion: 99 }),
     )
 
     const outcome = await runSync(local, d)

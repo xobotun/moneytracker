@@ -1,7 +1,5 @@
 import { Database } from './Database'
-import { runMigrations } from './migrations'
-import { migration as settingsMigration } from './migrations/001_settings'
-import { migration as domainMigration } from './migrations/002_domain_schema'
+import { ALL_MIGRATIONS, runMigrations } from './migrations'
 import { SettingsRepository } from './repositories/SettingsRepository'
 import { TagsRepository } from './repositories/TagsRepository'
 import { LocationsRepository } from './repositories/LocationsRepository'
@@ -9,12 +7,12 @@ import { AccountsRepository } from './repositories/AccountsRepository'
 import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
 import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from './repositories/TransactionsRepository'
-import type { DatabaseCodec } from '../sync/DatabaseCodec'
-
-const allMigrations = [settingsMigration, domainMigration]
+import type { SyncBackend } from '../sync/SyncBackend'
+import { buildBackend } from '../sync/backendFactory'
+import { loadProviderConfig } from '../sync/localState'
 
 let database: Database | null = null
-let databaseCodec: DatabaseCodec | null = null
+let syncBackend: SyncBackend | null = null
 let settingsRepository: SettingsRepository | null = null
 let tagsRepository: TagsRepository | null = null
 let locationsRepository: LocationsRepository | null = null
@@ -26,7 +24,7 @@ let transactionsRepository: TransactionsRepository | null = null
 export async function initDatabase(): Promise<void> {
   database = new Database()
   await database.init({ filePath: 'moneytracker.db', persist: true })
-  await runMigrations(database, allMigrations)
+  await runMigrations(database, ALL_MIGRATIONS)
   settingsRepository = new SettingsRepository(database)
   tagsRepository = new TagsRepository(database)
   locationsRepository = new LocationsRepository(database)
@@ -34,6 +32,12 @@ export async function initDatabase(): Promise<void> {
   exchangeRatesRepository = new ExchangeRatesRepository(database)
   accountGroupingsRepository = new AccountGroupingsRepository(database)
   transactionsRepository = new TransactionsRepository(database)
+
+  // Build the sync backend from the stored provider config. null when the
+  // user has not configured a provider; Settings.vue's "Sync now" button
+  // disables itself in that case.
+  const cfg = loadProviderConfig()
+  setSyncBackend(buildBackend(cfg))
 }
 
 export function getDatabase(): Database {
@@ -42,17 +46,17 @@ export function getDatabase(): Database {
 }
 
 /**
- * Registers the codec used to export the local database to a syncable blob.
- * Called by the External-sync plan once a real codec is wired in. Until then
- * `getDatabaseCodec()` returns null and consumers must handle that.
+ * Registers the backend used to sync the local database with the remote.
+ * Called by the External-sync plan once a real backend is wired in. Until then
+ * `getSyncBackend()` returns null and consumers must handle that.
  */
-export function setDatabaseCodec(codec: DatabaseCodec | null): void {
-  databaseCodec = codec
+export function setSyncBackend(backend: SyncBackend | null): void {
+  syncBackend = backend
 }
 
-/** Returns the registered codec, or null when none has been registered yet. */
-export function getDatabaseCodec(): DatabaseCodec | null {
-  return databaseCodec
+/** Returns the registered backend, or null when none has been registered yet. */
+export function getSyncBackend(): SyncBackend | null {
+  return syncBackend
 }
 
 export function getSettingsRepository(): SettingsRepository {
@@ -96,7 +100,7 @@ export async function closeDatabase(): Promise<void> {
     await database.close()
   }
   database = null
-  databaseCodec = null
+  syncBackend = null
   settingsRepository = null
   tagsRepository = null
   locationsRepository = null

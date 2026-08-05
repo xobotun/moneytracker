@@ -5,5 +5,6 @@
 export * from './deviceName'
 export * from './remoteSnapshots'
 export * from './providerConfig'
+export * from './syncError'
 // Storage helpers are intentionally NOT re-exported — they are an internal
 // implementation detail of this directory.

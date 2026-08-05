@@ -122,6 +122,36 @@ remote fetch are still ahead (see "External sync" below).
 - Design: [2026-05-27-sync-settings-design](docs/plans/2026-05-27-sync-settings-design.md)
 - Plan: [2026-05-28-sync-settings-plan](docs/plans/2026-05-28-sync-settings-plan.md)
 
+### Database sync — GitHub-CSV and SQLite-blob backends
+
+Both SyncBackend implementations, the unified interface, shared content
+hashing, and a minimal "Sync now" trigger so the backends can be
+exercised end-to-end.
+
+- `SyncBackend` interface (`src/sync/SyncBackend.ts`) replaces the
+  previous `SyncProvider` + `DatabaseCodec` seam; the orchestrator no
+  longer sees how many files a backend stores.
+- Shared content-based `hashDatabase` (`src/sync/hashDatabase.ts`) with
+  a `WeakMap` cache keyed on `Database.mutationCounter`. Same logical DB
+  yields the same hash across backends.
+- `csvCodec` — PapaParse for serialisation, one bulk
+  `INSERT … SELECT json_extract(…) FROM json_each(?)` per table on
+  import (one Asyncify yield-point per table instead of one per row).
+- `GitHubCsvBackend` — REST data API; CAS via `PATCH /git/refs` with
+  `force: false`; base_tree preserves any unrelated files in the repo;
+  bootstraps empty repos via `POST /git/refs`.
+- `sqliteBlobCodec` — `VACUUM INTO` + MemoryVFS round-trip.
+- `SqliteBlobBackend` with two transports: `SupabaseStorageTransport`
+  (REST + If-Match) and `S3Transport` (aws4fetch sig v4, R2/B2/MinIO
+  compatible).
+- `backendFactory` wires `providerConfig` → `SyncBackend`; `init.ts`
+  registers the backend at app launch.
+- Settings UI: per-provider "Validate" button doing an auth-only ping;
+  "Sync now" button with inline error display (`lastSyncError`
+  localState slot).
+- Design: [2026-05-28-sync-backends-design](docs/plans/2026-05-28-sync-backends-design.md)
+- Plan: [2026-05-28-sync-backends-plan](docs/plans/2026-05-28-sync-backends-plan.md)
+
 ---
 
 ## To Do
@@ -182,26 +212,33 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 - Charts / tables for each dimension
 - Cross-currency totals using exchange-rate history
 
-### External sync — provider, UI, and adapters
+### External sync — automatic flows and full UI
 
-The merge engine and orchestrator are done (see Done above). What remains
-is plugging real adapters into the `SyncProvider` / `DatabaseCodec` seams
-and wiring sync into the UI.
+The backends are done (see Done above). What remains is wiring sync into
+the app's automatic flows and the polished UI.
 
-- Choose the sync provider. Shortlist: Supabase, Backblaze, GitHub. Google
-  Drive is appealing as an additional backup target.
-- Implement the real `SyncProvider` against the chosen backend (compare-and-swap
-  upload, metadata read, blob download)
-- Implement the real `DatabaseCodec` — `.sqlite` blob export/import via
-  `VACUUM INTO` + MemoryVFS (see the `reference_sqlite_export` memory)
-- Network state / metered-connection detection (PWA heuristic; Android +
-  Windows scope, no iOS)
-- UI:
-  - Blocking overlay during sync with a "use the local database" interrupt button
-  - "Sync now" button in Settings, always available regardless of network state
-- Conflict-notification email (needs a Supabase Edge Function so the loser of
-  every row conflict is preserved off-device)
+- App-launch automatic fetch populating `lastFetchedRemoteSnapshot` so
+  the Settings "Last seen remote" row shows real data without a manual
+  Sync now click.
+- Blocking overlay during sync with a "use the local database"
+  interrupt button.
+- Network state / metered-connection detection (PWA heuristic) and the
+  auto-sync trigger policy that uses it.
+- Conflict-notification email (needs a Supabase Edge Function so the
+  loser of every row conflict is preserved off-device).
+- Garbage collection of orphan blobs in S3 buckets after CAS misses
+  (deferred — at expected sync cadence, orphans are rare and the next
+  upload overwrites them).
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
+
+Follow-up items flagged for the next plan:
+- `backendAvailable` reactivity gap in `SettingsView.vue` — the button's
+  disabled state doesn't update when the user edits provider config in
+  the same session (requires reload). Flagged in the sync-backends design
+  minimal-UI scope.
+- Real schema migration in `useSyncSettings.syncNow` — currently a
+  plan-mandated stub that throws. Real cross-schema migration on
+  downloaded remote DBs is deferred.
 
 
 ### Import

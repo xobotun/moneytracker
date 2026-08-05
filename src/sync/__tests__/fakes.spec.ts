@@ -1,69 +1,125 @@
 import { describe, it, expect, afterEach } from 'vitest'
+import { FakeSyncBackend } from './fakes'
+import { Database } from '../../db/Database'
+import { runMigrations } from '../../db/migrations'
+import { migration as settingsMigration } from '../../db/migrations/001_settings'
+import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import type { SyncMetadata } from '../types'
-import { FakeSyncProvider, FakeDatabaseCodec } from './fakes'
-import { readRows } from '../rows'
-import { newMigratedDb, seedLocation } from './helpers'
-import type { Database } from '../../db/Database'
 
 const META = (over: Partial<SyncMetadata> = {}): SyncMetadata => ({
-  device: 'dev-1',
+  device: 'dev-A',
   uploadedAtUtc: '2026-05-22T10:00:00.000Z',
-  hash: 'h1',
+  hash: 'sha256:h1',
   migrationVersion: 2,
   ...over,
 })
 
-describe('FakeSyncProvider', () => {
+async function migratedDb(): Promise<Database> {
+  const db = new Database()
+  await db.init()
+  await runMigrations(db, [settingsMigration, domainMigration])
+  return db
+}
+
+describe('FakeSyncBackend', () => {
+  let backend: FakeSyncBackend
+  let cleanups: Array<() => Promise<void>> = []
+
+  afterEach(async () => {
+    await backend?.close()
+    for (const c of cleanups) await c()
+    cleanups = []
+  })
+
   it('starts empty', async () => {
-    const p = new FakeSyncProvider()
-    expect(await p.getMetadata()).toBeNull()
-    await expect(p.download()).rejects.toThrow()
+    backend = new FakeSyncBackend()
+    expect(await backend.getMetadata()).toBeNull()
   })
 
-  it('accepts a CAS upload when the expected metadata matches', async () => {
-    const p = new FakeSyncProvider()
-    expect(await p.upload(new Blob(['x']), META(), null)).toBe(true)
-    expect(await p.getMetadata()).toEqual(META())
+  it('accepts a first-sync upload (expected === null)', async () => {
+    backend = new FakeSyncBackend()
+    const local = await migratedDb()
+    cleanups.push(() => local.close())
+
+    await backend.getMetadata()
+    const ok = await backend.tryUpload(local, META(), null)
+    expect(ok).toBe(true)
+    expect(await backend.getMetadata()).toEqual(META())
   })
 
-  it('rejects a CAS upload when the remote moved underneath', async () => {
-    const p = new FakeSyncProvider()
-    await p.upload(new Blob(['x']), META(), null)
-    const stale: SyncMetadata | null = null // caller thinks remote is still empty
-    expect(await p.upload(new Blob(['y']), META({ hash: 'h2' }), stale)).toBe(false)
+  it('rejects a CAS miss (expected does not match current remote)', async () => {
+    backend = new FakeSyncBackend()
+    const local = await migratedDb()
+    cleanups.push(() => local.close())
+    // Pre-seed the remote with a different metadata.
+    const seedDb = await migratedDb()
+    await backend.setRemote(seedDb, META({ hash: 'sha256:other' }))
+
+    await backend.getMetadata()
+    const ok = await backend.tryUpload(local, META(), null) // expected null, but remote isn't
+    expect(ok).toBe(false)
+  })
+
+  it('downloadDatabase returns a fresh clone that the caller can mutate safely', async () => {
+    backend = new FakeSyncBackend()
+    const seed = await migratedDb()
+    await seed.run(
+      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
+       VALUES (?, 'X', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      ['loc-1'],
+    )
+    await backend.setRemote(seed, META())
+
+    const downloaded = await backend.downloadDatabase()
+    cleanups.push(() => downloaded.close())
+    // Mutate the clone — must not affect the simulated remote.
+    await downloaded.run('DELETE FROM locations WHERE id = ?', ['loc-1'])
+
+    const downloadedAgain = await backend.downloadDatabase()
+    cleanups.push(() => downloadedAgain.close())
+    const rows = await downloadedAgain.exec('SELECT * FROM locations')
+    expect(rows).toHaveLength(1)
+  })
+
+  it('throws when tryUpload is called without a prior getMetadata and remote is not empty', async () => {
+    backend = new FakeSyncBackend()
+    const seed = await migratedDb()
+    await backend.setRemote(seed, META())
+    const local = await migratedDb()
+    cleanups.push(() => local.close())
+
+    await expect(backend.tryUpload(local, META(), META())).rejects.toThrow(/prior getMetadata/)
   })
 })
 
-describe('FakeDatabaseCodec', () => {
-  let db: Database
-  let reopened: Database
+import { FakeBlobTransport } from './fakes'
 
-  afterEach(async () => {
-    if (db) await db.close()
-    if (reopened) await reopened.close()
+describe('FakeBlobTransport', () => {
+  it('returns null sidecar when empty', async () => {
+    expect(await new FakeBlobTransport().getSidecar()).toBeNull()
   })
 
-  it('round-trips a database through export and openFromBlob', async () => {
-    const codec = new FakeDatabaseCodec()
-    db = await newMigratedDb()
-    await seedLocation(db, {
-      id: 'loc-1',
-      name: 'Round trip',
-      created: '2026-05-01T00:00:00.000Z',
-      updated: '2026-05-01T00:00:00.000Z',
-    })
-
-    const blob = await codec.export(db)
-    reopened = await codec.openFromBlob(blob)
-
-    const rows = await readRows(reopened, 'locations')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]!.name).toBe('Round trip')
+  it('putSidecar(text, null) succeeds when empty, fails when not empty', async () => {
+    const t = new FakeBlobTransport()
+    expect(await t.putSidecar('a', null)).toBe(true)
+    expect(await t.putSidecar('b', null)).toBe(false)
   })
 
-  it('hashes equal blobs equally and different blobs differently', async () => {
-    const codec = new FakeDatabaseCodec()
-    expect(await codec.hash(new Blob(['same']))).toBe(await codec.hash(new Blob(['same'])))
-    expect(await codec.hash(new Blob(['a']))).not.toBe(await codec.hash(new Blob(['b'])))
+  it('putSidecar(text, etag) succeeds when etag matches and fails otherwise', async () => {
+    const t = new FakeBlobTransport()
+    await t.putSidecar('a', null)
+    const first = (await t.getSidecar())!
+    expect(await t.putSidecar('b', first.etag)).toBe(true)
+    expect(await t.putSidecar('c', first.etag)).toBe(false) // stale etag
+  })
+
+  it('getBlob throws when no blob has been put', async () => {
+    await expect(new FakeBlobTransport().getBlob()).rejects.toThrow(/no blob/)
+  })
+
+  it('putBlob then getBlob round-trips bytes', async () => {
+    const t = new FakeBlobTransport()
+    await t.putBlob(new Uint8Array([1, 2, 3]))
+    expect(Array.from(await t.getBlob())).toEqual([1, 2, 3])
   })
 })

@@ -1,0 +1,133 @@
+import Papa from 'papaparse'
+import type { Database } from '../db/Database'
+import { SYNC_COLUMNS, type ColumnDescriptor } from './syncColumns'
+import { SYNC_TABLES, type SyncTable } from './syncTables'
+
+// CSV ↔ Database round-trip for GitHubCsvBackend.
+//
+// Export: SELECT columns FROM <table> ORDER BY <pk> with column order pinned
+// by SYNC_COLUMNS; Papa.unparse for RFC 4180 quoting / embedded-newline /
+// quote-in-cell escaping. Newline pinned to \n (matches .gitattributes; the
+// platform default would produce CRLF on Windows).
+//
+// Import: Papa.parse with header: true, then one bulk INSERT per table via
+// json_each(?). wa-sqlite's Asyncify build penalises every await on the DB
+// (each is a stack-unwind yield-point) — per-row parametrised INSERTs would
+// be O(rows * roundtrips); the json_each approach is O(tables) roundtrips.
+// Coercion lives in the SELECT list per SYNC_COLUMNS:
+//   INTEGER   → CAST(json_extract(value, '$.col') AS INTEGER)
+//   REAL      → CAST(json_extract(value, '$.col') AS REAL)
+//   TEXT null → nullif(json_extract(value, '$.col'), '')
+//   TEXT !null→ json_extract(value, '$.col')
+
+export async function exportTableToCsv(db: Database, table: SyncTable): Promise<string> {
+  const columns = SYNC_COLUMNS[table.name]
+  if (!columns) throw new Error(`csvCodec: no syncColumns descriptor for "${table.name}"`)
+  const columnList = columns.map((c) => c.name).join(', ')
+  const rows = await db.exec<Record<string, unknown>>(
+    `SELECT ${columnList} FROM ${table.name} ORDER BY ${table.pk}`,
+  )
+  // Passed as { fields, data } rather than a bare array-of-objects with a
+  // `columns` config: Papa.unparse's array-of-objects path (see
+  // node_modules/papaparse/papaparse.js JsonToCsv, `!_input.length` branch)
+  // ignores the `columns` config entirely when the array is empty and
+  // falls back to `serialize(null, ...)`, silently dropping the header row
+  // for a table with zero rows. The { fields, data } object form always
+  // honours the explicit `fields` list, header included, regardless of
+  // whether `data` is empty — required for exportAllTables bundles where an
+  // as-yet-unpopulated table's CSV is still "header,row\n" and every table's
+  // header line is column-count-comparable to a later appended data row.
+  return (
+    Papa.unparse(
+      { fields: columns.map((c) => c.name), data: rows },
+      {
+        header: true,
+        newline: '\n',
+      },
+    ) + '\n'
+  )
+}
+
+export async function importCsvIntoTable(
+  db: Database,
+  table: SyncTable,
+  csvText: string,
+): Promise<void> {
+  const columns = SYNC_COLUMNS[table.name]
+  if (!columns) throw new Error(`csvCodec: no syncColumns descriptor for "${table.name}"`)
+
+  const parsed = Papa.parse<Record<string, string>>(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    dynamicTyping: false,
+    // Pinned to ',': exportTableToCsv always writes comma-delimited CSV
+    // (Papa.unparse's default). Without this, Papa's delimiter auto-detect
+    // has no data row to sample on a header-only CSV and reports a
+    // (non-fatal, but still populated into `errors`) "Unable to
+    // auto-detect delimiting character" warning that would otherwise trip
+    // the `parsed.errors.length > 0` guard below.
+    delimiter: ',',
+  })
+  if (parsed.errors.length > 0) {
+    const e = parsed.errors[0]!
+    throw new Error(
+      `csvCodec.importCsvIntoTable(${table.name}): CSV parse error at row ${e.row}: ${e.message}`,
+    )
+  }
+  if (parsed.data.length === 0) return
+
+  const columnList = columns.map((c) => c.name).join(', ')
+  const selectList = columns.map(selectExpressionFor).join(',\n  ')
+  await db.run(
+    `INSERT INTO ${table.name} (${columnList})
+     SELECT
+       ${selectList}
+     FROM json_each(?)`,
+    [JSON.stringify(parsed.data)],
+  )
+}
+
+function selectExpressionFor(c: ColumnDescriptor): string {
+  const path = `'$.${c.name}'`
+  // Nullable columns round-trip NULL as an empty CSV cell; nullif() turns
+  // that back into SQL NULL before any CAST. Without this, CAST('' AS REAL)
+  // (and CAST('' AS INTEGER)) evaluate to 0 in SQLite rather than NULL —
+  // verified directly against wa-sqlite — silently corrupting a NULL
+  // latitude/longitude (etc.) into 0 on import.
+  const extracted = c.nullable
+    ? `nullif(json_extract(value, ${path}), '')`
+    : `json_extract(value, ${path})`
+  if (c.sqlType === 'INTEGER') return `CAST(${extracted} AS INTEGER)`
+  if (c.sqlType === 'REAL') return `CAST(${extracted} AS REAL)`
+  return extracted
+}
+
+/** Export every domain table to a Map<name, csv>. Insertion order matches SYNC_TABLES. */
+export async function exportAllTables(db: Database): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (const t of SYNC_TABLES) out.set(t.name, await exportTableToCsv(db, t))
+  return out
+}
+
+/**
+ * Import every domain table from a Map<name, csv> in FK order (parents before
+ * children, per SYNC_TABLES). Wrapped in a single BEGIN/COMMIT so a mid-
+ * import failure (FK violation, malformed CSV, missing entry) rolls back
+ * cleanly rather than leaving a partially-populated DB.
+ */
+export async function importAllTables(db: Database, bundle: Map<string, string>): Promise<void> {
+  await db.run('BEGIN')
+  try {
+    for (const t of SYNC_TABLES) {
+      const csv = bundle.get(t.name)
+      if (csv === undefined) {
+        throw new Error(`csvCodec.importAllTables: missing CSV for "${t.name}"`)
+      }
+      await importCsvIntoTable(db, t, csv)
+    }
+    await db.run('COMMIT')
+  } catch (e) {
+    await db.run('ROLLBACK')
+    throw e
+  }
+}
