@@ -147,4 +147,39 @@ describe('ExchangeRatesRepository', () => {
     const found = await repo.findRates('2026-05-20', 'USD')
     expect(found).toHaveLength(0)
   })
+
+  describe('deterministic id from (date, base_currency, provider)', () => {
+    const input = {
+      date: '2026-05-20',
+      base_currency: 'USD',
+      rates: { EUR: 0.92 },
+      provider: 'openexchangerates',
+    }
+
+    it('gives the same id on two independent databases (devices), so sync merges them as one row', async () => {
+      const otherDb = new Database()
+      await otherDb.init()
+      try {
+        await runMigrations(otherDb, [settingsMigration, domainMigration])
+        const a = await repo.create(input)
+        const b = await new ExchangeRatesRepository(otherDb).create({ ...input, rates: { EUR: 0.93 } })
+        expect(b.id).toBe(a.id)
+      } finally {
+        await otherDb.close()
+      }
+    })
+
+    it('gives different ids when any key part differs', async () => {
+      const a = await repo.create(input)
+      const b = await repo.create({ ...input, provider: 'fawazahmed0' })
+      const c = await repo.create({ ...input, base_currency: 'EUR' })
+      const d = await repo.create({ ...input, date: '2026-05-21' })
+      expect(new Set([a.id, b.id, c.id, d.id]).size).toBe(4)
+    })
+
+    it('rejects a second rate for the same (date, base_currency, provider)', async () => {
+      await repo.create(input)
+      await expect(repo.create({ ...input, rates: { EUR: 0.99 } })).rejects.toThrow(/constraint failed/i)
+    })
+  })
 })

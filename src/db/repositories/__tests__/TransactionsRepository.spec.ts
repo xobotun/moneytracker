@@ -3,7 +3,7 @@ import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainSchemaMigration } from '../../migrations/002_domain_schema'
-import { TransactionsRepository } from '../TransactionsRepository'
+import { TransactionsRepository, TRANSACTION_ORDER_BY } from '../TransactionsRepository'
 import { newId, asUuid, type UUID } from '../../uuid'
 import { moneyAmount } from '../../MoneyAmount'
 import { localMoment } from '../../LocalMoment'
@@ -392,5 +392,72 @@ describe('TransactionsRepository', () => {
     expect(updated!.amount__from).toEqual(moneyAmount(2000, 2, 'USD'))
     expect(updated!.amount__to).toEqual(moneyAmount(950, 2, 'EUR')) // unchanged
     expect(updated!.updated_at_utc).not.toBe(originalUpdatedAt)
+  })
+
+  describe('ordering', () => {
+    function inputAt(local: string, zone: string, override: [string, string] | null = null) {
+      return {
+        account_id__from: accountId1,
+        account_id__to: null,
+        amount__from: moneyAmount(100, 2, 'USD'),
+        amount__to: moneyAmount(100, 2, 'USD'),
+        transaction_at: localMoment(local, zone),
+        date_override: override === null ? null : localMoment(override[0], override[1]),
+        tags: [],
+        location_lat: null,
+        location_lon: null,
+        location_id: null,
+      }
+    }
+
+    it('list() sorts by the real instant across UTC offsets, newest first', async () => {
+      // 10:00+04:00 is 06:00Z; 09:00+00:00 is 09:00Z — later despite the smaller wall-clock text.
+      const earlier = await repo.create(inputAt('2026-01-01T10:00:00.000+04:00', 'Asia/Dubai'))
+      const later = await repo.create(inputAt('2026-01-01T09:00:00.000+00:00', 'UTC'))
+
+      const ids = (await repo.list()).map((t) => t.id)
+      expect(ids).toEqual([later.id, earlier.id])
+    })
+
+    it("list('effective') sorts by date_override when set, else transaction_at", async () => {
+      const plain = await repo.create(inputAt('2026-01-02T12:00:00.000+00:00', 'UTC'))
+      const overridden = await repo.create(
+        inputAt('2026-01-01T12:00:00.000+00:00', 'UTC', ['2026-01-03T12:00:00.000+00:00', 'UTC']),
+      )
+
+      expect((await repo.list('transaction_at')).map((t) => t.id)).toEqual([plain.id, overridden.id])
+      expect((await repo.list('effective')).map((t) => t.id)).toEqual([overridden.id, plain.id])
+    })
+
+    it("listByAccountId honours the sort mode", async () => {
+      const plain = await repo.create(inputAt('2026-01-02T12:00:00.000+00:00', 'UTC'))
+      const overridden = await repo.create(
+        inputAt('2026-01-01T12:00:00.000+00:00', 'UTC', ['2026-01-03T12:00:00.000+00:00', 'UTC']),
+      )
+
+      expect((await repo.listByAccountId(accountId1)).map((t) => t.id)).toEqual([plain.id, overridden.id])
+      expect((await repo.listByAccountId(accountId1, 'effective')).map((t) => t.id)).toEqual([
+        overridden.id,
+        plain.id,
+      ])
+    })
+
+    it('breaks ties on the same instant by id, newest id first', async () => {
+      // Same instant (12:00Z); the text of `first` sorts higher, so only the id tie-break orders them.
+      const first = await repo.create(inputAt('2026-01-01T14:00:00.000+02:00', 'Europe/Berlin'))
+      const second = await repo.create(inputAt('2026-01-01T12:00:00.000+00:00', 'UTC'))
+
+      expect((await repo.list()).map((t) => t.id)).toEqual([second.id, first.id])
+    })
+
+    it.each([
+      ['transaction_at', 'idx_transactions_at'],
+      ['effective', 'idx_transactions_effective_at'],
+    ] as const)("the '%s' ordering is served by %s", async (mode, indexName) => {
+      const plan = await db.exec<{ detail: string }>(
+        `EXPLAIN QUERY PLAN SELECT * FROM transactions WHERE deleted_at_utc IS NULL ORDER BY ${TRANSACTION_ORDER_BY[mode]}`,
+      )
+      expect(plan.map((r) => r.detail).join('\n')).toContain(indexName)
+    })
   })
 })

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import type { Database } from '../../db/Database'
 import { mergeDatabases } from '../mergeEngine'
 import { readRows } from '../rows'
+import { ExchangeRatesRepository } from '../../db/repositories/ExchangeRatesRepository'
 import { newMigratedDb, seedLocation, seedAccount, seedTransaction } from './helpers'
 
 const CUTOFF = '2026-05-01T00:00:00.000Z'
@@ -113,5 +114,17 @@ describe('mergeDatabases', () => {
     await expect(mergeDatabases(local, remote, CUTOFF)).rejects.toThrow()
     // The earlier, successful location upsert must have been rolled back.
     expect(await readRows(local, 'locations')).toHaveLength(0)
+  })
+
+  it('merges the same exchange rate fetched on two devices into one row', async () => {
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    const key = { date: '2026-05-20', base_currency: 'USD', provider: 'openexchangerates' }
+    await new ExchangeRatesRepository(local).create({ ...key, rates: { EUR: 0.92 } })
+    await new ExchangeRatesRepository(remote).create({ ...key, rates: { EUR: 0.93 } })
+
+    await mergeDatabases(local, remote, CUTOFF)
+
+    expect(await readRows(local, 'exchange_rates')).toHaveLength(1)
   })
 })

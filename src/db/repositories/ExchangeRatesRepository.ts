@@ -8,7 +8,7 @@ import {
   jsonObjectToColumn,
   uuidFromColumn,
 } from '../columnMappers'
-import { newId, type UUID } from '../uuid'
+import { nameBasedId, type UUID } from '../uuid'
 
 type ExchangeRateRow = {
   id: string
@@ -23,7 +23,19 @@ type ExchangeRateRow = {
 
 type ExchangeRateCreateInput = Omit<ExchangeRate, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
 
-type ExchangeRateUpdateInput = Partial<Pick<ExchangeRate, 'rates' | 'provider'>>
+// `provider` (like `date` and `base_currency`) is part of the row's identity —
+// see exchangeRateId — so it cannot be changed after creation.
+type ExchangeRateUpdateInput = Partial<Pick<ExchangeRate, 'rates'>>
+
+/**
+ * The id is derived from (date, base_currency, provider), so there is at most
+ * one row per key on each device, and the same key gets the same id on every
+ * device: sync then resolves two devices' fetches of the same rates as one row
+ * (latest wins) rather than failing on a duplicate.
+ */
+export function exchangeRateId(date: string, baseCurrency: string, provider: string): UUID {
+  return nameBasedId('exchange_rates', date, baseCurrency, provider)
+}
 
 function rowToExchangeRate(row: ExchangeRateRow): ExchangeRate {
   return {
@@ -42,7 +54,7 @@ export class ExchangeRatesRepository {
   constructor(private db: Database) {}
 
   async create(input: ExchangeRateCreateInput): Promise<ExchangeRate> {
-    const id = newId()
+    const id = exchangeRateId(input.date, input.base_currency, input.provider)
     const now = instantToColumn(new Date())
     await this.db.run(
       `INSERT INTO exchange_rates (id, date, base_currency, rates, provider, created_at_utc, updated_at_utc)
@@ -89,10 +101,6 @@ export class ExchangeRatesRepository {
     if (patch.rates !== undefined) {
       sets.push('rates = ?')
       params.push(jsonObjectToColumn(patch.rates))
-    }
-    if (patch.provider !== undefined) {
-      sets.push('provider = ?')
-      params.push(patch.provider)
     }
     if (sets.length === 0) return
     sets.push('updated_at_utc = ?')

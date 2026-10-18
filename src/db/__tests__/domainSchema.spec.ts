@@ -95,4 +95,25 @@ describe('domain schema migration', () => {
     const rows = await db.exec('SELECT id FROM transactions')
     expect(rows).toHaveLength(1)
   })
+
+  it.each([
+    ['local without zone', '2026-05-21T09:00:00.000+02:00', null],
+    ['zone without local', null, 'Europe/Berlin'],
+  ])('rejects a half-set date_override (%s)', async (_label, overrideLocal, overrideZone) => {
+    await expect(
+      db.run(
+        `INSERT INTO transactions (id, account_id__from, account_id__to,
+                                   amount_value__from, amount_scale__from, amount_currency__from,
+                                   amount_value__to, amount_scale__to, amount_currency__to,
+                                   transaction_at_local, transaction_at_zone,
+                                   date_override_local, date_override_zone,
+                                   created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['t1', null, null, 100, 2, 'USD', 100, 2, 'USD',
+         '2026-05-20T12:00:00.000+02:00', 'Europe/Berlin',
+         overrideLocal, overrideZone,
+         '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
+      )
+    ).rejects.toThrow(/CHECK constraint failed/)
+  })
 })

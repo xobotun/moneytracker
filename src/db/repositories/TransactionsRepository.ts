@@ -80,6 +80,24 @@ function rowToTransaction(row: TransactionRow): Transaction {
   }
 }
 
+/**
+ * How transaction lists are ordered (newest first):
+ * - `transaction_at`: when the transaction happened.
+ * - `effective`: the date override when one is set, else `transaction_at`.
+ */
+export type TransactionSortMode = 'transaction_at' | 'effective'
+
+/**
+ * ORDER BY clause per sort mode. `julianday()` turns the offset-bearing local
+ * ISO strings into comparable instants (plain text order is wrong across UTC
+ * offsets). The expressions must stay identical to the index expressions in
+ * 002_domain_schema, or SQLite won't use the indexes. `id` (UUIDv7) breaks ties.
+ */
+export const TRANSACTION_ORDER_BY: Record<TransactionSortMode, string> = {
+  transaction_at: 'julianday(transaction_at_local) DESC, id DESC',
+  effective: 'julianday(COALESCE(date_override_local, transaction_at_local)) DESC, id DESC',
+}
+
 export class TransactionsRepository {
   constructor(private db: Database) {}
 
@@ -139,19 +157,22 @@ export class TransactionsRepository {
     return rows.length === 0 ? null : rowToTransaction(rows[0]!)
   }
 
-  async list(): Promise<Transaction[]> {
+  async list(sortBy: TransactionSortMode = 'transaction_at'): Promise<Transaction[]> {
     const rows = await this.db.exec<TransactionRow>(
-      'SELECT * FROM transactions WHERE deleted_at_utc IS NULL ORDER BY transaction_at_local DESC',
+      `SELECT * FROM transactions WHERE deleted_at_utc IS NULL ORDER BY ${TRANSACTION_ORDER_BY[sortBy]}`,
     )
     return rows.map(rowToTransaction)
   }
 
-  async listByAccountId(accountId: UUID): Promise<Transaction[]> {
+  async listByAccountId(
+    accountId: UUID,
+    sortBy: TransactionSortMode = 'transaction_at',
+  ): Promise<Transaction[]> {
     const rows = await this.db.exec<TransactionRow>(
       `SELECT * FROM transactions
        WHERE deleted_at_utc IS NULL
          AND (account_id__from = ? OR account_id__to = ?)
-       ORDER BY transaction_at_local DESC`,
+       ORDER BY ${TRANSACTION_ORDER_BY[sortBy]}`,
       [accountId, accountId],
     )
     return rows.map(rowToTransaction)
