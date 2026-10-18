@@ -1,7 +1,12 @@
-import Papa from 'papaparse'
 import type { Database, SqlExecutor } from '../db/Database'
 import { SYNC_COLUMNS, type ColumnDescriptor } from './syncColumns'
 import { SYNC_TABLES, type SyncTable } from './syncTables'
+
+// papaparse is loaded on first use (dynamic import) so it stays out of the
+// startup bundle; CSV work only happens during a GitHub sync.
+async function loadPapa() {
+  return (await import('papaparse')).default
+}
 
 // CSV ↔ Database round-trip for GitHubCsvBackend.
 //
@@ -37,6 +42,7 @@ export async function exportTableToCsv(db: SqlExecutor, table: SyncTable): Promi
   // whether `data` is empty — required for exportAllTables bundles where an
   // as-yet-unpopulated table's CSV is still "header,row\n" and every table's
   // header line is column-count-comparable to a later appended data row.
+  const Papa = await loadPapa()
   return (
     Papa.unparse(
       { fields: columns.map((c) => c.name), data: rows },
@@ -56,6 +62,7 @@ export async function importCsvIntoTable(
   const columns = SYNC_COLUMNS[table.name]
   if (!columns) throw new Error(`csvCodec: no syncColumns descriptor for "${table.name}"`)
 
+  const Papa = await loadPapa()
   const parsed = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: true,

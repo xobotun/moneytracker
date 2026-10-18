@@ -1,4 +1,4 @@
-import { AwsClient } from 'aws4fetch'
+import type { AwsClient } from 'aws4fetch'
 import type { BlobTransport } from './BlobTransport'
 import type { S3Config } from './localState/providerConfig'
 import { withSyncFetchPolicy } from './fetchPolicy'
@@ -25,7 +25,9 @@ type FetchFn = typeof fetch
  * CAS: If-Match / If-None-Match on the sidecar PUT; 412 → CAS miss.
  */
 export class S3Transport implements BlobTransport {
-  private readonly client: AwsClient
+  // aws4fetch is loaded on first request (dynamic import) so it stays out of
+  // the startup bundle; it is only needed once an S3 provider is used.
+  private client: Promise<AwsClient> | null = null
   private readonly fetchFn: FetchFn
 
   constructor(
@@ -35,12 +37,19 @@ export class S3Transport implements BlobTransport {
     fetchFn: FetchFn = globalThis.fetch.bind(globalThis),
   ) {
     this.fetchFn = withSyncFetchPolicy(fetchFn)
-    this.client = new AwsClient({
-      accessKeyId: cfg.accessKeyId,
-      secretAccessKey: cfg.secretKey,
-      region: cfg.region,
-      service: 's3',
-    })
+  }
+
+  private getClient(): Promise<AwsClient> {
+    this.client ??= import('aws4fetch').then(
+      ({ AwsClient }) =>
+        new AwsClient({
+          accessKeyId: this.cfg.accessKeyId,
+          secretAccessKey: this.cfg.secretKey,
+          region: this.cfg.region,
+          service: 's3',
+        }),
+    )
+    return this.client
   }
 
   async validate(): Promise<void> {
@@ -96,7 +105,8 @@ export class S3Transport implements BlobTransport {
 
   /** Sign a request with sig v4, then dispatch it through the injected fetchFn. */
   private async signedFetch(url: string, init: RequestInit): Promise<Response> {
-    const signed = await this.client.sign(url, init)
+    const client = await this.getClient()
+    const signed = await client.sign(url, init)
     return this.fetchFn(signed)
   }
 
