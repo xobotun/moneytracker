@@ -29,3 +29,6 @@ Thumbs.db
 
 # Claude envs
 /.claude/settings.local.json
+
+# Local SQLite files (debug dumps, exports) — may contain personal data
+*.sqlite
