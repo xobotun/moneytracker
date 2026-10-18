@@ -283,15 +283,13 @@ Known sync defects, postponed (review 2026-10-18):
   columns is stored as NULL so it survives the CSV round trip. Browser
   CORS is still untested — needs one manual "Sync now" in the app.
   Long-term idea: sync over real git instead of the REST API.
-  **Upload cost:** every upload re-POSTs every CSV file (1 + F blob requests,
-  F ≈ 5 + ⌈transactions/1000⌉ + ⌈exchange_rates/1000⌉), so the request count
-  grows with the database and could hit GitHub's secondary rate limits for
-  content creation once auto-sync exists. Intended fix: compute each file's
-  git blob SHA-1 locally ("blob <byteLen>\0" + bytes) and skip createBlob and
-  the tree entry for files whose SHA equals `snapshot.files.get(path)`.
-  Also: a device that reuses another device's name with a smaller or empty
-  database gets `upload-local` and leaves stale trailing files (and could drop
-  data — pre-existing, decideSync trusts the device name).
+  **Upload cost:** fixed — an upload sends only the files whose content
+  changed (git blob ids computed locally and compared with the pinned
+  commit; the live test checks the ids match GitHub's).
+  **Device names must be unique** (the default has a random suffix; renaming
+  a device to another device's name is unsupported): a device with a
+  duplicate name and a smaller or empty database takes `upload-local`, which
+  can drop data and leave stale trailing CSV files.
 - **Clock skew / ties:** the merge cutoff compares timestamps from
   different devices' clocks, and equal timestamps resolve to the local side
   (two devices can flip-flop). Accepted for now; concurrent edits expected

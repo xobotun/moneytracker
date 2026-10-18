@@ -19,7 +19,9 @@ import { LocationsRepository } from '../../db/repositories/LocationsRepository'
 import { TagsRepository } from '../../db/repositories/TagsRepository'
 import { TransactionsRepository } from '../../db/repositories/TransactionsRepository'
 import { newId, type UUID } from '../../db/uuid'
+import { exportAllTables } from '../csvCodec'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
+import { gitBlobSha } from '../gitBlobSha'
 import { GitHubTransport } from '../GitHubTransport'
 import { hashDatabase } from '../hashDatabase'
 import type { GitHubConfig } from '../localState/providerConfig'
@@ -96,12 +98,12 @@ function newDevice(db: Database, cfg: GitHubConfig, deviceName: string): Device 
   return device
 }
 
-/** Paths of all files on a branch. */
-async function remotePaths(branch: string): Promise<string[]> {
+/** All files on a branch: path → git blob id. */
+async function remoteFiles(branch: string): Promise<Map<string, string>> {
   const res = await githubApi(`/git/trees/${branch}?recursive=1`)
   if (!res.ok) throw new Error(`listing the branch tree: ${res.status} ${await res.text()}`)
-  const tree = (await res.json()) as { tree: { path: string; type: string }[] }
-  return tree.tree.filter((e) => e.type === 'blob').map((e) => e.path)
+  const tree = (await res.json()) as { tree: { path: string; type: string; sha: string }[] }
+  return new Map(tree.tree.filter((e) => e.type === 'blob').map((e) => [e.path, e.sha]))
 }
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
@@ -331,7 +333,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
   })
 
   it('stores every table as numbered files of at most 1000 rows', async () => {
-    const paths = await remotePaths(cfg.branch)
+    const paths = [...(await remoteFiles(cfg.branch)).keys()]
     for (const n of ['0001', '0002', '0003']) {
       expect(paths).toContain(`data/transactions-${n}.csv`)
     }
@@ -339,6 +341,18 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     for (const t of SYNC_TABLES) {
       expect(paths).toContain(`data/${t.name}-0001.csv`)
       expect(paths).not.toContain(`data/${t.name}.csv`)
+    }
+  })
+
+  it('computes the same git blob ids as GitHub, so unchanged files are not re-sent', async () => {
+    // tryUpload skips a file when its locally computed id equals the remote's;
+    // if the two ever disagreed, every file would silently be re-uploaded.
+    const remote = await remoteFiles(cfg.branch)
+    for (const [table, files] of await exportAllTables(a.db)) {
+      for (let i = 0; i < files.length; i++) {
+        const path = `data/${table}-${String(i + 1).padStart(4, '0')}.csv`
+        expect(await gitBlobSha(files[i]!), path).toBe(remote.get(path))
+      }
     }
   })
 

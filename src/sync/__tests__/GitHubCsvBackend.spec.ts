@@ -330,6 +330,32 @@ describe('GitHubCsvBackend', () => {
       expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
     })
 
+    it('a later upload sends only metadata.json and the files whose content changed', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 2001)
+      await uploadFrom(backend, a) // leaves the snapshot on the uploaded commit
+      await a.run(
+        `INSERT INTO tags (tag, synonyms, colour, icon, created_at_utc, updated_at_utc)
+         VALUES ('new', '[]', '#000', 'x', ?, ?)`,
+        [CUTOFF, CUTOFF],
+      )
+
+      const postsBefore = remote.blobPosts
+      const meta = META({ uploadedAtUtc: '2026-05-29T10:00:00.000Z' })
+      expect(
+        await backend.tryUpload(a, { ...meta, hash: await backend.hashDatabase(a) }, META()),
+      ).toBe(true)
+      // metadata.json + data/tags-0001.csv; the three locations files are unchanged.
+      expect(remote.blobPosts - postsBefore).toBe(2)
+
+      await backend.getMetadata()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
+    })
+
     it('download throws naming the missing file when numbering has a gap', async () => {
       const { backend, remote } = setup()
       const a = await migratedDb()

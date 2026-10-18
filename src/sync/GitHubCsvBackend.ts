@@ -1,6 +1,7 @@
 import { Database } from '../db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '../db/migrations'
 import { exportAllTables, importAllTables } from './csvCodec'
+import { gitBlobSha } from './gitBlobSha'
 import { hashDatabase } from './hashDatabase'
 import type { GitHubTransport, TreeEntry } from './GitHubTransport'
 import type { SyncBackend } from './SyncBackend'
@@ -58,9 +59,10 @@ function csvFilePath(table: string, index: number): string {
  *  - downloadDatabase() returns a fresh in-memory Database with migrations
  *    applied to metadata.migrationVersion, then CSVs imported via the
  *    bulk json_each path.
- *  - tryUpload exports every CSV plus metadata.json on every call (full
- *    blob upload — see the design doc's "Assumptions accepted on purpose"
- *    for why this is acceptable at personal-finance scale).
+ *  - tryUpload exports every CSV plus metadata.json on every call but sends
+ *    only files whose git blob id differs from the snapshot's; each sent
+ *    file is a full blob (see the design doc's "Assumptions accepted on
+ *    purpose" for why this is acceptable at personal-finance scale).
  */
 export class GitHubCsvBackend implements SyncBackend {
   /** The commit the most recent getMetadata() saw, with its file list (path → blob SHA).
@@ -167,34 +169,26 @@ export class GitHubCsvBackend implements SyncBackend {
     if (expected !== null && this.snapshot === null) return false
 
     const csvs = await exportAllTables(localDb, this.options.rowsPerFileForTest)
+    // Only files whose content differs from the snapshot's are sent; the rest
+    // are carried over by base_tree. Comparing git blob ids computed locally
+    // saves one request per unchanged file (most of them, in a big database).
     const blobs: TreeEntry[] = []
-    // metadata.json
-    blobs.push({
-      path: METADATA_PATH,
-      sha: await this.transport.createBlob(JSON.stringify(metadata) + '\n'),
-    })
-    // CSVs
+    const write = async (path: string, content: string): Promise<void> => {
+      const sha = await gitBlobSha(content)
+      if (this.snapshot?.files.get(path) === sha) return
+      blobs.push({ path, sha: await this.transport.createBlob(content) })
+    }
+    await write(METADATA_PATH, JSON.stringify(metadata) + '\n')
     for (const t of SYNC_TABLES) {
       const files = csvs.get(t.name)!
-      for (let i = 0; i < files.length; i++) {
-        blobs.push({
-          path: csvFilePath(t.name, i + 1),
-          sha: await this.transport.createBlob(files[i]!),
-        })
-      }
+      for (let i = 0; i < files.length; i++) await write(csvFilePath(t.name, i + 1), files[i]!)
     }
     // Bootstrap files only on first sync (no existing tree to inherit
     // from). On subsequent syncs base_tree carries them through.
     const isBootstrap = this.snapshot === null
     if (isBootstrap) {
-      blobs.push({
-        path: README_PATH,
-        sha: await this.transport.createBlob(README_CONTENT),
-      })
-      blobs.push({
-        path: GITATTRIBUTES_PATH,
-        sha: await this.transport.createBlob(GITATTRIBUTES_CONTENT),
-      })
+      await write(README_PATH, README_CONTENT)
+      await write(GITATTRIBUTES_PATH, GITATTRIBUTES_CONTENT)
     }
 
     const treeSha = await this.transport.createTree(blobs, this.snapshot?.treeSha)

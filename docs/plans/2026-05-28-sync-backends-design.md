@@ -563,8 +563,8 @@ These let the backend tests run with no network I/O and no flakiness.
 ## Assumptions accepted on purpose
 
 - **Whole-file upload to GitHub on every change.** The REST data API
-  uploads every file as a complete blob on each sync (see TASKS.md); even a
-  one-line CSV change re-uploads the whole file. True git delta transfer would require
+  uploads each changed file as a complete blob (unchanged files are skipped by
+  comparing git blob ids); even a one-line CSV change re-uploads that whole file. True git delta transfer would require
   `isomorphic-git` + a CORS proxy (third-party trust or self-hosted
   infrastructure), which we judged not worth the cost at personal-finance
   scale. The `SyncBackend` seam means we can swap later without touching the
