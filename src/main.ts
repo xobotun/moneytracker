@@ -12,6 +12,7 @@ import router from './router'
 import { initDatabase } from './db/init'
 import { useLayoutStore } from './stores/layout'
 import { themePresets } from './stores/layout-types'
+import { showStartupError } from './startupScreen'
 
 async function bootstrap(): Promise<void> {
   await initDatabase()
@@ -44,7 +45,5 @@ async function bootstrap(): Promise<void> {
 bootstrap().catch((err) => {
   console.error('Failed to initialize app:', err)
   const el = document.getElementById('app')
-  if (el) {
-    el.textContent = `Failed to load application: ${err}. Please refresh or try a different browser.`
-  }
+  if (el) showStartupError(el, err)
 })

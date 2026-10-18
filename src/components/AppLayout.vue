@@ -21,7 +21,7 @@ const isLeft = computed(() => position.value === 'left')
 </script>
 
 <template>
-  <div class="min-h-screen" :class="isHorizontal ? 'flex flex-col' : 'flex flex-row'">
+  <div class="min-h-dvh" :class="isHorizontal ? 'flex flex-col' : 'flex flex-row'">
     <!-- Top menubar -->
     <AppMenubar v-if="isHorizontal && isTop" />
 
