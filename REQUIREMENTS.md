@@ -4,6 +4,7 @@
 
 ### Accounts
 - Track multiple accounts across different banks/ecosystems.
+- A new account starts at a zero balance; money already on it is entered as an **income** transaction (there is no separate starting-balance field).
 
 ### Transactions
 - Three transaction types: **expense**, **income**, **transfer** (between accounts).
@@ -36,7 +37,8 @@
 ## Sync
 - Offline-first: the app works fully standalone; sync is opportunistic when online.
 - Multi-device: any number of user devices share one logical database via a chosen cloud target.
-- Pluggable sync provider — at minimum Supabase, S3-compatible (Backblaze B2 / Cloudflare R2), and GitHub repository as candidates. One is active at a time; credentials for all three are persisted so switching is friction-free. **Satisfied:** see [docs/plans/2026-05-28-sync-backends-plan.md](docs/plans/2026-05-28-sync-backends-plan.md) (GitHubCsvBackend, SqliteBlobBackend with Supabase + S3 transports).
-- Each device has a user-editable name used as its identity in sync metadata; defaults to a UA-derived name with a random 8-char suffix to keep un-renamed devices distinguishable. **Satisfied:** see [docs/plans/2026-05-28-sync-settings-plan.md](docs/plans/2026-05-28-sync-settings-plan.md).
-- Settings exposes sync status as read-only data: last sync (timestamp, uploader, hash), current local-database hash, and the last cached remote snapshot. Opening Settings never triggers a network call. **Satisfied:** see [docs/plans/2026-05-28-sync-settings-plan.md](docs/plans/2026-05-28-sync-settings-plan.md).
+- Pluggable sync provider — at minimum Supabase, S3-compatible (Backblaze B2 / Cloudflare R2), and GitHub repository as candidates. One is active at a time; credentials for all three are persisted so switching is friction-free. **Implemented** (unit-tested against in-memory fakes; not yet verified against the live services): see [docs/plans/2026-05-28-sync-backends-plan.md](docs/plans/2026-05-28-sync-backends-plan.md) (GitHubCsvBackend, SqliteBlobBackend with Supabase + S3 transports).
+- Each device has a user-editable name used as its identity in sync metadata; defaults to a UA-derived name with a random 8-char suffix to keep un-renamed devices distinguishable. **Implemented:** see [docs/plans/2026-05-28-sync-settings-plan.md](docs/plans/2026-05-28-sync-settings-plan.md).
+- Settings exposes sync status as read-only data: last sync (timestamp, uploader, hash), current local-database hash, and the last cached remote snapshot. Opening Settings never triggers a network call. **Implemented:** see [docs/plans/2026-05-28-sync-settings-plan.md](docs/plans/2026-05-28-sync-settings-plan.md).
 - Settings exposes per-provider credential fields. Stored plaintext in localStorage — the realistic threat model (XSS) already loses the whole SQLite database, so at-rest encryption of tokens gains nothing meaningful.
+- All settings are per-device and never synced: the SQLite `settings` table (layout, theme) and the localStorage sync state (device name, provider config and credentials, sync snapshots, last error). Without its own provider config a device would not know where to sync from.

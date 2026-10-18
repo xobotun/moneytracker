@@ -9,47 +9,49 @@ Personal money tracker application. Must work as a standalone app on PCs and mob
 ## Tech Stack
 
 - **Frontend:** Vue 3 (Composition API) + TypeScript, built with Vite
-- **Backend:** Supabase (auth, PostgreSQL, sync)
+- **Sync:** pluggable remote storage, one provider active at a time — GitHub repository (CSV files via the REST Git Data API), Supabase Storage or S3-compatible (one `.sqlite` blob + metadata sidecar). See `src/sync/`. Supabase auth / PostgreSQL: planned, not used yet.
 - **Package manager:** npm
-- **Architecture:** Offline-first — app works standalone, syncs to Supabase when online
+- **Architecture:** Offline-first — app works standalone, syncs to the chosen provider when online
 
 ### Styling & UI
 - **Tailwind CSS v4** for utility-first styling (~90% of CSS).
 - **PrimeVue** as primary component library (data tables, forms, date pickers).
-- **Radix Vue** for custom headless components when PrimeVue is too opinionated.
+- **Radix Vue** for custom headless components when PrimeVue is too opinionated *(planned — not installed yet)*.
 - Vue `<style scoped>` for edge cases only.
 
 ### Data & State
-- **Pinia** for state management — used as a **write-through cache**. SQLite is the source of truth; Pinia stores call repositories to persist changes, then update reactive state.
+- **Pinia** for state management — used as a **write-through cache**. SQLite is the source of truth; Pinia stores call repositories to persist changes, then update reactive state. Exception: purely visual preferences (the layout store) save optimistically — show the new value at once, persist, revert and report on failure. Financial data is always write-through.
 - **wa-sqlite + IDBBatchAtomicVFS** for local SQLite database (IndexedDB-backed, offline, exportable).
 - **Vue Router** for navigation.
+- **Per-device state** — sync identity (device name), provider credentials, last-known remote state and the last sync error — lives in localStorage under the `moneytracker.sync.` prefix (`src/sync/localState/`). Reads must tolerate unavailable or malformed storage (fall back to defaults). Together with the SQLite `settings` table this is device-local and never synced.
 
 ### SQLite Conventions
 
 - **Type affinity awareness.** SQLite has only five affinities (NULL, INTEGER, REAL, TEXT, BLOB) and picks one by keyword-matching the declared type string. `BOOLEAN`, `TIMESTAMPTZ`, `JSON`, `DECIMAL`, `UUID` are *not* honored as you'd expect from PostgreSQL — `UUID` contains no affinity keyword and silently resolves to **BLOB**; `BOOLEAN` resolves to NUMERIC and silently coerces. **Always declare columns with one of the five affinity-keyword types** (TEXT, INTEGER, REAL, BLOB), and record the semantic intent in a comment (e.g., `id TEXT PRIMARY KEY  -- UUIDv7`).
-- **Primary keys.** UUIDv7 in `TEXT PRIMARY KEY` columns, generated client-side via `src/db/uuid.ts` (`newId()`). Time-ordered so they also sort chronologically. Natural string keys are allowed where they're truly the entity's identity (e.g., `tags.tag`).
+- **Primary keys.** UUIDv7 in `TEXT PRIMARY KEY` columns, generated client-side via `src/db/uuid.ts` (`newId()`). Time-ordered so they also sort chronologically. Natural string keys are allowed where they're truly the entity's identity (e.g., `tags.tag`). Rows that two devices may create independently for the same natural key get a deterministic UUIDv5 via `nameBasedId(...)` instead (e.g. `exchange_rates`: date + base currency + provider), so sync merges them as one row.
 - **Two kinds of timestamps, distinguished by suffix:**
   - **`_utc` suffix** → TEXT, ISO 8601 UTC with `Z` (e.g., `2026-03-15T14:30:00.000Z`). A pure **instant**. Used for system metadata (`created_at_utc`, `updated_at_utc`, `deleted_at_utc`). Lexicographic order = chronological order.
-  - **`_local` + `_zone` suffix pair** → TEXT, offset-bearing ISO 8601 (e.g., `2013-10-07T04:23:19.120+04:00`) plus IANA zone name (e.g., `Europe/Berlin`). A **civil moment anchored to a place**. Used when the user's wall-clock-at-that-place matters (e.g., `transaction_at_local` + `transaction_at_zone`). Both fields are needed because the offset alone doesn't identify the zone (DST, multi-zone offsets).
-- **Money** is stored as a BigDecimal-style triplet: `<name>_value INTEGER` + `<name>_scale INTEGER` + `<name>_currency TEXT`. Mirrors `BigDecimal(unscaledValue, scale)` plus a free-form currency tag (ISO 4217 or custom like `BTC`). Avoids floating-point drift and works for crypto without a separate currencies table. The `MoneyAmount` TS type and `moneyToColumns` / `moneyFromRow` mappers live in `src/db/MoneyAmount.ts` and `src/db/columnMappers.ts`. Frontend formatting uses [accounting.js](https://openexchangerates.github.io/accounting.js/).
-- **Sync columns on every domain table:** `created_at_utc TEXT NOT NULL`, `updated_at_utc TEXT NOT NULL`, `deleted_at_utc TEXT` (nullable). Soft delete via `deleted_at_utc IS NOT NULL`; repositories filter it out by default. Required so Phase 2 timestamp-merge sync can correctly propagate deletes — without a tombstone, a row deleted on device A would resurrect when device B syncs back its older copy.
+  - **`_local` + `_zone` suffix pair** → TEXT, offset-bearing ISO 8601 (e.g., `2013-10-07T04:23:19.120+04:00`) plus IANA zone name (e.g., `Europe/Berlin`). A **civil moment anchored to a place**. Used when the user's wall-clock-at-that-place matters (e.g., `transaction_at_local` + `transaction_at_zone`). Both fields are needed because the offset alone doesn't identify the zone (DST, multi-zone offsets). Never sort or compare `_local` values as text — offsets differ; use `julianday(col)` (see `TRANSACTION_ORDER_BY` and the matching expression indexes).
+- **Money** is stored as a BigDecimal-style triplet: `<name>_value INTEGER` + `<name>_scale INTEGER` + `<name>_currency TEXT`. Mirrors `BigDecimal(unscaledValue, scale)` plus a free-form currency tag (ISO 4217 or custom like `BTC`). Avoids floating-point drift and works for crypto without a separate currencies table. The `MoneyAmount` TS type and `moneyToColumns` / `moneyFromRow` mappers live in `src/db/MoneyAmount.ts` and `src/db/columnMappers.ts`. Frontend formatting: [accounting.js](https://openexchangerates.github.io/accounting.js/) *(planned — not installed yet)*. Values are JS `number`s for now (fiat only); big crypto amounts are a later decision.
+- **Sync columns on every domain table:** `created_at_utc TEXT NOT NULL`, `updated_at_utc TEXT NOT NULL`, `deleted_at_utc TEXT` (nullable). Soft delete via `deleted_at_utc IS NOT NULL`; repositories filter it out by default. Required so Phase 2 timestamp-merge sync can correctly propagate deletes — without a tombstone, a row deleted on device A would resurrect when device B syncs back its older copy. (Not on `settings` / `migrations`: those are device-local and excluded from sync.)
 - **Foreign keys** are declared with `ON DELETE RESTRICT`. `PRAGMA foreign_keys = ON` is set in `Database.init()` — SQLite has FK enforcement off by default. Soft-deletes don't trigger FK checks; only a true `DELETE FROM` would, and that's what we want to catch.
 - **JSON columns** (arrays like `tags`, `synonyms`, `accounts_ids`; objects like `exchange_rates.rates`) are stored as `TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(col))`. The CHECK uses SQLite's JSON1 module to reject malformed writes at insert time. Read/write via the `jsonArray*` / `jsonObject*` helpers in `src/db/columnMappers.ts`; query in SQL via `json_each` / `json_extract`.
 - **Column naming:**
   - Single underscore separates words, including when one logical value is split into two related columns (`latitude` / `longitude`, `transaction_at_local` / `transaction_at_zone`).
   - Double underscore `__` separates a column's base name from a **discriminator suffix**, used only when 2+ parallel columns share one logical grouping. Example: `amount_value__from` / `amount_value__to`, `account_id__from` / `account_id__to`. Rule of thumb: if removing the suffix would name a real concept and there are 2+ parallel suffixed variants, use `__`. Otherwise use `_`.
-- **Migrations:** ordered `NNN_name.ts` files exporting `{ version, up }`. Registered in `src/db/init.ts`'s `allMigrations` array. Tracked in the `migrations` table. Run automatically on `Database.init()`.
-- **No concurrent DB operations.** The async wa-sqlite build (used for IDBBatchAtomicVFS persistence) relies on Asyncify, which cannot handle multiple in-flight operations on the same connection. Always `await` each query sequentially — never use `Promise.all` with multiple DB calls.
+- **Migrations:** ordered `NNN_name.ts` files exporting `{ version, up }`, registered in the single `ALL_MIGRATIONS` list in `src/db/migrations/index.ts` (also used by the GitHub backend to build downloaded databases — never keep a second list). Tracked in the `migrations` table; each runs in one transaction; applied by `initDatabase()`. Start each `up` with a statement keyword, not a comment (`Database.mutationCounter` classifies writes by their leading keyword). While the app is in development with no real data, existing migrations may be edited in place — reset local IndexedDB and any test remote afterwards.
+- **Concurrency.** The async wa-sqlite build (used for IDBBatchAtomicVFS persistence) relies on Asyncify, which cannot handle multiple in-flight operations on one connection. `Database` therefore queues every `exec`/`run` behind an internal lock, so concurrent single statements (including `Promise.all`) are safe. What is *not* safe is a multi-statement unit built from separate calls (`BEGIN` … `COMMIT`): other callers' statements can land in between. Use `db.transaction(async (tx) => …)`, which holds the lock for the whole unit, and use only `tx` inside it (calling `db.exec`/`db.run` there deadlocks).
+- **Sync tables.** Every domain table must be listed in `SYNC_TABLES` (`src/sync/syncTables.ts`, parents before children) and described in `SYNC_COLUMNS` (`src/sync/syncColumns.ts`), or it silently won't sync or be hashed. `syncColumns.spec.ts` checks the descriptors against the real schema.
 - **Prefer specific domain types over primitives in `src/db/types.ts`.** Identifiers are `UUID` (branded string from `src/db/uuid.ts`), not raw `string`. Instants are `Date`, not raw `string`. Money is `MoneyAmount`, not three loose fields. Civil moments are `LocalMoment`. SQLite still stores TEXT/INTEGER/REAL underneath — the conversion lives at the repository boundary using the helpers in `src/db/columnMappers.ts` (`instantToColumn`/`instantFromColumn`, `uuidFromColumn`/`uuidFromNullableColumn`, `moneyToColumns`/`moneyFromRow`, `localMomentToColumns`/`localMomentFromRow`, `jsonArray*`/`jsonObject*`). When adding a new value type, define it in its own module and add a matching pair of mappers; repositories should never marshal raw strings/numbers if a richer type exists for the concept.
 
 ### Quality
-- **ESLint** + **Prettier** for linting/formatting.
+- **oxlint** + **ESLint** (+ Prettier) for linting/formatting. `npm run lint` runs both with `--fix` on purpose (auto-fixing saves agent time).
 - **Vitest** + Vue Test Utils for unit/component tests.
 - **Playwright** for E2E tests.
 
 ### CI/CD & Hosting
-- **GitHub Actions**: lint + test on PR, deploy on merge.
-- **GitHub Pages** for hosting (static PWA).
+- **GitHub Actions**: lint + type-check + unit tests on PR, deploy on merge (the e2e suite is not in CI yet).
+- **GitHub Pages** for hosting (static PWA). The build copies `index.html` to `404.html` so deep links work.
 
 ## Requirements
 

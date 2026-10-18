@@ -15,11 +15,11 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
 - PrimeVue component library + PrimeIcons (Aura preset default; Material / Lara / Nora available)
 - Pinia, Vue Router
 - vite-plugin-pwa (installable, service worker, web manifest)
-- ESLint + Prettier
+- oxlint + ESLint + Prettier
 - Vitest + Vue Test Utils
-- Playwright e2e scaffold
-- GitHub Actions: lint + unit tests on PR
-- GitHub Pages deploy on merge to `main`
+- Playwright e2e scaffold (the one spec is still the create-vue default and fails; not run in CI — see To Do)
+- GitHub Actions: lint + type-check + unit tests on PR
+- GitHub Pages deploy on merge to `main` (build emits a `404.html` copy so deep links work)
 - Plans: [2026-02-22-tech-stack-design](docs/plans/2026-02-22-tech-stack-design.md), [2026-02-27-project-scaffold](docs/plans/2026-02-27-project-scaffold.md)
 
 ### Navigation & layout
@@ -41,11 +41,11 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
 - wa-sqlite (WASM SQLite) running client-side
 - IDBBatchAtomicVFS — IndexedDB-backed persistence (the design originally targeted OPFS; IDB-backed VFS replaced it)
 - Async WASM build + mutex for Asyncify safety (no concurrent ops on a single connection)
-- COOP/COEP headers: `coi-serviceworker` for GitHub Pages, Vite dev middleware for local
-- `Database` class — `init`, `exec`, `run`, `close`, `isOpen`
+- No COOP/COEP headers needed: IDBBatchAtomicVFS does not require cross-origin isolation (`coi-serviceworker` was removed in `23c72f4`)
+- `Database` class — `init`, `exec`, `run`, `transaction`, `close`, `isOpen`
 - Versioned migration runner backed by a `migrations` table
 - `001_settings` migration + `SettingsRepository`
-- Layout store rewritten as write-through cache; hydrates from SQLite on bootstrap; persists across reloads
+- Layout store hydrates from SQLite on bootstrap (invalid stored values fall back to defaults) and persists across reloads; visual settings save optimistically and revert on failure
 - `Database.init()` enables `PRAGMA foreign_keys = ON`
 - Plans: [2026-03-15-persistence-layer-design](docs/plans/2026-03-15-persistence-layer-design.md), [2026-03-15-persistence-layer-plan](docs/plans/2026-03-15-persistence-layer-plan.md)
 
@@ -60,7 +60,7 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
     - `locations`
     - `tags` (natural string PK)
     - `accounts`
-    - `exchange_rates` (per-provider rows; no unique on date+base)
+    - `exchange_rates` (per-provider rows; id is a UUIDv5 of (date, base currency, provider), so one row per key and two devices' copies merge as one row)
     - `account_groupings` (members stored as JSON array of account UUIDs)
     - `transactions` — double-entry, nullable from/to legs for "Global Economy" income/spend
 - Sync columns on every domain table: `created_at_utc`, `updated_at_utc`, `deleted_at_utc`
@@ -82,13 +82,14 @@ serialization adapter yet (those are the next plan).
   conflict resolution
 - Single-transaction full-database merge with parent-before-child ordering and
   rollback on FK violation
-- `SyncProvider` + `DatabaseCodec` interfaces — the seams where the real
-  provider and codec plug in
+- `SyncProvider` + `DatabaseCodec` interfaces — later collapsed into the single
+  `SyncBackend` interface (see the backends section)
 - `syncOrchestrator` — pure `decideSync` scenario logic + `runSync` covering
-  first-sync, identical-DB short-circuit, scenario 2.1 recursive CAS retry,
-  scenario 2.2 merge-and-CAS loop, schema gate (`abort-app-outdated` when the
+  first-sync, identical-DB short-circuit, scenario 2.1 upload, scenario 2.2
+  merge-and-CAS (lost races retried from scratch, at most 5 attempts with
+  backoff), schema gate (`abort-app-outdated` when the
   remote is newer)
-- `FakeSyncProvider` + `FakeDatabaseCodec` for in-memory unit tests
+- In-memory fakes for unit tests (now `FakeSyncBackend` & co. in `src/sync/__tests__/fakes.ts`)
 - 49 Vitest tests covering every algorithm branch (concurrent CAS re-merge,
   delete-wins-over-newer-edit, FK-violating rollback, conflict snapshot capture)
 - Scenarios: [2026-05-22-database-sync-scenarios](docs/scenarios/2026-05-22-database-sync-scenarios.md)
@@ -101,8 +102,8 @@ the sync-settings design. The real `SyncProvider` and the app-launch
 remote fetch are still ahead (see "External sync" below).
 
 - `src/sync/localState/` directory — `storage.ts` (jsonStore / nullableJsonStore /
-  stringStore with `moneytracker.sync.` key prefix and shallow default-merge
-  for forward compatibility), `deviceName.ts` (UA-derived default + 8-char
+  stringStore with `moneytracker.sync.` key prefix; reads merge over a deep copy
+  of the default, one level deep, and tolerate unreadable storage), `deviceName.ts` (UA-derived default + 8-char
   random hex suffix from `crypto.getRandomValues`), `remoteSnapshots.ts`
   (lastKnownRemoteState + lastFetchedRemoteSnapshot), `providerConfig.ts`
   (Supabase / S3-compatible / GitHub types + `EMPTY_PROVIDER_CONFIG`), plus
@@ -110,8 +111,9 @@ remote fetch are still ahead (see "External sync" below).
 - `SyncMetadata.device` / `RemoteState.device` / `SyncDeps.deviceName` —
   renamed from the old UUIDv7 `deviceId`; merge logic unchanged because the
   field is opaque
-- `getDatabaseCodec()` / `setDatabaseCodec()` singleton slot in `src/db/init.ts`
-  — returns null today, populated by the External-sync plan
+- Backend registry in `src/db/init.ts` (`getSyncBackend` / `setSyncBackend` /
+  `applyProviderConfig`; originally a `DatabaseCodec` slot) — reactive, rebuilt
+  whenever the provider config is saved
 - `useSyncSettings` composable + three new Divider sections in
   `SettingsView.vue` (This device, Sync status, Sync provider). Settings never
   triggers a network call — the remote row reads only from
@@ -152,6 +154,31 @@ exercised end-to-end.
 - Design: [2026-05-28-sync-backends-design](docs/plans/2026-05-28-sync-backends-design.md)
 - Plan: [2026-05-28-sync-backends-plan](docs/plans/2026-05-28-sync-backends-plan.md)
 
+### Review fixes (2026-10-18, before the first live sync)
+
+- Transactions sort by the real instant (`julianday`) with a caller-chosen
+  mode — `transaction_at` or `effective` (date override, else
+  `transaction_at`) — each backed by an expression index; `id` breaks ties
+- `002`: CHECK that `date_override_local`/`_zone` are set together; semantic
+  column comments
+- `exchange_rates` ids are UUIDv5 of (date, base currency, provider)
+- `Database.transaction(fn)` holds the connection lock for the whole unit;
+  used by the sync merge, CSV import/export and the migration runner (an app
+  write during a sync can no longer be rolled back with it)
+- Sync: bounded retries with backoff; every request `no-store` + timeout;
+  database-hash cache race fixed; "Sync now" reports an aborted sync
+  (remote from a newer app) and shows a summary incl. conflicts; the backend
+  follows provider changes without a reload; one sync at a time across
+  page instances
+- Startup survives unreadable/malformed sync settings; loaded settings no
+  longer mutate shared defaults; hydrated layout settings are validated
+- UI: real router links with active state, accessible names, `dvh`,
+  dark-mode border, loading placeholder and a startup error screen with
+  Reload; papaparse/aws4fetch load on demand
+- Baseline: tests run on Node ≥ 25 (jsdom storage), committed
+  `.oxlintrc.json`, CI type-check, a test that could never fail fixed,
+  rollback / UUIDv7-ordering / constraint-specific tests added
+
 ---
 
 ## To Do
@@ -176,7 +203,8 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 - Accounts
     - List, create, edit, soft-delete
-    - Currency, starting balance, colour, icon, optional home location, tags
+    - Currency, colour, icon, optional home location, tags
+    - No starting-balance field: a new account starts at 0 and its existing money is entered as an income transaction
 - Transactions
     - List with filters (by account, by date range, by tag)
     - Create — expense, income, transfer
@@ -193,7 +221,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Exchange rates
 
 - Fetcher pulling from openexchangerates and fawazahmed0
-- Upsert into `exchange_rates` with the correct `provider` tag
+- Upsert into `exchange_rates` with the correct `provider` tag (`create` rejects an existing (date, base, provider) key, so the fetcher must update the existing row)
 - Refresh strategy — on app start, on demand, scheduled background
 - UI for browsing rates and overriding specific (date, base, target) entries
 - User picks a base currency for reporting (USD / EUR / custom)
@@ -226,19 +254,37 @@ the app's automatic flows and the polished UI.
   auto-sync trigger policy that uses it.
 - Conflict-notification email (needs a Supabase Edge Function so the
   loser of every row conflict is preserved off-device).
-- Garbage collection of orphan blobs in S3 buckets after CAS misses
-  (deferred — at expected sync cadence, orphans are rare and the next
-  upload overwrites them).
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 
 Follow-up items flagged for the next plan:
-- `backendAvailable` reactivity gap in `SettingsView.vue` — the button's
-  disabled state doesn't update when the user edits provider config in
-  the same session (requires reload). Flagged in the sync-backends design
-  minimal-UI scope.
 - Real schema migration in `useSyncSettings.syncNow` — currently a
   plan-mandated stub that throws. Real cross-schema migration on
   downloaded remote DBs is deferred.
+- Live verification: every backend is unit-tested against in-memory fakes
+  only; none has been run against the real service yet (CORS, ETag
+  exposure, rate limits). First real target: GitHub.
+
+Known sync defects, postponed (review 2026-10-18):
+- **Blob backend (Supabase/S3) can lose data on a lost race:** the blob is
+  written to a fixed key *before* the sidecar compare-and-swap, so the
+  loser overwrites the winner's blob (details + intended fix in
+  `SqliteBlobBackend.ts`). Not an orphan-blob/GC problem.
+- **Blob CAS may be ineffective:** Supabase Storage (and possibly
+  Backblaze B2) may ignore `If-Match` on upload; a CORS-hidden `ETag`
+  becomes `""` and every upload then fails as a CAS miss; S3's 409
+  `ConditionalRequestConflict` is not treated as a CAS miss. Needs a live
+  probe per provider.
+- **GitHub REST path limits:** the contents API stops at 1 MB per file
+  (~7k transactions); downloads are not pinned to one commit SHA;
+  empty-string text columns come back as NULL after the CSV round trip
+  (hash ping-pong); importing an older-schema remote breaks after the first
+  column-adding migration; `createRef` race throws instead of counting as a
+  CAS miss; branch/path `%2F` encoding and empty-repo bootstrap are
+  unverified. Long-term idea: sync over real git instead of the REST API.
+- **Clock skew / ties:** the merge cutoff compares timestamps from
+  different devices' clocks, and equal timestamps resolve to the local side
+  (two devices can flip-flop). Accepted for now; concurrent edits expected
+  to be rare.
 
 
 ### Import
@@ -254,5 +300,14 @@ Follow-up items flagged for the next plan:
 - Real PWA icons (current 192/512 PNGs are placeholders)
 - App branding — name, theme, favicon
 - First-run onboarding (prompt to create the first account)
-- Expose `.sqlite` export/import in the UI — capability exists at the `Database` layer via `VACUUM INTO` + MemoryVFS; needs a settings affordance
+- Expose `.sqlite` export/import in the UI — the capability exists as `sqliteBlobCodec` (`exportDatabaseToBlob` / `openDatabaseFromBlob`, `VACUUM INTO` + MemoryVFS); needs a settings affordance
+- Rewrite the stale e2e spec (still asserts the create-vue "You did it!" heading) — e.g. change a setting, reload, setting persists — and run it in CI
+- PWA update UX: `registerType: 'prompt'` with no prompt UI, so a new version waits until every tab is closed
+- Split the 540-line `SettingsView.vue` into sections + a provider-block component; accessibility of the new sync sections (radio group, three identical "Validate" buttons, results not announced)
+- Settings writes to localStorage (quota exceeded / blocked storage) still throw to the click handler instead of showing an error
+
+### Known defects / open decisions
+
+- A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline
+- `accounts.balance_*` semantics are undecided (it is not a starting balance — see CRUD UI); the column is named `currency` rather than `balance_currency`
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)
