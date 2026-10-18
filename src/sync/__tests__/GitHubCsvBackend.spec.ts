@@ -69,6 +69,23 @@ describe('GitHubCsvBackend', () => {
     expect(remote.blobAt('.gitattributes')).toMatch(/\.csv text eol=lf/)
   })
 
+  it('a second first-sync upload to the same empty repo loses the race (returns false)', async () => {
+    const { backend: first, remote } = setup()
+    const second = new GitHubCsvBackend(
+      remote.transport({ repo: 'me/mt', branch: 'main', token: 't', path: '' }),
+    )
+    const local = await migratedDb()
+    dbs.push(local)
+    // Both devices see the empty repo before either uploads.
+    expect(await first.getMetadata()).toBeNull()
+    expect(await second.getMetadata()).toBeNull()
+
+    expect(await first.tryUpload(local, META({ device: 'dev-A' }), null)).toBe(true)
+    const headAfterFirst = remote.headSha()
+    expect(await second.tryUpload(local, META({ device: 'dev-B' }), null)).toBe(false)
+    expect(remote.headSha()).toBe(headAfterFirst)
+  })
+
   it('getMetadata after first sync returns the uploaded metadata', async () => {
     const { backend } = setup()
     const local = await migratedDb()

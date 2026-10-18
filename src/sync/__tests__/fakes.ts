@@ -191,6 +191,7 @@ export class FakeGitHubRemote {
         return jsonRes(200, {})
       }
       if (method === 'POST' && u.pathname.endsWith('/git/refs')) {
+        if (this.branchHead) return jsonRes(422, { message: 'Reference already exists' })
         this.branchHead = body!.sha as string
         return jsonRes(201, {})
       }

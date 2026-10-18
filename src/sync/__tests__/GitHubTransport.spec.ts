@@ -97,6 +97,20 @@ describe('GitHubTransport', () => {
     expect(await new GitHubTransport(cfg, miss).updateRef('new')).toBe(false)
   })
 
+  it('createRef returns true on 201 and false on 422 (the branch already exists)', async () => {
+    const ok = makeFakeFetch([{ url: /git\/refs$/, method: 'POST', status: 201, body: {} }])
+    expect(await new GitHubTransport(cfg, ok).createRef('new')).toBe(true)
+    const taken = makeFakeFetch([
+      {
+        url: /git\/refs$/,
+        method: 'POST',
+        status: 422,
+        body: { message: 'Reference already exists' },
+      },
+    ])
+    expect(await new GitHubTransport(cfg, taken).createRef('new')).toBe(false)
+  })
+
   it('sends Authorization: Bearer on every request', async () => {
     let seenAuth: string | undefined
     const captureFetch: GitHubFetch = async (_url, init) => {

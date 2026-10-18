@@ -24,9 +24,9 @@ export interface CommitParams {
  * and JSON encoding; knows nothing about CAS strategy — composing the
  * blob → tree → commit → ref-update sequence is the backend's job.
  *
- * 404 (not found) and 422 (non-fast-forward) are translated to null /
- * false so the backend can branch on them. Other non-2xx statuses throw
- * with the response body for diagnostics.
+ * 404 (not found) and 422 (non-fast-forward, or branch already exists) are
+ * translated to null / false so the backend can branch on them. Other
+ * non-2xx statuses throw with the response body for diagnostics.
  */
 export class GitHubTransport {
   private readonly fetch: GitHubFetch
@@ -128,12 +128,15 @@ export class GitHubTransport {
     throw await asError(res, 'updateRef')
   }
 
-  async createRef(newSha: string): Promise<void> {
+  /** Creates the branch. Returns false (422) when it already exists — another device created it first. */
+  async createRef(newSha: string): Promise<boolean> {
     const res = await this.req(`/repos/${this.cfg.repo}/git/refs`, {
       method: 'POST',
       body: JSON.stringify({ ref: `refs/heads/${this.cfg.branch}`, sha: newSha }),
     })
-    if (!res.ok) throw await asError(res, 'createRef')
+    if (res.ok) return true
+    if (res.status === 422) return false
+    throw await asError(res, 'createRef')
   }
 
   private req(path: string, init: RequestInit): Promise<Response> {

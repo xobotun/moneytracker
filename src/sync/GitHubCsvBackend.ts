@@ -162,12 +162,11 @@ export class GitHubCsvBackend implements SyncBackend {
       atUtc: metadata.uploadedAtUtc,
     })
 
-    if (isBootstrap) {
-      await this.transport.createRef(commitSha)
-      this.cachedHeadSha = commitSha
-      return true
-    }
-    const ok = await this.transport.updateRef(commitSha)
+    // Bootstrap: creating the branch is the CAS — it fails if another device
+    // created it since our getMetadata().
+    const ok = isBootstrap
+      ? await this.transport.createRef(commitSha)
+      : await this.transport.updateRef(commitSha)
     if (ok) this.cachedHeadSha = commitSha
     return ok
   }
