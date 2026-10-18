@@ -111,6 +111,52 @@ describe('GitHubTransport', () => {
     expect(await new GitHubTransport(cfg, taken).createRef('new')).toBe(false)
   })
 
+  it('listTree returns blob entries only, from the recursive listing', async () => {
+    const fetchFn = makeFakeFetch([
+      {
+        url: /git\/trees\/t1\?recursive=1/,
+        method: 'GET',
+        status: 200,
+        body: {
+          tree: [
+            { path: 'data', type: 'tree', sha: 'd' },
+            { path: 'data/tags-0001.csv', type: 'blob', sha: 'b1' },
+          ],
+          truncated: false,
+        },
+      },
+    ])
+    expect(await new GitHubTransport(cfg, fetchFn).listTree('t1')).toEqual([
+      { path: 'data/tags-0001.csv', sha: 'b1' },
+    ])
+  })
+
+  it('listTree throws when GitHub truncates the listing', async () => {
+    const fetchFn = makeFakeFetch([
+      {
+        url: /git\/trees\/t1\?recursive=1/,
+        method: 'GET',
+        status: 200,
+        body: { tree: [], truncated: true },
+      },
+    ])
+    await expect(new GitHubTransport(cfg, fetchFn).listTree('t1')).rejects.toThrow(/truncated/)
+  })
+
+  it('getBlob decodes base64 UTF-8 content', async () => {
+    const text = 'Café ✈️\n'
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+    const fetchFn = makeFakeFetch([
+      {
+        url: /git\/blobs\/b1$/,
+        method: 'GET',
+        status: 200,
+        body: { content: b64.match(/.{1,60}/g)!.join('\n'), encoding: 'base64' },
+      },
+    ])
+    expect(await new GitHubTransport(cfg, fetchFn).getBlob('b1')).toBe(text)
+  })
+
   it('sends Authorization: Bearer on every request', async () => {
     let seenAuth: string | undefined
     const captureFetch: GitHubFetch = async (_url, init) => {

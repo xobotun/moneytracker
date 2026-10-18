@@ -154,6 +154,22 @@ export class FakeGitHubRemote {
         if (!c) return jsonRes(404, { message: 'not found' })
         return jsonRes(200, { tree: { sha: c.tree } })
       }
+      const treeGet = u.pathname.match(/\/git\/trees\/([^/]+)$/)
+      if (method === 'GET' && treeGet && u.searchParams.get('recursive') === '1') {
+        const entries = this.trees.get(treeGet[1]!)
+        if (!entries) return jsonRes(404, { message: 'not found' })
+        return jsonRes(200, {
+          sha: treeGet[1],
+          tree: entries.map((e) => ({ path: e.path, type: 'blob', sha: e.sha, mode: '100644' })),
+          truncated: false,
+        })
+      }
+      const blobGet = u.pathname.match(/\/git\/blobs\/([^/]+)$/)
+      if (method === 'GET' && blobGet) {
+        const text = this.blobs.get(blobGet[1]!)
+        if (text === undefined) return jsonRes(404, { message: 'not found' })
+        return jsonRes(200, { content: encodeBase64Utf8(text), encoding: 'base64' })
+      }
       if (method === 'POST' && u.pathname.endsWith('/git/blobs')) {
         const sha = `b${this.nextSha++}`
         this.blobs.set(sha, decodeBase64Utf8((body as { content: string }).content))

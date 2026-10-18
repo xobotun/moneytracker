@@ -57,6 +57,30 @@ export class GitHubTransport {
     return decodeBase64Utf8(json.content)
   }
 
+  /** Every file (blob) in the tree, recursively. Throws if GitHub truncated the listing. */
+  async listTree(treeSha: string): Promise<TreeEntry[]> {
+    const res = await this.req(`/repos/${this.cfg.repo}/git/trees/${treeSha}?recursive=1`, {
+      method: 'GET',
+    })
+    if (!res.ok) throw await asError(res, 'listTree')
+    const json = (await res.json()) as {
+      tree: Array<{ path: string; type: string; sha: string }>
+      truncated: boolean
+    }
+    if (json.truncated) throw new Error('GitHubTransport.listTree: tree listing truncated')
+    return json.tree.filter((e) => e.type === 'blob').map((e) => ({ path: e.path, sha: e.sha }))
+  }
+
+  async getBlob(sha: string): Promise<string> {
+    const res = await this.req(`/repos/${this.cfg.repo}/git/blobs/${sha}`, { method: 'GET' })
+    if (!res.ok) throw await asError(res, 'getBlob')
+    const json = (await res.json()) as { content: string; encoding: string }
+    if (json.encoding !== 'base64') {
+      throw new Error(`GitHubTransport.getBlob: unexpected encoding "${json.encoding}"`)
+    }
+    return decodeBase64Utf8(json.content)
+  }
+
   async getRef(): Promise<string | null> {
     const res = await this.req(
       `/repos/${this.cfg.repo}/git/refs/heads/${encodeURIComponent(this.cfg.branch)}`,
