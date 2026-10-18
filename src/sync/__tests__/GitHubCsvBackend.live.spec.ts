@@ -18,7 +18,7 @@ import { ExchangeRatesRepository } from '../../db/repositories/ExchangeRatesRepo
 import { LocationsRepository } from '../../db/repositories/LocationsRepository'
 import { TagsRepository } from '../../db/repositories/TagsRepository'
 import { TransactionsRepository } from '../../db/repositories/TransactionsRepository'
-import type { UUID } from '../../db/uuid'
+import { newId, type UUID } from '../../db/uuid'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
 import { GitHubTransport } from '../GitHubTransport'
 import { hashDatabase } from '../hashDatabase'
@@ -94,6 +94,14 @@ function newDevice(db: Database, cfg: GitHubConfig, deviceName: string): Device 
     },
   }
   return device
+}
+
+/** Paths of all files on a branch. */
+async function remotePaths(branch: string): Promise<string[]> {
+  const res = await githubApi(`/git/trees/${branch}?recursive=1`)
+  if (!res.ok) throw new Error(`listing the branch tree: ${res.status} ${await res.text()}`)
+  const tree = (await res.json()) as { tree: { path: string; type: string }[] }
+  return tree.tree.filter((e) => e.type === 'blob').map((e) => e.path)
 }
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
@@ -242,6 +250,27 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
   })
   await transactions.softDelete(mistake.id)
 
+  // Enough more expenses to need three numbered transaction files (2,345 rows).
+  const bulk = Array.from({ length: 2_341 }, (_, i) => ({
+    id: newId(),
+    cents: 100 + i,
+    day: String(1 + (i % 28)).padStart(2, '0'),
+  }))
+  await db.run(
+    `INSERT INTO transactions (
+       id, account_id__from, account_id__to,
+       amount_value__from, amount_scale__from, amount_currency__from,
+       amount_value__to, amount_scale__to, amount_currency__to,
+       transaction_at_local, transaction_at_zone, tags, created_at_utc, updated_at_utc)
+     SELECT json_extract(value, '$.id'), ?, NULL,
+            json_extract(value, '$.cents'), 2, 'EUR',
+            json_extract(value, '$.cents'), 2, 'EUR',
+            '2026-09-' || json_extract(value, '$.day') || 'T12:00:00.000+02:00', 'Europe/Berlin',
+            '[]', '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z'
+     FROM json_each(?)`,
+    [eur.id, JSON.stringify(bulk)],
+  )
+
   return { eurAccount: eur.id, rubAccount: rub.id }
 }
 
@@ -299,6 +328,18 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     const outcome = await runSync(a.db, a.deps)
     expect(outcome.decision).toBe('first-sync-upload')
     expect(a.lastKnown?.hash).toBe(await hashDatabase(a.db))
+  })
+
+  it('stores every table as numbered files of at most 1000 rows', async () => {
+    const paths = await remotePaths(cfg.branch)
+    for (const n of ['0001', '0002', '0003']) {
+      expect(paths).toContain(`data/transactions-${n}.csv`)
+    }
+    expect(paths).not.toContain('data/transactions-0004.csv')
+    for (const t of SYNC_TABLES) {
+      expect(paths).toContain(`data/${t.name}-0001.csv`)
+      expect(paths).not.toContain(`data/${t.name}.csv`)
+    }
   })
 
   it('a second device bootstrapping the same branch loses the race cleanly', async () => {
@@ -374,7 +415,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     const { db } = await downloadFresh()
     expect(await hashDatabase(db)).toBe(await hashDatabase(a.db))
     const counts = await rowCounts(db)
-    expect(counts.transactions).toBe(5) // 4 from A (one soft-deleted) + 1 from B
+    expect(counts.transactions).toBe(2346) // 2,345 from A (one soft-deleted) + 1 from B
     expect(counts.tags).toBe(4) // 3 from A + added-on-A
   })
 

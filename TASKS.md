@@ -274,11 +274,9 @@ Known sync defects, postponed (review 2026-10-18):
   becomes `""` and every upload then fails as a CAS miss; S3's 409
   `ConditionalRequestConflict` is not treated as a CAS miss. Needs a live
   probe per provider.
-- **GitHub REST path limits:** the contents API stops at 1 MB per file
-  (~7k transactions); downloads are not pinned to one commit SHA;
-  importing an older-schema remote breaks after the first column-adding
-  migration; bootstrapping a repository with zero commits is unverified
-  (create it with a README). Verified live on 2026-10-18
+- **GitHub REST path limits:** importing an older-schema remote breaks after the first
+  column-adding migration; bootstrapping a repository with zero commits is
+  unverified (create it with a README). Verified live on 2026-10-18
   (`npm run test:live`): `%2F` path encoding, creating a new branch in a
   non-empty repo, merge, stale CAS. Fixed then: a concurrent first sync
   (`createRef` 422) now counts as a CAS miss, and `''` in optional text

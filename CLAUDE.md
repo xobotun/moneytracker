@@ -9,7 +9,7 @@ Personal money tracker application. Must work as a standalone app on PCs and mob
 ## Tech Stack
 
 - **Frontend:** Vue 3 (Composition API) + TypeScript, built with Vite
-- **Sync:** pluggable remote storage, one provider active at a time — GitHub repository (CSV files via the REST Git Data API), Supabase Storage or S3-compatible (one `.sqlite` blob + metadata sidecar). See `src/sync/`. Supabase auth / PostgreSQL: planned, not used yet.
+- **Sync:** pluggable remote storage, one provider active at a time — GitHub repository (CSV files `data/<table>-NNNN.csv`, ≤1000 rows each, via the REST Git Data API; `ROWS_PER_CSV_FILE` is a fixed constant — never change it, see its comment), Supabase Storage or S3-compatible (one `.sqlite` blob + metadata sidecar). See `src/sync/`. Supabase auth / PostgreSQL: planned, not used yet.
 - **Package manager:** npm
 - **Architecture:** Offline-first — app works standalone, syncs to the chosen provider when online
 
