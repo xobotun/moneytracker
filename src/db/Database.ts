@@ -52,7 +52,9 @@ async function createSQLiteModule(async_: boolean): Promise<ReturnType<typeof SQ
     const mod = await import('node:module')
 
     const require = mod.createRequire(import.meta.url)
-    const wasmFile = async_ ? 'wa-sqlite/dist/wa-sqlite-async.wasm' : 'wa-sqlite/dist/wa-sqlite.wasm'
+    const wasmFile = async_
+      ? 'wa-sqlite/dist/wa-sqlite-async.wasm'
+      : 'wa-sqlite/dist/wa-sqlite.wasm'
     const wasmPath = require.resolve(wasmFile)
     const wasmBinary = await fs.readFile(wasmPath)
     return factory({ wasmBinary })
@@ -85,8 +87,10 @@ export class Database {
     } else if (options.persist) {
       // IDBBatchAtomicVFS persists to IndexedDB and works on the main thread.
       // Requires the async WASM build (wa-sqlite-async.mjs).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { IDBBatchAtomicVFS } = await import('wa-sqlite/src/examples/IDBBatchAtomicVFS.js' as any)
+      const { IDBBatchAtomicVFS } = await import(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        'wa-sqlite/src/examples/IDBBatchAtomicVFS.js' as any
+      )
       const vfs = new IDBBatchAtomicVFS('moneytracker')
       this.sqlite3.vfs_register(vfs, true)
     }
@@ -198,7 +202,10 @@ export class Database {
     const next = this.mutex.then(fn, fn)
     // Keep the chain alive but swallow errors so a failed query doesn't
     // block everything that follows.
-    this.mutex = next.then(() => {}, () => {})
+    this.mutex = next.then(
+      () => {},
+      () => {},
+    )
     return next
   }
 

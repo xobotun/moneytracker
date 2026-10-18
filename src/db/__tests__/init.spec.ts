@@ -1,6 +1,11 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { computed } from 'vue'
-import { applyProviderConfig, applyStoredProviderConfig, getSyncBackend, setSyncBackend } from '../init'
+import {
+  applyProviderConfig,
+  applyStoredProviderConfig,
+  getSyncBackend,
+  setSyncBackend,
+} from '../init'
 import { EMPTY_PROVIDER_CONFIG, type ProviderConfig } from '../../sync/localState'
 
 const GITHUB_CONFIG: ProviderConfig = {

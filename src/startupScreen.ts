@@ -12,7 +12,8 @@ export function showStartupError(
 ): void {
   const box = document.createElement('div')
   box.setAttribute('role', 'alert')
-  box.style.cssText = 'max-width: 32rem; margin: 4rem auto; padding: 0 1rem; font-family: system-ui, sans-serif;'
+  box.style.cssText =
+    'max-width: 32rem; margin: 4rem auto; padding: 0 1rem; font-family: system-ui, sans-serif;'
 
   const title = document.createElement('h1')
   title.textContent = "Money Tracker couldn't start"

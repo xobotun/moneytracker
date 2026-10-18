@@ -34,7 +34,7 @@ export interface Location {
 }
 
 export interface Tag {
-  tag: string                          // natural string PK, not a UUID
+  tag: string // natural string PK, not a UUID
   description: string | null
   synonyms: string[]
   colour: string
@@ -59,7 +59,7 @@ export interface Account {
 
 export interface ExchangeRate {
   id: UUID
-  date: string                         // 'YYYY-MM-DD' calendar date, not an Instant
+  date: string // 'YYYY-MM-DD' calendar date, not an Instant
   base_currency: string
   rates: Record<string, number>
   provider: string

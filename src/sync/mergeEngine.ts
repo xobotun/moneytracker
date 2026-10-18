@@ -63,7 +63,14 @@ export async function mergeTable(
     if (winner === 'remote') {
       await upsertRow(local, table.name, table.pk, remoteRow)
     }
-    conflicts.push({ table: table.name, primaryKey: key, local: localRow, remote: remoteRow, winner, resolution })
+    conflicts.push({
+      table: table.name,
+      primaryKey: key,
+      local: localRow,
+      remote: remoteRow,
+      winner,
+      resolution,
+    })
   }
 
   // Local-only rows need no action — they stay in `local` and are uploaded as-is.

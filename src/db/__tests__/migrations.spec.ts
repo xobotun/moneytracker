@@ -13,10 +13,10 @@ describe('runMigrations', () => {
     db = new Database()
     await db.init()
     await runMigrations(db, [])
-    const rows = await db.exec(
-      'SELECT name FROM sqlite_master WHERE type = ? AND name = ?',
-      ['table', 'migrations'],
-    )
+    const rows = await db.exec('SELECT name FROM sqlite_master WHERE type = ? AND name = ?', [
+      'table',
+      'migrations',
+    ])
     expect(rows).toHaveLength(1)
   })
 
@@ -37,9 +37,7 @@ describe('runMigrations', () => {
   it('skips already-applied migrations', async () => {
     db = new Database()
     await db.init()
-    const migrations: Migration[] = [
-      { version: 1, up: 'CREATE TABLE t1 (id INTEGER PRIMARY KEY)' },
-    ]
+    const migrations: Migration[] = [{ version: 1, up: 'CREATE TABLE t1 (id INTEGER PRIMARY KEY)' }]
     await runMigrations(db, migrations)
     await runMigrations(db, migrations)
     const applied = await db.exec<{ version: number }>('SELECT version FROM migrations')
@@ -49,9 +47,7 @@ describe('runMigrations', () => {
   it('applies only new migrations on second run', async () => {
     db = new Database()
     await db.init()
-    await runMigrations(db, [
-      { version: 1, up: 'CREATE TABLE t1 (id INTEGER PRIMARY KEY)' },
-    ])
+    await runMigrations(db, [{ version: 1, up: 'CREATE TABLE t1 (id INTEGER PRIMARY KEY)' }])
     await runMigrations(db, [
       { version: 1, up: 'CREATE TABLE t1 (id INTEGER PRIMARY KEY)' },
       { version: 2, up: 'CREATE TABLE t2 (id INTEGER PRIMARY KEY)' },

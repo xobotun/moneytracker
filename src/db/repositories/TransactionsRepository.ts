@@ -254,10 +254,7 @@ export class TransactionsRepository {
     params.push(instantToColumn(new Date()))
     params.push(id)
 
-    await this.db.run(
-      `UPDATE transactions SET ${sets.join(', ')} WHERE id = ?`,
-      params,
-    )
+    await this.db.run(`UPDATE transactions SET ${sets.join(', ')} WHERE id = ?`, params)
   }
 
   async softDelete(id: UUID): Promise<void> {

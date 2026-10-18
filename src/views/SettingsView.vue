@@ -74,7 +74,11 @@ const validating = reactive<{ supabase: boolean; s3: boolean; github: boolean }>
   s3: false,
   github: false,
 })
-const validateStatus = reactive<{ supabase: ValidateStatus; s3: ValidateStatus; github: ValidateStatus }>({
+const validateStatus = reactive<{
+  supabase: ValidateStatus
+  s3: ValidateStatus
+  github: ValidateStatus
+}>({
   supabase: 'idle',
   s3: 'idle',
   github: 'idle',
@@ -116,7 +120,11 @@ async function onValidateGitHub(): Promise<void> {
 async function onValidateSupabase(): Promise<void> {
   validating.supabase = true
   try {
-    const t = new SupabaseStorageTransport(sync.providerConfig.value.supabase, 'db.sqlite', 'db.sqlite.json')
+    const t = new SupabaseStorageTransport(
+      sync.providerConfig.value.supabase,
+      'db.sqlite',
+      'db.sqlite.json',
+    )
     await t.validate()
     validateStatus.supabase = 'ok'
     validateMessage.supabase = ''
@@ -210,8 +218,8 @@ async function onValidateS3(): Promise<void> {
           />
         </div>
         <p class="text-sm text-surface-500">
-          Used to identify this device when syncing. Renaming it triggers one
-          harmless re-merge on the next sync.
+          Used to identify this device when syncing. Renaming it triggers one harmless re-merge on
+          the next sync.
         </p>
       </div>
 
@@ -328,7 +336,10 @@ async function onValidateS3(): Promise<void> {
             class="text-sm"
           >
             Synced at {{ formatInstant(sync.lastSyncOutcome.value.atUtc) }}:
-            {{ SYNC_DECISION_LABELS[sync.lastSyncOutcome.value.decision] ?? sync.lastSyncOutcome.value.decision }}.
+            {{
+              SYNC_DECISION_LABELS[sync.lastSyncOutcome.value.decision] ??
+              sync.lastSyncOutcome.value.decision
+            }}.
             <template v-if="sync.lastSyncOutcome.value.conflicts > 0">
               {{ sync.lastSyncOutcome.value.conflicts }} conflicting
               {{ sync.lastSyncOutcome.value.conflicts === 1 ? 'row was' : 'rows were' }}

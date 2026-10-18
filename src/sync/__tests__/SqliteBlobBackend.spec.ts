@@ -54,7 +54,11 @@ describe('SqliteBlobBackend', () => {
       [newId(), CUTOFF, CUTOFF],
     )
     await backend.getMetadata()
-    const ok = await backend.tryUpload(local, META({ hash: await backend.hashDatabase(local) }), null)
+    const ok = await backend.tryUpload(
+      local,
+      META({ hash: await backend.hashDatabase(local) }),
+      null,
+    )
     expect(ok).toBe(true)
 
     const m = await backend.getMetadata()
@@ -83,9 +87,7 @@ describe('SqliteBlobBackend', () => {
     const downloaded = await backend.downloadDatabase()
     dbs.push(downloaded)
     for (const t of SYNC_TABLES) {
-      const a = await src.exec<Record<string, unknown>>(
-        `SELECT * FROM ${t.name} ORDER BY ${t.pk}`,
-      )
+      const a = await src.exec<Record<string, unknown>>(`SELECT * FROM ${t.name} ORDER BY ${t.pk}`)
       const b = await downloaded.exec<Record<string, unknown>>(
         `SELECT * FROM ${t.name} ORDER BY ${t.pk}`,
       )
@@ -106,7 +108,11 @@ describe('SqliteBlobBackend', () => {
     const expected = await backend.getMetadata()
     // Foreign device updates the sidecar.
     transport.forceSidecar('{"foreign":"yes"}')
-    const ok = await backend.tryUpload(local, META({ hash: await backend.hashDatabase(local) }), expected)
+    const ok = await backend.tryUpload(
+      local,
+      META({ hash: await backend.hashDatabase(local) }),
+      expected,
+    )
     expect(ok).toBe(false)
   })
 

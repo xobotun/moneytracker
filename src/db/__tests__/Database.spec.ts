@@ -71,7 +71,7 @@ describe('Database', () => {
     await db.run('CREATE TABLE parent (id TEXT PRIMARY KEY)')
     await db.run('CREATE TABLE child (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parent(id))')
     await expect(
-      db.run('INSERT INTO child (id, parent_id) VALUES (?, ?)', ['c1', 'missing'])
+      db.run('INSERT INTO child (id, parent_id) VALUES (?, ?)', ['c1', 'missing']),
     ).rejects.toThrow()
   })
 

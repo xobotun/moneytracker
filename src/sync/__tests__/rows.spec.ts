@@ -3,7 +3,14 @@ import { Database } from '../../db/Database'
 import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
-import { readRows, rowsEqual, isDeleted, effectiveTimestamp, changedSince, upsertRow } from '../rows'
+import {
+  readRows,
+  rowsEqual,
+  isDeleted,
+  effectiveTimestamp,
+  changedSince,
+  upsertRow,
+} from '../rows'
 
 async function migratedDb(): Promise<Database> {
   const db = new Database()
@@ -39,10 +46,16 @@ describe('row helpers', () => {
     // wa-sqlite returns BLOB columns as Uint8Array, so strict equality would
     // always declare two equal-content blobs different.
     expect(
-      rowsEqual({ id: 'a', b: new Uint8Array([1, 2, 3]) }, { id: 'a', b: new Uint8Array([1, 2, 3]) }),
+      rowsEqual(
+        { id: 'a', b: new Uint8Array([1, 2, 3]) },
+        { id: 'a', b: new Uint8Array([1, 2, 3]) },
+      ),
     ).toBe(true)
     expect(
-      rowsEqual({ id: 'a', b: new Uint8Array([1, 2, 3]) }, { id: 'a', b: new Uint8Array([1, 2, 4]) }),
+      rowsEqual(
+        { id: 'a', b: new Uint8Array([1, 2, 3]) },
+        { id: 'a', b: new Uint8Array([1, 2, 4]) },
+      ),
     ).toBe(false)
     expect(
       rowsEqual({ id: 'a', b: new Uint8Array([1, 2]) }, { id: 'a', b: new Uint8Array([1, 2, 3]) }),
@@ -70,13 +83,21 @@ describe('row helpers', () => {
     const cutoff = '2026-05-01T00:00:00.000Z'
     expect(
       changedSince(
-        { created_at_utc: '2026-04-01T00:00:00.000Z', updated_at_utc: '2026-06-01T00:00:00.000Z', deleted_at_utc: null },
+        {
+          created_at_utc: '2026-04-01T00:00:00.000Z',
+          updated_at_utc: '2026-06-01T00:00:00.000Z',
+          deleted_at_utc: null,
+        },
         cutoff,
       ),
     ).toBe(true)
     expect(
       changedSince(
-        { created_at_utc: '2026-04-01T00:00:00.000Z', updated_at_utc: '2026-04-01T00:00:00.000Z', deleted_at_utc: null },
+        {
+          created_at_utc: '2026-04-01T00:00:00.000Z',
+          updated_at_utc: '2026-04-01T00:00:00.000Z',
+          deleted_at_utc: null,
+        },
         cutoff,
       ),
     ).toBe(false)

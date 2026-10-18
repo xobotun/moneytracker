@@ -105,9 +105,7 @@ describe('GitHubCsvBackend', () => {
     const downloaded = await backend.downloadDatabase()
     dbs.push(downloaded)
     for (const t of SYNC_TABLES) {
-      const a = await src.exec<Record<string, unknown>>(
-        `SELECT * FROM ${t.name} ORDER BY ${t.pk}`,
-      )
+      const a = await src.exec<Record<string, unknown>>(`SELECT * FROM ${t.name} ORDER BY ${t.pk}`)
       const b = await downloaded.exec<Record<string, unknown>>(
         `SELECT * FROM ${t.name} ORDER BY ${t.pk}`,
       )
@@ -149,7 +147,10 @@ describe('GitHubCsvBackend', () => {
 
     // Foreign device pushes between now and our upload.
     remote.injectForeignCommit([
-      { path: 'metadata.json', content: '{"device":"foreigner","uploadedAtUtc":"x","hash":"x","migrationVersion":2}' },
+      {
+        path: 'metadata.json',
+        content: '{"device":"foreigner","uploadedAtUtc":"x","hash":"x","migrationVersion":2}',
+      },
     ])
 
     const b = await migratedDb()
@@ -159,7 +160,11 @@ describe('GitHubCsvBackend', () => {
        VALUES (?, 'B', '[]', ?, ?)`,
       [newId(), CUTOFF, CUTOFF],
     )
-    const ok = await backend.tryUpload(b, META({ hash: await backend.hashDatabase(b) }), expectedMeta)
+    const ok = await backend.tryUpload(
+      b,
+      META({ hash: await backend.hashDatabase(b) }),
+      expectedMeta,
+    )
     expect(ok).toBe(false)
   })
 
@@ -191,7 +196,11 @@ describe('GitHubCsvBackend', () => {
 
     // Second sync — should keep README intact via base_tree.
     await backend.getMetadata()
-    await backend.tryUpload(a, META({ hash: await backend.hashDatabase(a) }), await backend.getMetadata())
+    await backend.tryUpload(
+      a,
+      META({ hash: await backend.hashDatabase(a) }),
+      await backend.getMetadata(),
+    )
     expect(remote.blobAt('README.md')).toBe(readmeAfter1)
   })
 })

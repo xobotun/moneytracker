@@ -15,7 +15,9 @@ describe('readSchemaVersion', () => {
   it('returns 0 for a database with no migrations applied', async () => {
     db = new Database()
     await db.init()
-    await db.run('CREATE TABLE migrations (version INTEGER PRIMARY KEY, applied_at_utc TEXT NOT NULL)')
+    await db.run(
+      'CREATE TABLE migrations (version INTEGER PRIMARY KEY, applied_at_utc TEXT NOT NULL)',
+    )
     expect(await readSchemaVersion(db)).toBe(0)
   })
 

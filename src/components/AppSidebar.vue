@@ -25,7 +25,7 @@ const menuItems = computed(() =>
     route: item.route,
     // Collapsed items show only an icon; this keeps them named for screen readers.
     ariaLabel: item.label,
-  }))
+  })),
 )
 
 const toggleIcon = computed(() => {
@@ -56,10 +56,11 @@ function toggleSidebar() {
     aria-label="Main"
     class="h-dvh flex flex-col transition-all duration-200 overflow-hidden"
     :class="[
-      isExpanded ? 'w-56' : 'w-16', 'shrink-0',
+      isExpanded ? 'w-56' : 'w-16',
+      'shrink-0',
       layoutStore.navPosition === 'right'
         ? 'border-l border-gray-200 dark:border-gray-700'
-        : 'border-r border-gray-200 dark:border-gray-700'
+        : 'border-r border-gray-200 dark:border-gray-700',
     ]"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"

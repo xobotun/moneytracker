@@ -74,7 +74,8 @@ export class GitHubCsvBackend implements SyncBackend {
 
   async downloadDatabase(): Promise<Database> {
     const text = await this.transport.getContent(METADATA_PATH)
-    if (!text) throw new Error('GitHubCsvBackend.downloadDatabase: no remote (metadata.json missing)')
+    if (!text)
+      throw new Error('GitHubCsvBackend.downloadDatabase: no remote (metadata.json missing)')
     const meta = JSON.parse(text) as SyncMetadata
 
     // Fetch every CSV. Done sequentially because wa-sqlite cannot tolerate

@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* The app toggles dark mode with a `.dark` class on <html> (PrimeVue's
    darkModeSelector), not the OS preference. Make Tailwind's dark: variant

@@ -21,7 +21,10 @@ type AccountGroupingRow = {
   deleted_at_utc: string | null
 }
 
-type AccountGroupingCreateInput = Omit<AccountGrouping, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
+type AccountGroupingCreateInput = Omit<
+  AccountGrouping,
+  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+>
 
 type AccountGroupingUpdateInput = Partial<
   Omit<AccountGrouping, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
@@ -49,15 +52,7 @@ export class AccountGroupingsRepository {
     await this.db.run(
       `INSERT INTO account_groupings (id, name, colour, icon, accounts_ids, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        input.name,
-        input.colour,
-        input.icon,
-        jsonArrayToColumn(input.accounts_ids),
-        now,
-        now,
-      ],
+      [id, input.name, input.colour, input.icon, jsonArrayToColumn(input.accounts_ids), now, now],
     )
     return (await this.findById(id))!
   }
@@ -81,10 +76,22 @@ export class AccountGroupingsRepository {
     const sets: string[] = []
     const params: unknown[] = []
 
-    if (patch.name !== undefined) { sets.push('name = ?'); params.push(patch.name) }
-    if (patch.colour !== undefined) { sets.push('colour = ?'); params.push(patch.colour) }
-    if (patch.icon !== undefined) { sets.push('icon = ?'); params.push(patch.icon) }
-    if (patch.accounts_ids !== undefined) { sets.push('accounts_ids = ?'); params.push(jsonArrayToColumn(patch.accounts_ids)) }
+    if (patch.name !== undefined) {
+      sets.push('name = ?')
+      params.push(patch.name)
+    }
+    if (patch.colour !== undefined) {
+      sets.push('colour = ?')
+      params.push(patch.colour)
+    }
+    if (patch.icon !== undefined) {
+      sets.push('icon = ?')
+      params.push(patch.icon)
+    }
+    if (patch.accounts_ids !== undefined) {
+      sets.push('accounts_ids = ?')
+      params.push(jsonArrayToColumn(patch.accounts_ids))
+    }
 
     if (sets.length === 0) return
 

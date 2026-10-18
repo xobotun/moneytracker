@@ -28,9 +28,14 @@ type AccountRow = {
   deleted_at_utc: string | null
 }
 
-type AccountCreateInput = Omit<Account, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
+type AccountCreateInput = Omit<
+  Account,
+  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+>
 
-type AccountUpdateInput = Partial<Omit<Account, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>>
+type AccountUpdateInput = Partial<
+  Omit<Account, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
+>
 
 function rowToAccount(row: AccountRow): Account {
   return {
@@ -136,17 +141,15 @@ export class AccountsRepository {
     params.push(instantToColumn(new Date()))
     params.push(id)
 
-    await this.db.run(
-      `UPDATE accounts SET ${sets.join(', ')} WHERE id = ?`,
-      params,
-    )
+    await this.db.run(`UPDATE accounts SET ${sets.join(', ')} WHERE id = ?`, params)
   }
 
   async softDelete(id: UUID): Promise<void> {
     const now = instantToColumn(new Date())
-    await this.db.run(
-      'UPDATE accounts SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
-      [now, now, id],
-    )
+    await this.db.run('UPDATE accounts SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
+      now,
+      now,
+      id,
+    ])
   }
 }

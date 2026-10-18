@@ -53,8 +53,8 @@ describe('hashDatabase', () => {
     const a = await migratedDb()
     const b = await migratedDb()
     dbs.push(a, b)
-    const id1 = '0193fffffffffffffffffffffffffff1'  // smaller PK
-    const id2 = '0194000000000000000000000000a002'  // larger PK
+    const id1 = '0193fffffffffffffffffffffffffff1' // smaller PK
+    const id2 = '0194000000000000000000000000a002' // larger PK
     // Insert in order id1, id2 into `a`; id2, id1 into `b`. ORDER BY pk
     // in hashDatabase should yield the same sequence either way.
     await a.run(

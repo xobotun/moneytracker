@@ -28,8 +28,7 @@ describe('AppSidebar', () => {
             props: ['model'],
           },
           Button: {
-            template:
-              '<button class="mock-button" @click="$emit(\'click\')"><slot /></button>',
+            template: '<button class="mock-button" @click="$emit(\'click\')"><slot /></button>',
             props: ['icon', 'severity', 'text', 'rounded', 'size'],
           },
         },

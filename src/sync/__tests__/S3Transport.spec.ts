@@ -15,7 +15,12 @@ const cfg = {
 }
 
 function captureFetch() {
-  const calls: Array<{ url: string; method: string; headers: Record<string, string>; body: BodyInit | null }> = []
+  const calls: Array<{
+    url: string
+    method: string
+    headers: Record<string, string>
+    body: BodyInit | null
+  }> = []
   const fetchFn: typeof fetch = async (url, init) => {
     const req = url instanceof Request ? url : new Request(url, init)
     calls.push({

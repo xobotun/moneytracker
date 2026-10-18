@@ -1,7 +1,12 @@
 import { ref, computed } from 'vue'
 import { usePreset } from '@primeuix/themes'
 import { useLayoutStore } from '@/stores/layout'
-import { themePresets, type NavPosition, type CollapseMode, type ThemePreset } from '@/stores/layout-types'
+import {
+  themePresets,
+  type NavPosition,
+  type CollapseMode,
+  type ThemePreset,
+} from '@/stores/layout-types'
 import type { Preset } from '@primeuix/themes/types'
 
 interface SelectOption<T> {

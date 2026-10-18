@@ -5,10 +5,9 @@ export class SettingsRepository {
   constructor(private db: Database) {}
 
   async get<T>(key: SettingsKey<T>): Promise<T | null> {
-    const rows = await this.db.exec<{ value: string }>(
-      'SELECT value FROM settings WHERE key = ?',
-      [key.key],
-    )
+    const rows = await this.db.exec<{ value: string }>('SELECT value FROM settings WHERE key = ?', [
+      key.key,
+    ])
     if (rows.length === 0) return null
     return JSON.parse(rows[0]!.value) as T
   }

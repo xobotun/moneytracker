@@ -18,8 +18,10 @@ export function moneyAmount(value: number, scale: number, currency: string): Mon
   if (!Number.isSafeInteger(value)) {
     throw new Error(`MoneyAmount value must be a safe integer (|value| ≤ 2^53 − 1), got ${value}`)
   }
-  if (!Number.isInteger(scale) || scale < 0) throw new Error(`MoneyAmount scale must be a non-negative integer, got ${scale}`)
-  if (!currency || currency.trim().length === 0) throw new Error('MoneyAmount currency must be a non-empty string')
+  if (!Number.isInteger(scale) || scale < 0)
+    throw new Error(`MoneyAmount scale must be a non-negative integer, got ${scale}`)
+  if (!currency || currency.trim().length === 0)
+    throw new Error('MoneyAmount currency must be a non-empty string')
   return Object.freeze({ value, scale, currency })
 }
 

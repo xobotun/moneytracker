@@ -223,7 +223,9 @@ describe('runSync retry bound', () => {
     const { backend, uploads } = alwaysLosingBackend('dev-B')
     const sleeps: number[] = []
 
-    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow(/gave up after 3 attempts/)
+    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow(
+      /gave up after 3 attempts/,
+    )
     expect(uploads()).toBe(3)
   })
 
@@ -232,7 +234,9 @@ describe('runSync retry bound', () => {
     const { backend, uploads } = alwaysLosingBackend('dev-A')
     const sleeps: number[] = []
 
-    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow(/gave up after 3 attempts/)
+    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow(
+      /gave up after 3 attempts/,
+    )
     expect(uploads()).toBe(3)
   })
 
@@ -251,7 +255,10 @@ describe('runSync retry bound', () => {
       },
     }
     const saved: unknown[] = []
-    const deps = { ...boundedDeps(emptyRemoteLosingRace, []), saveLastKnown: (s: unknown) => saved.push(s) }
+    const deps = {
+      ...boundedDeps(emptyRemoteLosingRace, []),
+      saveLastKnown: (s: unknown) => saved.push(s),
+    }
 
     await expect(runSync(local, deps)).rejects.toThrow(/gave up after 3 attempts/)
     expect(uploads).toBe(3)

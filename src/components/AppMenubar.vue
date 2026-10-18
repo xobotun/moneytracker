@@ -11,7 +11,7 @@ const menuItems = computed(() =>
     label: item.label,
     icon: item.icon,
     route: item.route,
-  }))
+  })),
 )
 </script>
 

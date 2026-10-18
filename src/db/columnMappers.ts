@@ -4,10 +4,7 @@ import { type UUID, asUuid } from './uuid'
 
 // ---------- MoneyAmount ↔ three columns ----------
 
-export function moneyToColumns(
-  prefix: string,
-  m: MoneyAmount,
-): Record<string, number | string> {
+export function moneyToColumns(prefix: string, m: MoneyAmount): Record<string, number | string> {
   const { base, suffix } = splitDiscriminator(prefix)
   return {
     [`${base}_value${suffix}`]: m.value,
@@ -37,12 +34,17 @@ export function localMomentToColumns(
   }
 }
 
-export function localMomentFromRow(prefix: string, row: Record<string, unknown>): LocalMoment | null {
+export function localMomentFromRow(
+  prefix: string,
+  row: Record<string, unknown>,
+): LocalMoment | null {
   const local = row[`${prefix}_local`] as string | null
   const zone = row[`${prefix}_zone`] as string | null
   if (local === null && zone === null) return null
   if (local === null || zone === null) {
-    throw new Error(`Inconsistent LocalMoment in column ${prefix}_local/${prefix}_zone — one is null, the other is not`)
+    throw new Error(
+      `Inconsistent LocalMoment in column ${prefix}_local/${prefix}_zone — one is null, the other is not`,
+    )
   }
   return localMoment(local, zone)
 }

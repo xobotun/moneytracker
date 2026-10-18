@@ -34,9 +34,10 @@ describe('SYNC_COLUMNS', () => {
         const pragma = await db.exec<PragmaRow>(`PRAGMA table_info(${table.name})`)
 
         // Names + order match exactly.
-        expect(declared.map((c) => c.name), `column order mismatch on ${table.name}`).toEqual(
-          pragma.map((r) => r.name),
-        )
+        expect(
+          declared.map((c) => c.name),
+          `column order mismatch on ${table.name}`,
+        ).toEqual(pragma.map((r) => r.name))
 
         // Type affinity matches.
         for (let i = 0; i < declared.length; i++) {

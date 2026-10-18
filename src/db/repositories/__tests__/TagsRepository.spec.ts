@@ -21,7 +21,13 @@ describe('TagsRepository', () => {
   })
 
   it('creates and finds a tag', async () => {
-    await repo.create({ tag: 'wildberries', description: null, synonyms: ['wb'], colour: '#000', icon: 'cart' })
+    await repo.create({
+      tag: 'wildberries',
+      description: null,
+      synonyms: ['wb'],
+      colour: '#000',
+      icon: 'cart',
+    })
     const found = await repo.findByName('wildberries')
     expect(found?.synonyms).toEqual(['wb'])
   })

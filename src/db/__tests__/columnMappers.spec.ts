@@ -30,9 +30,9 @@ describe('moneyToColumns / moneyFromRow', () => {
     const m = moneyAmount(50000000, 8, 'BTC')
     const cols = moneyToColumns('amount__from', m)
     expect(cols).toEqual({
-      'amount_value__from': 50000000,
-      'amount_scale__from': 8,
-      'amount_currency__from': 'BTC',
+      amount_value__from: 50000000,
+      amount_scale__from: 8,
+      amount_currency__from: 'BTC',
     })
     expect(moneyFromRow('amount__from', cols)).toEqual(m)
   })
@@ -50,11 +50,15 @@ describe('localMomentToColumns / localMomentFromRow', () => {
   })
 
   it('returns null from a row when both columns are null (nullable LocalMoment)', () => {
-    expect(localMomentFromRow('date_override', { date_override_local: null, date_override_zone: null })).toBeNull()
+    expect(
+      localMomentFromRow('date_override', { date_override_local: null, date_override_zone: null }),
+    ).toBeNull()
   })
 
   it('throws if only one of local/zone is null (corrupt row)', () => {
-    expect(() => localMomentFromRow('date_override', { date_override_local: 'x', date_override_zone: null })).toThrow()
+    expect(() =>
+      localMomentFromRow('date_override', { date_override_local: 'x', date_override_zone: null }),
+    ).toThrow()
   })
 
   it('flattens null LocalMoment to two nulls', () => {

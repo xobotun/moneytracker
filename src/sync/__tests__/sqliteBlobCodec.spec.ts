@@ -58,12 +58,8 @@ describe('sqliteBlobCodec', () => {
     dbs.push(dst)
 
     for (const t of SYNC_TABLES) {
-      const a = await src.exec<Record<string, unknown>>(
-        `SELECT * FROM ${t.name} ORDER BY ${t.pk}`,
-      )
-      const b = await dst.exec<Record<string, unknown>>(
-        `SELECT * FROM ${t.name} ORDER BY ${t.pk}`,
-      )
+      const a = await src.exec<Record<string, unknown>>(`SELECT * FROM ${t.name} ORDER BY ${t.pk}`)
+      const b = await dst.exec<Record<string, unknown>>(`SELECT * FROM ${t.name} ORDER BY ${t.pk}`)
       expect(b.length, t.name).toBe(a.length)
       for (let i = 0; i < a.length; i++) {
         expect(rowsEqual(a[i]!, b[i]!), `${t.name}[${i}]`).toBe(true)

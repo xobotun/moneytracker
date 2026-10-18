@@ -13,10 +13,7 @@ describe('AppMenubar', () => {
   it('renders the app title', () => {
     const wrapper = mount(AppMenubar, {
       global: {
-        plugins: [
-          createPinia(),
-          [PrimeVue, { theme: { preset: Aura } }],
-        ],
+        plugins: [createPinia(), [PrimeVue, { theme: { preset: Aura } }]],
         stubs: {
           Menubar: {
             template: '<div><slot name="start" /><slot name="end" /></div>',

@@ -247,10 +247,20 @@ describe('TransactionsRepository', () => {
         tags, created_at_utc, updated_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id1, accountId1, accountId2,
-        1000, 2, 'USD', 950, 2, 'EUR',
-        '2026-03-15T14:30:00.000+00:00', 'UTC',
-        '[]', now, now,
+        id1,
+        accountId1,
+        accountId2,
+        1000,
+        2,
+        'USD',
+        950,
+        2,
+        'EUR',
+        '2026-03-15T14:30:00.000+00:00',
+        'UTC',
+        '[]',
+        now,
+        now,
       ],
     )
 
@@ -263,10 +273,21 @@ describe('TransactionsRepository', () => {
         tags, created_at_utc, updated_at_utc, deleted_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id2, accountId1, accountId2,
-        500, 2, 'USD', 475, 2, 'EUR',
-        '2026-03-16T14:30:00.000+00:00', 'UTC',
-        '[]', now, now, now,
+        id2,
+        accountId1,
+        accountId2,
+        500,
+        2,
+        'USD',
+        475,
+        2,
+        'EUR',
+        '2026-03-16T14:30:00.000+00:00',
+        'UTC',
+        '[]',
+        now,
+        now,
+        now,
       ],
     )
 
@@ -291,10 +312,20 @@ describe('TransactionsRepository', () => {
         tags, created_at_utc, updated_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id1, accountId1, accountId2,
-        1000, 2, 'USD', 950, 2, 'EUR',
-        '2026-03-15T14:30:00.000+00:00', 'UTC',
-        '[]', now, now,
+        id1,
+        accountId1,
+        accountId2,
+        1000,
+        2,
+        'USD',
+        950,
+        2,
+        'EUR',
+        '2026-03-15T14:30:00.000+00:00',
+        'UTC',
+        '[]',
+        now,
+        now,
       ],
     )
 
@@ -308,10 +339,20 @@ describe('TransactionsRepository', () => {
         tags, created_at_utc, updated_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id2, null, accountId1,
-        5000, 2, 'USD', 5000, 2, 'USD',
-        '2026-03-16T10:00:00.000+00:00', 'UTC',
-        '[]', now, now,
+        id2,
+        null,
+        accountId1,
+        5000,
+        2,
+        'USD',
+        5000,
+        2,
+        'USD',
+        '2026-03-16T10:00:00.000+00:00',
+        'UTC',
+        '[]',
+        now,
+        now,
       ],
     )
 
@@ -325,18 +366,29 @@ describe('TransactionsRepository', () => {
         tags, created_at_utc, updated_at_utc, deleted_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        id3, accountId1, null,
-        2000, 2, 'USD', 2000, 2, 'USD',
-        '2026-03-17T12:00:00.000+00:00', 'UTC',
-        '[]', now, now, now,
+        id3,
+        accountId1,
+        null,
+        2000,
+        2,
+        'USD',
+        2000,
+        2,
+        'USD',
+        '2026-03-17T12:00:00.000+00:00',
+        'UTC',
+        '[]',
+        now,
+        now,
+        now,
       ],
     )
 
     const transactions = await repo.listByAccountId(asUuid(accountId1))
     expect(transactions.length).toBe(2)
-    expect(transactions.map(t => t.id)).toContain(id1)
-    expect(transactions.map(t => t.id)).toContain(id2)
-    expect(transactions.map(t => t.id)).not.toContain(id3)
+    expect(transactions.map((t) => t.id)).toContain(id1)
+    expect(transactions.map((t) => t.id)).toContain(id2)
+    expect(transactions.map((t) => t.id)).not.toContain(id3)
   })
 
   it('findById returns null for soft-deleted transaction', async () => {
@@ -378,7 +430,7 @@ describe('TransactionsRepository', () => {
     const originalUpdatedAt = created.updated_at_utc
 
     // Small delay to ensure timestamp changes
-    await new Promise(resolve => setTimeout(resolve, 2))
+    await new Promise((resolve) => setTimeout(resolve, 2))
 
     // Update tags and amount
     await repo.update(created.id, {
@@ -426,17 +478,23 @@ describe('TransactionsRepository', () => {
         inputAt('2026-01-01T12:00:00.000+00:00', 'UTC', ['2026-01-03T12:00:00.000+00:00', 'UTC']),
       )
 
-      expect((await repo.list('transaction_at')).map((t) => t.id)).toEqual([plain.id, overridden.id])
+      expect((await repo.list('transaction_at')).map((t) => t.id)).toEqual([
+        plain.id,
+        overridden.id,
+      ])
       expect((await repo.list('effective')).map((t) => t.id)).toEqual([overridden.id, plain.id])
     })
 
-    it("listByAccountId honours the sort mode", async () => {
+    it('listByAccountId honours the sort mode', async () => {
       const plain = await repo.create(inputAt('2026-01-02T12:00:00.000+00:00', 'UTC'))
       const overridden = await repo.create(
         inputAt('2026-01-01T12:00:00.000+00:00', 'UTC', ['2026-01-03T12:00:00.000+00:00', 'UTC']),
       )
 
-      expect((await repo.listByAccountId(accountId1)).map((t) => t.id)).toEqual([plain.id, overridden.id])
+      expect((await repo.listByAccountId(accountId1)).map((t) => t.id)).toEqual([
+        plain.id,
+        overridden.id,
+      ])
       expect((await repo.listByAccountId(accountId1, 'effective')).map((t) => t.id)).toEqual([
         overridden.id,
         plain.id,

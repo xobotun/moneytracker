@@ -26,7 +26,9 @@ export function buildBackend(cfg: ProviderConfig): SyncBackend | null {
         new SupabaseStorageTransport(cfg.supabase, 'db.sqlite', 'db.sqlite.json'),
       )
     case 's3':
-      return new SqliteBlobBackend(new S3Transport(cfg.s3, cfg.s3.objectKey, `${cfg.s3.objectKey}.json`))
+      return new SqliteBlobBackend(
+        new S3Transport(cfg.s3, cfg.s3.objectKey, `${cfg.s3.objectKey}.json`),
+      )
     default:
       // Unknown kind (stored by a newer build): sync off. Without this the
       // function would return undefined, which callers don't expect.

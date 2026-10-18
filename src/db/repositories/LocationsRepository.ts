@@ -25,7 +25,10 @@ type LocationRow = {
   deleted_at_utc: string | null
 }
 
-type LocationCreateInput = Omit<Location, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
+type LocationCreateInput = Omit<
+  Location,
+  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+>
 
 type LocationUpdateInput = Partial<
   Omit<Location, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
@@ -93,14 +96,38 @@ export class LocationsRepository {
     const sets: string[] = []
     const params: unknown[] = []
 
-    if (patch.name !== undefined) { sets.push('name = ?'); params.push(patch.name) }
-    if (patch.description !== undefined) { sets.push('description = ?'); params.push(patch.description) }
-    if (patch.address !== undefined) { sets.push('address = ?'); params.push(patch.address) }
-    if (patch.city !== undefined) { sets.push('city = ?'); params.push(patch.city) }
-    if (patch.country !== undefined) { sets.push('country = ?'); params.push(patch.country) }
-    if (patch.latitude !== undefined) { sets.push('latitude = ?'); params.push(patch.latitude) }
-    if (patch.longitude !== undefined) { sets.push('longitude = ?'); params.push(patch.longitude) }
-    if (patch.tags !== undefined) { sets.push('tags = ?'); params.push(jsonArrayToColumn(patch.tags)) }
+    if (patch.name !== undefined) {
+      sets.push('name = ?')
+      params.push(patch.name)
+    }
+    if (patch.description !== undefined) {
+      sets.push('description = ?')
+      params.push(patch.description)
+    }
+    if (patch.address !== undefined) {
+      sets.push('address = ?')
+      params.push(patch.address)
+    }
+    if (patch.city !== undefined) {
+      sets.push('city = ?')
+      params.push(patch.city)
+    }
+    if (patch.country !== undefined) {
+      sets.push('country = ?')
+      params.push(patch.country)
+    }
+    if (patch.latitude !== undefined) {
+      sets.push('latitude = ?')
+      params.push(patch.latitude)
+    }
+    if (patch.longitude !== undefined) {
+      sets.push('longitude = ?')
+      params.push(patch.longitude)
+    }
+    if (patch.tags !== undefined) {
+      sets.push('tags = ?')
+      params.push(jsonArrayToColumn(patch.tags))
+    }
 
     if (sets.length === 0) return
 
@@ -113,9 +140,10 @@ export class LocationsRepository {
 
   async softDelete(id: UUID): Promise<void> {
     const now = instantToColumn(new Date())
-    await this.db.run(
-      'UPDATE locations SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
-      [now, now, id],
-    )
+    await this.db.run('UPDATE locations SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
+      now,
+      now,
+      id,
+    ])
   }
 }

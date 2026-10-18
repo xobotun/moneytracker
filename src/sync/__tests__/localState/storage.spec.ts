@@ -28,7 +28,10 @@ describe('storage', () => {
   })
 
   describe('nullableJsonStore', () => {
-    interface Snap { who: string; when: string }
+    interface Snap {
+      who: string
+      when: string
+    }
 
     it('returns null when nothing is stored', () => {
       const s = nullableJsonStore<Snap>('n1')
@@ -56,7 +59,10 @@ describe('storage', () => {
   })
 
   describe('jsonStore', () => {
-    interface Cfg { active: string; supabase: { url: string; key: string } }
+    interface Cfg {
+      active: string
+      supabase: { url: string; key: string }
+    }
     const DEFAULT: Cfg = { active: 'none', supabase: { url: '', key: '' } }
 
     it('returns the default when nothing is stored', () => {

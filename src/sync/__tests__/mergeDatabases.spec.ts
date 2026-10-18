@@ -57,10 +57,30 @@ describe('mergeDatabases', () => {
   it('aggregates conflicts across multiple tables', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()
-    await seedLocation(local, { id: 'l', name: 'L-local', created: CUTOFF, updated: '2026-05-05T00:00:00.000Z' })
-    await seedLocation(remote, { id: 'l', name: 'L-remote', created: CUTOFF, updated: '2026-05-06T00:00:00.000Z' })
-    await seedAccount(local, { id: 'a', name: 'A-local', created: CUTOFF, updated: '2026-05-05T00:00:00.000Z' })
-    await seedAccount(remote, { id: 'a', name: 'A-remote', created: CUTOFF, updated: '2026-05-06T00:00:00.000Z' })
+    await seedLocation(local, {
+      id: 'l',
+      name: 'L-local',
+      created: CUTOFF,
+      updated: '2026-05-05T00:00:00.000Z',
+    })
+    await seedLocation(remote, {
+      id: 'l',
+      name: 'L-remote',
+      created: CUTOFF,
+      updated: '2026-05-06T00:00:00.000Z',
+    })
+    await seedAccount(local, {
+      id: 'a',
+      name: 'A-local',
+      created: CUTOFF,
+      updated: '2026-05-05T00:00:00.000Z',
+    })
+    await seedAccount(remote, {
+      id: 'a',
+      name: 'A-remote',
+      created: CUTOFF,
+      updated: '2026-05-06T00:00:00.000Z',
+    })
 
     const conflicts = await mergeDatabases(local, remote, CUTOFF)
 
@@ -106,7 +126,12 @@ describe('mergeDatabases', () => {
     // inconsistent state on purpose, then turn FK back on so the merge
     // really exercises the enforcement path on the local side.
     await seedAccount(remote, { id: 'acc-x', name: 'X', created: CUTOFF, updated: CUTOFF })
-    await seedTransaction(remote, { id: 'txn-x', accountFrom: 'acc-x', created: CUTOFF, updated: CUTOFF })
+    await seedTransaction(remote, {
+      id: 'txn-x',
+      accountFrom: 'acc-x',
+      created: CUTOFF,
+      updated: CUTOFF,
+    })
     await remote.run('PRAGMA foreign_keys = OFF')
     await remote.run('DELETE FROM accounts WHERE id = ?', ['acc-x'])
     await remote.run('PRAGMA foreign_keys = ON')
@@ -122,14 +147,24 @@ describe('mergeDatabases', () => {
     // Same broken remote as above: the merge fails on the transaction's FK.
     await seedLocation(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
     await seedAccount(remote, { id: 'acc-x', name: 'X', created: CUTOFF, updated: CUTOFF })
-    await seedTransaction(remote, { id: 'txn-x', accountFrom: 'acc-x', created: CUTOFF, updated: CUTOFF })
+    await seedTransaction(remote, {
+      id: 'txn-x',
+      accountFrom: 'acc-x',
+      created: CUTOFF,
+      updated: CUTOFF,
+    })
     await remote.run('PRAGMA foreign_keys = OFF')
     await remote.run('DELETE FROM accounts WHERE id = ?', ['acc-x'])
     await remote.run('PRAGMA foreign_keys = ON')
 
     const merge = mergeDatabases(local, remote, CUTOFF)
     // The user saves something while the sync runs.
-    const appWrite = seedLocation(local, { id: 'user-edit', name: 'Mine', created: CUTOFF, updated: CUTOFF })
+    const appWrite = seedLocation(local, {
+      id: 'user-edit',
+      name: 'Mine',
+      created: CUTOFF,
+      updated: CUTOFF,
+    })
 
     await expect(merge).rejects.toThrow()
     await appWrite

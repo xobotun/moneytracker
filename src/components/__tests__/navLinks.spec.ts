@@ -77,7 +77,9 @@ describe('navigation links and accessible names', () => {
       expect(wrapper.find('nav').attributes('aria-label')).toBeTruthy()
       expect(wrapper.find('a[href="/"]').attributes('aria-label')).toBe('Home')
       expect(wrapper.find('a[href="/settings"]').attributes('aria-label')).toBe('Settings')
-      const toggle = wrapper.findAll('button').find((b) => b.attributes('aria-label')?.includes('sidebar'))
+      const toggle = wrapper
+        .findAll('button')
+        .find((b) => b.attributes('aria-label')?.includes('sidebar'))
       expect(toggle?.attributes('aria-label')).toBe('Expand sidebar')
     })
   })

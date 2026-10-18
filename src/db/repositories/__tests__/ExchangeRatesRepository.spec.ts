@@ -162,7 +162,10 @@ describe('ExchangeRatesRepository', () => {
       try {
         await runMigrations(otherDb, [settingsMigration, domainMigration])
         const a = await repo.create(input)
-        const b = await new ExchangeRatesRepository(otherDb).create({ ...input, rates: { EUR: 0.93 } })
+        const b = await new ExchangeRatesRepository(otherDb).create({
+          ...input,
+          rates: { EUR: 0.93 },
+        })
         expect(b.id).toBe(a.id)
       } finally {
         await otherDb.close()
@@ -179,7 +182,9 @@ describe('ExchangeRatesRepository', () => {
 
     it('rejects a second rate for the same (date, base_currency, provider)', async () => {
       await repo.create(input)
-      await expect(repo.create({ ...input, rates: { EUR: 0.99 } })).rejects.toThrow(/constraint failed/i)
+      await expect(repo.create({ ...input, rates: { EUR: 0.99 } })).rejects.toThrow(
+        /constraint failed/i,
+      )
     })
   })
 })

@@ -111,17 +111,20 @@ export function getAccountsRepository(): AccountsRepository {
 }
 
 export function getExchangeRatesRepository(): ExchangeRatesRepository {
-  if (!exchangeRatesRepository) throw new Error('Database not initialized. Call initDatabase() first.')
+  if (!exchangeRatesRepository)
+    throw new Error('Database not initialized. Call initDatabase() first.')
   return exchangeRatesRepository
 }
 
 export function getAccountGroupingsRepository(): AccountGroupingsRepository {
-  if (!accountGroupingsRepository) throw new Error('Database not initialized. Call initDatabase() first.')
+  if (!accountGroupingsRepository)
+    throw new Error('Database not initialized. Call initDatabase() first.')
   return accountGroupingsRepository
 }
 
 export function getTransactionsRepository(): TransactionsRepository {
-  if (!transactionsRepository) throw new Error('Database not initialized. Call initDatabase() first.')
+  if (!transactionsRepository)
+    throw new Error('Database not initialized. Call initDatabase() first.')
   return transactionsRepository
 }
 

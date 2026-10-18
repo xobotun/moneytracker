@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { SupabaseStorageTransport } from '../SupabaseStorageTransport'
 
-type Captured = { url: string; method: string; headers: Record<string, string>; body: BodyInit | null }
+type Captured = {
+  url: string
+  method: string
+  headers: Record<string, string>
+  body: BodyInit | null
+}
 
 function captureFetch() {
   const calls: Captured[] = []

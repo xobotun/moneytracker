@@ -77,10 +77,22 @@ export class TagsRepository {
   async update(tag: string, patch: TagUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
-    if (patch.description !== undefined) { sets.push('description = ?'); params.push(patch.description) }
-    if (patch.synonyms !== undefined)    { sets.push('synonyms = ?');    params.push(jsonArrayToColumn(patch.synonyms)) }
-    if (patch.colour !== undefined)      { sets.push('colour = ?');      params.push(patch.colour) }
-    if (patch.icon !== undefined)        { sets.push('icon = ?');        params.push(patch.icon) }
+    if (patch.description !== undefined) {
+      sets.push('description = ?')
+      params.push(patch.description)
+    }
+    if (patch.synonyms !== undefined) {
+      sets.push('synonyms = ?')
+      params.push(jsonArrayToColumn(patch.synonyms))
+    }
+    if (patch.colour !== undefined) {
+      sets.push('colour = ?')
+      params.push(patch.colour)
+    }
+    if (patch.icon !== undefined) {
+      sets.push('icon = ?')
+      params.push(patch.icon)
+    }
     if (sets.length === 0) return
     sets.push('updated_at_utc = ?')
     params.push(instantToColumn(new Date()))
@@ -90,9 +102,10 @@ export class TagsRepository {
 
   async softDelete(tag: string): Promise<void> {
     const now = instantToColumn(new Date())
-    await this.db.run(
-      'UPDATE tags SET deleted_at_utc = ?, updated_at_utc = ? WHERE tag = ?',
-      [now, now, tag],
-    )
+    await this.db.run('UPDATE tags SET deleted_at_utc = ?, updated_at_utc = ? WHERE tag = ?', [
+      now,
+      now,
+      tag,
+    ])
   }
 }

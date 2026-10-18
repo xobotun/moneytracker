@@ -21,7 +21,10 @@ type ExchangeRateRow = {
   deleted_at_utc: string | null
 }
 
-type ExchangeRateCreateInput = Omit<ExchangeRate, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
+type ExchangeRateCreateInput = Omit<
+  ExchangeRate,
+  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+>
 
 // `provider` (like `date` and `base_currency`) is part of the row's identity —
 // see exchangeRateId — so it cannot be changed after creation.

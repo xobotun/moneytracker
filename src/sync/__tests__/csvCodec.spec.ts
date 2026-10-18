@@ -3,12 +3,7 @@ import { Database } from '../../db/Database'
 import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
-import {
-  exportTableToCsv,
-  importCsvIntoTable,
-  exportAllTables,
-  importAllTables,
-} from '../csvCodec'
+import { exportTableToCsv, importCsvIntoTable, exportAllTables, importAllTables } from '../csvCodec'
 import { SYNC_TABLES } from '../syncTables'
 import { rowsEqual } from '../rows'
 import { newId } from '../../db/uuid'
@@ -111,9 +106,11 @@ describe('csvCodec', () => {
       )
       const csv = await exportTableToCsv(src, { name: 'locations', pk: 'id' })
       await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
-      const row = (await dst.exec<{ latitude: unknown; longitude: unknown }>(
-        'SELECT latitude, longitude FROM locations',
-      ))[0]!
+      const row = (
+        await dst.exec<{ latitude: unknown; longitude: unknown }>(
+          'SELECT latitude, longitude FROM locations',
+        )
+      )[0]!
       expect(typeof row.latitude).toBe('number')
       expect(row.latitude).toBeCloseTo(52.5)
     })

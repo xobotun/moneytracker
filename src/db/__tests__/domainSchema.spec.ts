@@ -30,7 +30,7 @@ describe('domain schema migration', () => {
     const rows = await db.exec<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " +
         `(${EXPECTED_TABLES.map(() => '?').join(',')}) ORDER BY name`,
-      EXPECTED_TABLES
+      EXPECTED_TABLES,
     )
     expect(rows.map((r) => r.name).sort()).toEqual([...EXPECTED_TABLES].sort())
   })
@@ -40,8 +40,8 @@ describe('domain schema migration', () => {
       db.run(
         `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
          VALUES (?, ?, ?, ?, ?)`,
-        ['loc1', 'X', 'not json', '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
-      )
+        ['loc1', 'X', 'not json', '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z'],
+      ),
     ).rejects.toThrow(/CHECK constraint failed/)
   })
 
@@ -51,9 +51,19 @@ describe('domain schema migration', () => {
         `INSERT INTO accounts (id, name, currency, balance_value, balance_scale,
                                location_id, colour, icon, created_at_utc, updated_at_utc)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ['a1', 'Acc', 'USD', 0, 2, 'missing-loc', '#FFFFFF', 'cash',
-         '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
-      )
+        [
+          'a1',
+          'Acc',
+          'USD',
+          0,
+          2,
+          'missing-loc',
+          '#FFFFFF',
+          'cash',
+          '2026-05-20T00:00:00.000Z',
+          '2026-05-20T00:00:00.000Z',
+        ],
+      ),
     ).rejects.toThrow(/FOREIGN KEY constraint failed/)
   })
 
@@ -66,10 +76,22 @@ describe('domain schema migration', () => {
                                    transaction_at_local, transaction_at_zone,
                                    created_at_utc, updated_at_utc)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ['t1', 'missing-acc', null, 100, 2, 'USD', 100, 2, 'USD',
-         '2026-05-20T12:00:00.000+02:00', 'Europe/Berlin',
-         '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
-      )
+        [
+          't1',
+          'missing-acc',
+          null,
+          100,
+          2,
+          'USD',
+          100,
+          2,
+          'USD',
+          '2026-05-20T12:00:00.000+02:00',
+          'Europe/Berlin',
+          '2026-05-20T00:00:00.000Z',
+          '2026-05-20T00:00:00.000Z',
+        ],
+      ),
     ).rejects.toThrow(/FOREIGN KEY constraint failed/)
   })
 
@@ -78,8 +100,17 @@ describe('domain schema migration', () => {
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale,
                              colour, icon, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['a1', 'Acc', 'USD', 0, 2, '#FFFFFF', 'cash',
-       '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
+      [
+        'a1',
+        'Acc',
+        'USD',
+        0,
+        2,
+        '#FFFFFF',
+        'cash',
+        '2026-05-20T00:00:00.000Z',
+        '2026-05-20T00:00:00.000Z',
+      ],
     )
     await db.run(
       `INSERT INTO transactions (id, account_id__from, account_id__to,
@@ -88,9 +119,21 @@ describe('domain schema migration', () => {
                                  transaction_at_local, transaction_at_zone,
                                  created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ['t1', null, 'a1', 100, 2, 'USD', 100, 2, 'USD',
-       '2026-05-20T12:00:00.000+02:00', 'Europe/Berlin',
-       '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
+      [
+        't1',
+        null,
+        'a1',
+        100,
+        2,
+        'USD',
+        100,
+        2,
+        'USD',
+        '2026-05-20T12:00:00.000+02:00',
+        'Europe/Berlin',
+        '2026-05-20T00:00:00.000Z',
+        '2026-05-20T00:00:00.000Z',
+      ],
     )
     const rows = await db.exec('SELECT id FROM transactions')
     expect(rows).toHaveLength(1)
@@ -109,11 +152,24 @@ describe('domain schema migration', () => {
                                    date_override_local, date_override_zone,
                                    created_at_utc, updated_at_utc)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ['t1', null, null, 100, 2, 'USD', 100, 2, 'USD',
-         '2026-05-20T12:00:00.000+02:00', 'Europe/Berlin',
-         overrideLocal, overrideZone,
-         '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
-      )
+        [
+          't1',
+          null,
+          null,
+          100,
+          2,
+          'USD',
+          100,
+          2,
+          'USD',
+          '2026-05-20T12:00:00.000+02:00',
+          'Europe/Berlin',
+          overrideLocal,
+          overrideZone,
+          '2026-05-20T00:00:00.000Z',
+          '2026-05-20T00:00:00.000Z',
+        ],
+      ),
     ).rejects.toThrow(/CHECK constraint failed/)
   })
 })

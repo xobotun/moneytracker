@@ -5,7 +5,14 @@ describe('SYNC_TABLES', () => {
   it('lists every domain table exactly once', () => {
     const names = SYNC_TABLES.map((t) => t.name)
     expect(new Set(names)).toEqual(
-      new Set(['locations', 'tags', 'exchange_rates', 'account_groupings', 'accounts', 'transactions']),
+      new Set([
+        'locations',
+        'tags',
+        'exchange_rates',
+        'account_groupings',
+        'accounts',
+        'transactions',
+      ]),
     )
     expect(names).toHaveLength(6)
   })

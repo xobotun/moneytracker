@@ -65,7 +65,10 @@ describe('providerConfig', () => {
     })
 
     it('falls back to the default block when a stored provider block is not an object', () => {
-      localStorage.setItem('moneytracker.sync.providerConfig', JSON.stringify({ active: 's3', s3: null }))
+      localStorage.setItem(
+        'moneytracker.sync.providerConfig',
+        JSON.stringify({ active: 's3', s3: null }),
+      )
       expect(loadProviderConfig().s3).toEqual(EMPTY_PROVIDER_CONFIG.s3)
     })
 
