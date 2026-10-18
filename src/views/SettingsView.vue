@@ -11,7 +11,7 @@ import Button from 'primevue/button'
 import Message from 'primevue/message'
 import { useSettingsOptions } from './useSettingsOptions'
 import { useSyncSettings } from './useSyncSettings'
-import { getDatabase, getSyncBackend } from '@/db/init'
+import { applyProviderConfig, getDatabase, getSyncBackend } from '@/db/init'
 import { GitHubTransport } from '@/sync/GitHubTransport'
 import { SupabaseStorageTransport } from '@/sync/SupabaseStorageTransport'
 import { S3Transport } from '@/sync/S3Transport'
@@ -31,14 +31,22 @@ const {
   showCollapseMode,
 } = useSettingsOptions()
 
-// The backend is registered by the External-sync plan; for now it returns null
-// and the "Current local database" row will render its "not available" state.
-const sync = useSyncSettings({ db: getDatabase(), backend: getSyncBackend() })
+// `getSyncBackend` is passed as a getter (not called) so the composable reads
+// the live registry each time: saving the provider config rebuilds the
+// backend, and "Sync now" / availability follow it without a reload.
+const sync = useSyncSettings({
+  db: getDatabase(),
+  backend: getSyncBackend,
+  onProviderConfigSaved: applyProviderConfig,
+})
+const backendAvailable = sync.backendAvailable
 
-// getSyncBackend() reads the backend registered at app launch from the
-// stored provider config. This is read once at mount, not reactive to
-// in-page provider-config edits — matching the minimal UI slice's scope.
-const backendAvailable = computed(() => getSyncBackend() !== null)
+const SYNC_DECISION_LABELS: Record<string, string> = {
+  'first-sync-upload': 'first upload to the remote',
+  none: 'already in sync, nothing to do',
+  'upload-local': 'uploaded local changes',
+  merge: 'merged remote changes and uploaded',
+}
 
 // Show a short hash (first 8 chars) inline, full value as a tooltip via `title`.
 function shortHash(hash: string | null | undefined): string {
@@ -265,8 +273,7 @@ async function onValidateS3(): Promise<void> {
             </div>
           </template>
           <div v-else class="text-sm text-surface-500">
-            Not available — sync backend not yet registered. Click Recompute after the
-            External-sync plan lands.
+            Not computed yet. Configure a sync provider below, then click Recompute.
           </div>
         </div>
 
@@ -315,6 +322,20 @@ async function onValidateS3(): Promise<void> {
           >
             Sync failed at {{ formatInstant(sync.lastSyncError.value.atUtc) }}:
             {{ sync.lastSyncError.value.message }}
+          </Message>
+          <Message
+            v-else-if="sync.lastSyncOutcome.value"
+            severity="success"
+            :closable="false"
+            class="text-sm"
+          >
+            Synced at {{ formatInstant(sync.lastSyncOutcome.value.atUtc) }}:
+            {{ SYNC_DECISION_LABELS[sync.lastSyncOutcome.value.decision] ?? sync.lastSyncOutcome.value.decision }}.
+            <template v-if="sync.lastSyncOutcome.value.conflicts > 0">
+              {{ sync.lastSyncOutcome.value.conflicts }} conflicting
+              {{ sync.lastSyncOutcome.value.conflicts === 1 ? 'row was' : 'rows were' }}
+              resolved (deletions win, otherwise the latest edit wins).
+            </template>
           </Message>
         </div>
       </div>

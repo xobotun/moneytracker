@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue'
+import { computed, ref, toValue, type ComputedRef, type MaybeRefOrGetter, type Ref } from 'vue'
 import type { Database } from '@/db/Database'
 import type { SyncBackend } from '@/sync/SyncBackend'
 import {
@@ -16,7 +16,7 @@ import {
   type SyncError,
 } from '@/sync/localState'
 import { runSync } from '@/sync/syncOrchestrator'
-import type { RemoteState, SyncMetadata } from '@/sync/types'
+import type { RemoteState, SyncMetadata, SyncOutcome } from '@/sync/types'
 
 // Composable for the Sync sections of the Settings page. Owns the reactive
 // state and the localStorage writes; the .vue file is presentation-only.
@@ -32,11 +32,29 @@ export interface SyncSettingsDeps {
   /** Local database used to compute the current-local-DB hash. May be null
    *  when called from a non-db test fixture. */
   db: Database | null
-  /** Backend used to hash the db. Null until the External-sync plan registers
-   *  one — when null, the "Current local DB" row reads as unavailable in
-   *  the UI. */
-  backend: SyncBackend | null
+  /** Backend used to hash and sync the db; null when no provider is
+   *  configured. Pass a ref (or getter) to follow the live registry: the
+   *  value is read on every use, so switching providers takes effect
+   *  without a reload. A plain value is fine for tests. */
+  backend: MaybeRefOrGetter<SyncBackend | null>
+  /** Called after the provider config is saved. Production wires this to
+   *  rebuild and re-register the backend from the new config. */
+  onProviderConfigSaved?: (cfg: ProviderConfig) => void
 }
+
+/** What the last successful "Sync now" did, for display. */
+export interface LastSyncOutcome {
+  atUtc: string
+  decision: SyncOutcome['decision']
+  conflicts: number
+  uploaded: boolean
+}
+
+// Module scope, not per composable instance: navigating away from Settings
+// and back creates a new instance while the old sync may still be running.
+// A per-instance flag would let the new instance start a second, parallel
+// sync against the same database.
+const syncing = ref(false)
 
 export interface SyncSettings {
   // Device name — editable.
@@ -58,8 +76,11 @@ export interface SyncSettings {
   saveProviderConfig: () => void
 
   // Sync-now flow.
+  /** True while a backend is registered (follows provider switches). */
+  backendAvailable: ComputedRef<boolean>
   syncing: Ref<boolean>
   lastSyncError: Ref<SyncError | null>
+  lastSyncOutcome: Ref<LastSyncOutcome | null>
   syncNow: () => Promise<void>
 }
 
@@ -72,8 +93,9 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
   const localHash = ref<string | null>(null)
   const localHashComputedAt = ref<Date | null>(null)
 
-  const syncing = ref(false)
   const lastSyncError = ref<SyncError | null>(loadSyncError())
+  const lastSyncOutcome = ref<LastSyncOutcome | null>(null)
+  const backendAvailable = computed(() => toValue(deps.backend) !== null)
 
   function saveDeviceNameNow(): void {
     setDeviceName(deviceName.value)
@@ -81,10 +103,18 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
 
   function saveProviderConfigNow(): void {
     saveProviderConfig(providerConfig.value)
+    deps.onProviderConfigSaved?.(providerConfig.value)
+  }
+
+  function recordSyncError(message: string): void {
+    const err: SyncError = { atUtc: new Date().toISOString(), message }
+    saveSyncError(err)
+    lastSyncError.value = err
   }
 
   async function recomputeLocalHash(): Promise<void> {
-    if (!deps.db || !deps.backend) {
+    const backend = toValue(deps.backend)
+    if (!deps.db || !backend) {
       // Backend absent → External-sync plan has not landed yet. Leave the
       // row null so the UI can render "not available".
       localHash.value = null
@@ -94,17 +124,18 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
     // Each call hashes the database fresh. Cheap-ish for small DBs but
     // explicitly not run reactively on every keystroke — the composable
     // only computes when the caller asks for it (mount + Recompute button).
-    localHash.value = await deps.backend.hashDatabase(deps.db)
+    localHash.value = await backend.hashDatabase(deps.db)
     localHashComputedAt.value = new Date()
   }
 
   async function syncNow(): Promise<void> {
-    if (!deps.db || !deps.backend) return
+    const backend = toValue(deps.backend)
+    if (!deps.db || !backend) return
     if (syncing.value) return
     syncing.value = true
     try {
-      await runSync(deps.db, {
-        backend: deps.backend,
+      const outcome = await runSync(deps.db, {
+        backend,
         deviceName: deviceName.value,
         now: () => new Date(),
         migrate: async () => {
@@ -120,18 +151,26 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
         loadLastKnown: loadLastKnownRemoteState,
         saveLastKnown: saveLastKnownRemoteState,
       })
+      if (outcome.decision === 'aborted-app-outdated') {
+        // runSync returns normally here, but nothing was merged or uploaded.
+        recordSyncError(
+          'Sync stopped: the remote database was written by a newer version of the app. Update this app (reload the page) and sync again.',
+        )
+        return
+      }
       clearSyncError()
       lastSyncError.value = null
+      lastSyncOutcome.value = {
+        atUtc: new Date().toISOString(),
+        decision: outcome.decision,
+        conflicts: outcome.conflicts.length,
+        uploaded: outcome.uploaded,
+      }
       // Refresh displayed snapshots on success.
       lastKnownRemoteState.value = loadLastKnownRemoteState()
       await recomputeLocalHash()
     } catch (e) {
-      const err: SyncError = {
-        atUtc: new Date().toISOString(),
-        message: (e as Error).message ?? String(e),
-      }
-      saveSyncError(err)
-      lastSyncError.value = err
+      recordSyncError(e instanceof Error ? e.message : String(e))
     } finally {
       syncing.value = false
     }
@@ -147,8 +186,10 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
     recomputeLocalHash,
     providerConfig,
     saveProviderConfig: saveProviderConfigNow,
+    backendAvailable,
     syncing,
     lastSyncError,
+    lastSyncOutcome,
     syncNow,
   }
 }

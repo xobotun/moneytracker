@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { shallowRef } from 'vue'
 import { useSyncSettings } from '../useSyncSettings'
 import { Database } from '../../db/Database'
 import type { SyncBackend } from '../../sync/SyncBackend'
@@ -196,6 +197,105 @@ describe('useSyncSettings — syncNow + lastSyncError', () => {
     await s.syncNow()
     expect(s.syncing.value).toBe(false)
     expect(s.lastSyncError.value).toBeNull()
+    await db.close()
+  })
+})
+
+describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  /** A remote written by a newer app version: runSync aborts without merging. */
+  function newerSchemaBackend(): SyncBackend {
+    return {
+      getMetadata: async () => ({
+        device: 'other-device',
+        uploadedAtUtc: '2026-05-20T10:00:00.000Z',
+        hash: 'sha256:remote',
+        migrationVersion: 999,
+      }),
+      downloadDatabase: async () => {
+        throw new Error('must not download a newer-schema remote')
+      },
+      hashDatabase: async () => 'sha256:local',
+      tryUpload: async () => true,
+    }
+  }
+
+  it('reports an aborted sync (remote from a newer app version) as an error, not success', async () => {
+    saveSyncError({ atUtc: '2026-05-28T10:00:00.000Z', message: 'old' })
+    const db = await migratedDb()
+    const s = useSyncSettings({ db, backend: newerSchemaBackend() })
+    await s.syncNow()
+    expect(s.lastSyncError.value?.message).toMatch(/newer version/i)
+    expect(loadSyncError()?.message).toMatch(/newer version/i)
+    await db.close()
+  })
+
+  it('exposes a summary of the last successful sync', async () => {
+    const db = await migratedDb()
+    const backend = new FakeSyncBackend()
+    const s = useSyncSettings({ db, backend })
+    await s.syncNow()
+    expect(s.lastSyncOutcome.value).toMatchObject({ decision: 'first-sync-upload', conflicts: 0 })
+    await db.close()
+    await backend.close()
+  })
+
+  it('follows the backend currently registered, not the one present at setup', async () => {
+    const db = await migratedDb()
+    const backend = shallowRef<SyncBackend | null>(fakeBackend('sha256:a'))
+    const s = useSyncSettings({ db, backend })
+    expect(s.backendAvailable.value).toBe(true)
+
+    backend.value = null // e.g. the user switched the provider to "None"
+    expect(s.backendAvailable.value).toBe(false)
+    await s.recomputeLocalHash()
+    expect(s.localHash.value).toBeNull()
+    await db.close()
+  })
+
+  it('reports provider-config saves so the backend can be rebuilt', () => {
+    const saved: string[] = []
+    const s = useSyncSettings({
+      db: null,
+      backend: null,
+      onProviderConfigSaved: (cfg) => saved.push(cfg.active),
+    })
+    s.providerConfig.value.active = 'github'
+    s.saveProviderConfig()
+    expect(saved).toEqual(['github'])
+  })
+
+  it('shares the in-progress flag across instances, so a second page instance cannot start a parallel sync', async () => {
+    const db = await migratedDb()
+    let releaseMetadata!: () => void
+    let syncsStarted = 0
+    const slowBackend: SyncBackend = {
+      getMetadata: () =>
+        new Promise((resolve) => {
+          syncsStarted++
+          releaseMetadata = () => resolve(null)
+        }),
+      downloadDatabase: async () => {
+        throw new Error('not used')
+      },
+      hashDatabase: async () => 'sha256:x',
+      tryUpload: async () => true,
+    }
+    const first = useSyncSettings({ db, backend: slowBackend })
+    const running = first.syncNow()
+    // The user navigates away and back: a fresh composable instance.
+    const second = useSyncSettings({ db, backend: slowBackend })
+    expect(second.syncing.value).toBe(true)
+    await second.syncNow() // must return without starting a sync
+
+    await vi.waitFor(() => expect(releaseMetadata).toBeDefined())
+    expect(syncsStarted).toBe(1)
+    releaseMetadata()
+    await running
+    expect(second.syncing.value).toBe(false)
     await db.close()
   })
 })

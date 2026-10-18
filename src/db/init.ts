@@ -1,3 +1,4 @@
+import { shallowRef } from 'vue'
 import { Database } from './Database'
 import { ALL_MIGRATIONS, runMigrations } from './migrations'
 import { SettingsRepository } from './repositories/SettingsRepository'
@@ -9,10 +10,13 @@ import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepos
 import { TransactionsRepository } from './repositories/TransactionsRepository'
 import type { SyncBackend } from '../sync/SyncBackend'
 import { buildBackend } from '../sync/backendFactory'
-import { loadProviderConfig } from '../sync/localState'
+import { loadProviderConfig, type ProviderConfig } from '../sync/localState'
 
 let database: Database | null = null
-let syncBackend: SyncBackend | null = null
+// shallowRef, not a plain variable: Vue tracks reads of `.value`, so a computed
+// such as "is a backend available?" re-evaluates when the provider changes.
+// Shallow so the backend object itself is not wrapped in a reactive proxy.
+const syncBackend = shallowRef<SyncBackend | null>(null)
 let settingsRepository: SettingsRepository | null = null
 let tagsRepository: TagsRepository | null = null
 let locationsRepository: LocationsRepository | null = null
@@ -36,8 +40,7 @@ export async function initDatabase(): Promise<void> {
   // Build the sync backend from the stored provider config. null when the
   // user has not configured a provider; Settings.vue's "Sync now" button
   // disables itself in that case.
-  const cfg = loadProviderConfig()
-  setSyncBackend(buildBackend(cfg))
+  applyProviderConfig(loadProviderConfig())
 }
 
 export function getDatabase(): Database {
@@ -45,18 +48,22 @@ export function getDatabase(): Database {
   return database
 }
 
-/**
- * Registers the backend used to sync the local database with the remote.
- * Called by the External-sync plan once a real backend is wired in. Until then
- * `getSyncBackend()` returns null and consumers must handle that.
- */
+/** Registers the backend used to sync the local database with the remote (null = sync off). */
 export function setSyncBackend(backend: SyncBackend | null): void {
-  syncBackend = backend
+  syncBackend.value = backend
 }
 
-/** Returns the registered backend, or null when none has been registered yet. */
+/**
+ * Returns the registered backend, or null when no provider is configured.
+ * Reactive: reading it inside a computed or watcher tracks provider switches.
+ */
 export function getSyncBackend(): SyncBackend | null {
-  return syncBackend
+  return syncBackend.value
+}
+
+/** Rebuilds and registers the backend for `cfg`. Call after the provider config changes. */
+export function applyProviderConfig(cfg: ProviderConfig): void {
+  setSyncBackend(buildBackend(cfg))
 }
 
 export function getSettingsRepository(): SettingsRepository {
@@ -100,7 +107,7 @@ export async function closeDatabase(): Promise<void> {
     await database.close()
   }
   database = null
-  syncBackend = null
+  syncBackend.value = null
   settingsRepository = null
   tagsRepository = null
   locationsRepository = null
