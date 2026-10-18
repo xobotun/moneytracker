@@ -14,8 +14,16 @@ import type { SyncMetadata } from './types'
  *  1. Put the new blob (no CAS — alone, it means nothing).
  *  2. Put the new sidecar with If-Match: <expected etag>. 412 = CAS miss.
  *
- * If step 2 fails after step 1 succeeded, the orphan blob is left in
- * place. The next successful upload overwrites it. No GC in this plan.
+ * KNOWN HAZARD (postponed, see TASKS.md): the blob lives under a fixed key,
+ * so step 1 is not harmless. When step 2 loses the race, step 1 has already
+ * overwritten the WINNER's blob, while the sidecar still describes the
+ * winner. The loser's retry then downloads its own data, merges nothing and
+ * uploads over it with a passing CAS: the winner's changes vanish from the
+ * remote (they survive only on the winner's device until it syncs again).
+ * Intended fix: write each blob under its own content-addressed key
+ * (e.g. `db-<hash>.sqlite`, create-only), let the sidecar name the current
+ * key so the sidecar CAS is the only contested write, and verify the
+ * downloaded blob's hash against the sidecar's hash.
  *
  * Contract notes:
  *  - getMetadata() caches the current sidecar ETag as the CAS handle for
@@ -66,6 +74,8 @@ export class SqliteBlobBackend implements SyncBackend {
       )
     }
     const blob = await exportDatabaseToBlob(localDb)
+    // TODO(postponed): unconditional write to the fixed blob key BEFORE the
+    // CAS — a lost race overwrites the winner's blob. See the class comment.
     await this.transport.putBlob(blob)
     const ok = await this.transport.putSidecar(
       JSON.stringify(metadata) + '\n',
