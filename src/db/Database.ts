@@ -27,6 +27,16 @@ export interface RunResult {
 }
 
 /**
+ * The query surface shared by {@link Database} and the handle passed into
+ * {@link Database.transaction}. Code that should work both standalone and
+ * inside a transaction (e.g. sync row helpers) takes this instead of Database.
+ */
+export interface SqlExecutor {
+  exec<T extends Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>
+  run(sql: string, params?: unknown[]): Promise<RunResult>
+}
+
+/**
  * Loads the wa-sqlite WASM binary. In Node/test environments, fetch may not
  * support the file:// URLs that wa-sqlite uses, so we read the .wasm file
  * from disk and pass it directly as `wasmBinary`.
@@ -119,6 +129,52 @@ export class Database {
 
   async run(sql: string, params?: unknown[]): Promise<RunResult> {
     return this.serialized(() => this.runUnsafe(sql, params))
+  }
+
+  /**
+   * Run `fn` as one atomic unit: BEGIN, `fn`, then COMMIT — or ROLLBACK and
+   * rethrow if `fn` throws. The connection's lock is held for the whole unit,
+   * so writes issued elsewhere meanwhile (e.g. by the UI) wait until it ends
+   * instead of joining it and being rolled back with it.
+   *
+   * Inside `fn`, use only the `tx` handle. Calling this Database's own
+   * `exec`/`run` from within `fn` deadlocks: those calls queue behind the lock
+   * that the unit itself is holding.
+   */
+  async transaction<T>(fn: (tx: SqlExecutor) => Promise<T>): Promise<T> {
+    return this.serialized(async () => {
+      let finished = false
+      const guard = () => {
+        if (finished) throw new Error('Database.transaction: handle used after the transaction finished')
+      }
+      const tx: SqlExecutor = {
+        exec: async <R extends Record<string, unknown>>(sql: string, params?: unknown[]) => {
+          guard()
+          return this.execUnsafe<R>(sql, params)
+        },
+        run: async (sql: string, params?: unknown[]) => {
+          guard()
+          return this.runUnsafe(sql, params)
+        },
+      }
+
+      await this.runUnsafe('BEGIN')
+      try {
+        const result = await fn(tx)
+        await this.runUnsafe('COMMIT')
+        return result
+      } catch (e) {
+        try {
+          await this.runUnsafe('ROLLBACK')
+        } catch {
+          // SQLite may already have rolled back (some errors abort the
+          // transaction themselves); keep reporting the original error.
+        }
+        throw e
+      } finally {
+        finished = true
+      }
+    })
   }
 
   /**

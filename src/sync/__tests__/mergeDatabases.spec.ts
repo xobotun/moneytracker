@@ -116,6 +116,27 @@ describe('mergeDatabases', () => {
     expect(await readRows(local, 'locations')).toHaveLength(0)
   })
 
+  it('does not swallow an app write made while a failing merge is in flight', async () => {
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    // Same broken remote as above: the merge fails on the transaction's FK.
+    await seedLocation(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
+    await seedAccount(remote, { id: 'acc-x', name: 'X', created: CUTOFF, updated: CUTOFF })
+    await seedTransaction(remote, { id: 'txn-x', accountFrom: 'acc-x', created: CUTOFF, updated: CUTOFF })
+    await remote.run('PRAGMA foreign_keys = OFF')
+    await remote.run('DELETE FROM accounts WHERE id = ?', ['acc-x'])
+    await remote.run('PRAGMA foreign_keys = ON')
+
+    const merge = mergeDatabases(local, remote, CUTOFF)
+    // The user saves something while the sync runs.
+    const appWrite = seedLocation(local, { id: 'user-edit', name: 'Mine', created: CUTOFF, updated: CUTOFF })
+
+    await expect(merge).rejects.toThrow()
+    await appWrite
+    const ids = (await readRows(local, 'locations')).map((r) => r.id)
+    expect(ids).toEqual(['user-edit'])
+  })
+
   it('merges the same exchange rate fetched on two devices into one row', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()

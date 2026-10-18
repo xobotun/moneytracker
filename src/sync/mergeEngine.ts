@@ -1,4 +1,4 @@
-import type { Database } from '../db/Database'
+import type { Database, SqlExecutor } from '../db/Database'
 import type { SyncConflict, SyncRow } from './types'
 import type { SyncTable } from './syncTables'
 import { changedSince, readRows, rowsEqual, upsertRow } from './rows'
@@ -25,8 +25,8 @@ function indexByPk(rows: SyncRow[], pk: string): Map<string, SyncRow> {
  * only if it was created/updated/deleted after it.
  */
 export async function mergeTable(
-  local: Database,
-  remote: Database,
+  local: SqlExecutor,
+  remote: SqlExecutor,
   table: SyncTable,
   cutoff: string,
 ): Promise<SyncConflict[]> {
@@ -81,17 +81,14 @@ export async function mergeDatabases(
   remote: Database,
   cutoff: string,
 ): Promise<SyncConflict[]> {
-  const conflicts: SyncConflict[] = []
-  await local.run('BEGIN')
-  try {
+  // `transaction` holds the local connection's lock for the whole merge, so an
+  // app write made meanwhile waits instead of landing inside (and being rolled
+  // back with) a failed merge, and cannot change rows between read and upsert.
+  return local.transaction(async (tx) => {
+    const conflicts: SyncConflict[] = []
     for (const table of SYNC_TABLES) {
-      const tableConflicts = await mergeTable(local, remote, table, cutoff)
-      conflicts.push(...tableConflicts)
+      conflicts.push(...(await mergeTable(tx, remote, table, cutoff)))
     }
-    await local.run('COMMIT')
-  } catch (e) {
-    await local.run('ROLLBACK')
-    throw e
-  }
-  return conflicts
+    return conflicts
+  })
 }

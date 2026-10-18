@@ -1,8 +1,8 @@
-import type { Database } from '../db/Database'
+import type { SqlExecutor } from '../db/Database'
 import type { SyncRow } from './types'
 
 /** Reads every row of `table` as raw column maps. */
-export async function readRows(db: Database, table: string): Promise<SyncRow[]> {
+export async function readRows(db: SqlExecutor, table: string): Promise<SyncRow[]> {
   // `table` always comes from the SYNC_TABLES constant, never user input.
   return db.exec<SyncRow>(`SELECT * FROM ${table}`)
 }
@@ -63,7 +63,7 @@ export function changedSince(row: SyncRow, cutoff: string): boolean {
  * `ON DELETE RESTRICT` foreign keys when the row is referenced.
  */
 export async function upsertRow(
-  db: Database,
+  db: SqlExecutor,
   table: string,
   pk: string,
   row: SyncRow,

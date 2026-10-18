@@ -179,3 +179,78 @@ describe('mutationCounter', () => {
     expect(db.mutationCounter).toBe(before + 1)
   })
 })
+
+describe('Database.transaction', () => {
+  let db: Database
+
+  afterEach(async () => {
+    if (db) await db.close()
+  })
+
+  async function freshDb(): Promise<Database> {
+    const d = new Database()
+    await d.init()
+    await d.run('CREATE TABLE t (name TEXT NOT NULL)')
+    return d
+  }
+
+  async function names(d: Database): Promise<string[]> {
+    return (await d.exec<{ name: string }>('SELECT name FROM t ORDER BY name')).map((r) => r.name)
+  }
+
+  it('commits the unit and returns its result', async () => {
+    db = await freshDb()
+    const result = await db.transaction(async (tx) => {
+      await tx.run("INSERT INTO t VALUES ('a')")
+      await tx.run("INSERT INTO t VALUES ('b')")
+      return (await tx.exec<{ n: number }>('SELECT count(*) AS n FROM t'))[0]!.n
+    })
+    expect(result).toBe(2)
+    expect(await names(db)).toEqual(['a', 'b'])
+  })
+
+  it('rolls back the unit and rethrows on failure', async () => {
+    db = await freshDb()
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.run("INSERT INTO t VALUES ('a')")
+        throw new Error('boom')
+      }),
+    ).rejects.toThrow('boom')
+    expect(await names(db)).toEqual([])
+  })
+
+  it('keeps a write issued concurrently from elsewhere out of the unit (it runs after, and survives a rollback)', async () => {
+    db = await freshDb()
+    let outside: Promise<unknown> | undefined
+    const unit = db.transaction(async (tx) => {
+      await tx.run("INSERT INTO t VALUES ('inside')")
+      // Another caller (e.g. the UI) writes while the unit is in flight.
+      outside = db.run("INSERT INTO t VALUES ('outside')")
+      await tx.exec('SELECT 1')
+      throw new Error('unit failed')
+    })
+    await expect(unit).rejects.toThrow('unit failed')
+    await outside
+    expect(await names(db)).toEqual(['outside'])
+  })
+
+  it('reports the original error even when ROLLBACK itself fails', async () => {
+    db = await freshDb()
+    await expect(
+      db.transaction(async (tx) => {
+        await tx.run('ROLLBACK') // leave no active transaction, so the outer ROLLBACK fails
+        throw new Error('original')
+      }),
+    ).rejects.toThrow('original')
+  })
+
+  it('refuses to use the transaction handle after the unit has finished', async () => {
+    db = await freshDb()
+    let leaked: { run(sql: string): Promise<unknown> } | undefined
+    await db.transaction(async (tx) => {
+      leaked = tx
+    })
+    await expect(leaked!.run("INSERT INTO t VALUES ('late')")).rejects.toThrow(/finished/)
+  })
+})

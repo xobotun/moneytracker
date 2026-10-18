@@ -1,5 +1,5 @@
 import Papa from 'papaparse'
-import type { Database } from '../db/Database'
+import type { Database, SqlExecutor } from '../db/Database'
 import { SYNC_COLUMNS, type ColumnDescriptor } from './syncColumns'
 import { SYNC_TABLES, type SyncTable } from './syncTables'
 
@@ -20,7 +20,7 @@ import { SYNC_TABLES, type SyncTable } from './syncTables'
 //   TEXT null → nullif(json_extract(value, '$.col'), '')
 //   TEXT !null→ json_extract(value, '$.col')
 
-export async function exportTableToCsv(db: Database, table: SyncTable): Promise<string> {
+export async function exportTableToCsv(db: SqlExecutor, table: SyncTable): Promise<string> {
   const columns = SYNC_COLUMNS[table.name]
   if (!columns) throw new Error(`csvCodec: no syncColumns descriptor for "${table.name}"`)
   const columnList = columns.map((c) => c.name).join(', ')
@@ -49,7 +49,7 @@ export async function exportTableToCsv(db: Database, table: SyncTable): Promise<
 }
 
 export async function importCsvIntoTable(
-  db: Database,
+  db: SqlExecutor,
   table: SyncTable,
   csvText: string,
 ): Promise<void> {
@@ -102,11 +102,18 @@ function selectExpressionFor(c: ColumnDescriptor): string {
   return extracted
 }
 
-/** Export every domain table to a Map<name, csv>. Insertion order matches SYNC_TABLES. */
+/**
+ * Export every domain table to a Map<name, csv>. Insertion order matches
+ * SYNC_TABLES. All tables are read inside one transaction so the export is a
+ * consistent snapshot: an app write cannot land between two table reads
+ * (e.g. a transaction exported without the account it references).
+ */
 export async function exportAllTables(db: Database): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
-  for (const t of SYNC_TABLES) out.set(t.name, await exportTableToCsv(db, t))
-  return out
+  return db.transaction(async (tx) => {
+    const out = new Map<string, string>()
+    for (const t of SYNC_TABLES) out.set(t.name, await exportTableToCsv(tx, t))
+    return out
+  })
 }
 
 /**
@@ -116,18 +123,13 @@ export async function exportAllTables(db: Database): Promise<Map<string, string>
  * cleanly rather than leaving a partially-populated DB.
  */
 export async function importAllTables(db: Database, bundle: Map<string, string>): Promise<void> {
-  await db.run('BEGIN')
-  try {
+  await db.transaction(async (tx) => {
     for (const t of SYNC_TABLES) {
       const csv = bundle.get(t.name)
       if (csv === undefined) {
         throw new Error(`csvCodec.importAllTables: missing CSV for "${t.name}"`)
       }
-      await importCsvIntoTable(db, t, csv)
+      await importCsvIntoTable(tx, t, csv)
     }
-    await db.run('COMMIT')
-  } catch (e) {
-    await db.run('ROLLBACK')
-    throw e
-  }
+  })
 }
