@@ -1,4 +1,5 @@
 import type { GitHubConfig } from './localState/providerConfig'
+import { withSyncFetchPolicy } from './fetchPolicy'
 
 /** Injectable fetch — defaults to global fetch, overrideable for tests. */
 export type GitHubFetch = (url: string, init?: RequestInit) => Promise<Response>
@@ -28,10 +29,14 @@ export interface CommitParams {
  * with the response body for diagnostics.
  */
 export class GitHubTransport {
+  private readonly fetch: GitHubFetch
+
   constructor(
     private readonly cfg: GitHubConfig,
-    private readonly fetch: GitHubFetch = globalThis.fetch.bind(globalThis),
-  ) {}
+    fetchFn: GitHubFetch = globalThis.fetch.bind(globalThis),
+  ) {
+    this.fetch = withSyncFetchPolicy(fetchFn)
+  }
 
   async validate(): Promise<void> {
     const res = await this.req(`/repos/${this.cfg.repo}`, { method: 'GET' })

@@ -1,5 +1,6 @@
 import type { BlobTransport } from './BlobTransport'
 import type { SupabaseConfig } from './localState/providerConfig'
+import { withSyncFetchPolicy } from './fetchPolicy'
 
 type FetchFn = typeof fetch
 
@@ -16,12 +17,16 @@ type FetchFn = typeof fetch
  * and don't add 200KB of SDK to the bundle for two endpoints.
  */
 export class SupabaseStorageTransport implements BlobTransport {
+  private readonly fetch: FetchFn
+
   constructor(
     private readonly cfg: SupabaseConfig,
     private readonly blobKey: string,
     private readonly sidecarKey: string,
-    private readonly fetch: FetchFn = globalThis.fetch.bind(globalThis),
-  ) {}
+    fetchFn: FetchFn = globalThis.fetch.bind(globalThis),
+  ) {
+    this.fetch = withSyncFetchPolicy(fetchFn)
+  }
 
   async validate(): Promise<void> {
     // HEAD on the bucket root would be ideal but Supabase Storage doesn't

@@ -5,6 +5,8 @@ import { decideSync, runSync } from '../syncOrchestrator'
 import { FakeSyncBackend } from './fakes'
 import { readRows } from '../rows'
 import { newMigratedDb, seedLocation } from './helpers'
+import type { SyncBackend } from '../SyncBackend'
+import { hashDatabase } from '../hashDatabase'
 
 const META = (over: Partial<SyncMetadata> = {}): SyncMetadata => ({
   device: 'other-device',
@@ -52,6 +54,7 @@ describe('runSync', () => {
       saveLastKnown: (s: import('../types').RemoteState) => {
         state.lastKnown = s
       },
+      sleep: async () => {},
     }
   }
 
@@ -167,5 +170,79 @@ describe('runSync', () => {
 
     expect(outcome.decision).toBe('aborted-app-outdated')
     expect(outcome.uploaded).toBe(false)
+  })
+})
+
+describe('runSync retry bound', () => {
+  let local: Database
+  const opened: Database[] = []
+
+  afterEach(async () => {
+    if (local) await local.close()
+    for (const db of opened.splice(0)) await db.close()
+  })
+
+  /** A remote that rejects every upload, as if another device always wins the race. */
+  function alwaysLosingBackend(remoteDevice: string) {
+    let uploads = 0
+    const backend: SyncBackend = {
+      getMetadata: async () => META({ device: remoteDevice, hash: `remote-${uploads}` }),
+      downloadDatabase: async () => {
+        const db = await newMigratedDb()
+        opened.push(db)
+        return db
+      },
+      hashDatabase,
+      tryUpload: async () => {
+        uploads++
+        // Guard so a missing bound fails the test instead of spinning forever.
+        if (uploads > 20) throw new Error('runaway retry loop')
+        return false
+      },
+    }
+    return { backend, uploads: () => uploads }
+  }
+
+  function boundedDeps(backend: SyncBackend, sleeps: number[]) {
+    return {
+      backend,
+      deviceName: 'dev-A',
+      now: () => new Date('2026-05-22T12:00:00.000Z'),
+      migrate: async () => {},
+      loadLastKnown: () => null,
+      saveLastKnown: () => {},
+      maxAttempts: 3,
+      sleep: async (ms: number) => {
+        sleeps.push(ms)
+      },
+    }
+  }
+
+  it('gives up after maxAttempts when a foreign upload keeps winning (merge path)', async () => {
+    local = await newMigratedDb()
+    const { backend, uploads } = alwaysLosingBackend('dev-B')
+    const sleeps: number[] = []
+
+    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow(/gave up after 3 attempts/)
+    expect(uploads()).toBe(3)
+  })
+
+  it('gives up after maxAttempts on the upload-local path too', async () => {
+    local = await newMigratedDb()
+    const { backend, uploads } = alwaysLosingBackend('dev-A')
+    const sleeps: number[] = []
+
+    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow(/gave up after 3 attempts/)
+    expect(uploads()).toBe(3)
+  })
+
+  it('backs off with growing delays between attempts', async () => {
+    local = await newMigratedDb()
+    const { backend } = alwaysLosingBackend('dev-B')
+    const sleeps: number[] = []
+
+    await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow()
+    expect(sleeps).toHaveLength(2) // between 3 attempts
+    expect(sleeps[1]!).toBeGreaterThan(sleeps[0]!)
   })
 })

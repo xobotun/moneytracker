@@ -1,6 +1,7 @@
 import { AwsClient } from 'aws4fetch'
 import type { BlobTransport } from './BlobTransport'
 import type { S3Config } from './localState/providerConfig'
+import { withSyncFetchPolicy } from './fetchPolicy'
 
 type FetchFn = typeof fetch
 
@@ -25,13 +26,15 @@ type FetchFn = typeof fetch
  */
 export class S3Transport implements BlobTransport {
   private readonly client: AwsClient
+  private readonly fetchFn: FetchFn
 
   constructor(
     private readonly cfg: S3Config,
     private readonly blobKey: string,
     private readonly sidecarKey: string,
-    private readonly fetchFn: FetchFn = globalThis.fetch.bind(globalThis),
+    fetchFn: FetchFn = globalThis.fetch.bind(globalThis),
   ) {
+    this.fetchFn = withSyncFetchPolicy(fetchFn)
     this.client = new AwsClient({
       accessKeyId: cfg.accessKeyId,
       secretAccessKey: cfg.secretKey,
