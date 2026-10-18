@@ -30,4 +30,15 @@ describe('MoneyAmount', () => {
     expect(m.value).toBe(1)
     expect(m.scale).toBe(8)
   })
+
+  it('accepts the largest exactly representable value', () => {
+    expect(moneyAmount(Number.MAX_SAFE_INTEGER, 2, 'USD').value).toBe(Number.MAX_SAFE_INTEGER)
+    expect(moneyAmount(-Number.MAX_SAFE_INTEGER, 2, 'USD').value).toBe(-Number.MAX_SAFE_INTEGER)
+  })
+
+  it('rejects values beyond 2^53 that a JS number cannot hold exactly', () => {
+    // Number.isInteger(2 ** 60) is true, but the value has already lost precision.
+    expect(() => moneyAmount(Number.MAX_SAFE_INTEGER + 1, 2, 'USD')).toThrow(/safe integer/)
+    expect(() => moneyAmount(2 ** 60, 18, 'ETH')).toThrow(/safe integer/)
+  })
 })

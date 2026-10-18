@@ -12,7 +12,12 @@ export interface MoneyAmount {
 }
 
 export function moneyAmount(value: number, scale: number, currency: string): MoneyAmount {
-  if (!Number.isInteger(value)) throw new Error(`MoneyAmount value must be an integer, got ${value}`)
+  // isSafeInteger, not isInteger: beyond ±2^53 a JS number can no longer hold
+  // every integer exactly (Number.isInteger(2 ** 60) is still true), so the
+  // amount would already be silently rounded. Fail loudly instead.
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`MoneyAmount value must be a safe integer (|value| ≤ 2^53 − 1), got ${value}`)
+  }
   if (!Number.isInteger(scale) || scale < 0) throw new Error(`MoneyAmount scale must be a non-negative integer, got ${scale}`)
   if (!currency || currency.trim().length === 0) throw new Error('MoneyAmount currency must be a non-empty string')
   return Object.freeze({ value, scale, currency })
