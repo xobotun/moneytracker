@@ -42,7 +42,7 @@ describe('domain schema migration', () => {
          VALUES (?, ?, ?, ?, ?)`,
         ['loc1', 'X', 'not json', '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
       )
-    ).rejects.toThrow()
+    ).rejects.toThrow(/CHECK constraint failed/)
   })
 
   it('enforces FK from accounts.location_id to locations.id', async () => {
@@ -54,7 +54,7 @@ describe('domain schema migration', () => {
         ['a1', 'Acc', 'USD', 0, 2, 'missing-loc', '#FFFFFF', 'cash',
          '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
       )
-    ).rejects.toThrow()
+    ).rejects.toThrow(/FOREIGN KEY constraint failed/)
   })
 
   it('enforces FK from transactions.account_id__from to accounts.id', async () => {
@@ -70,7 +70,7 @@ describe('domain schema migration', () => {
          '2026-05-20T12:00:00.000+02:00', 'Europe/Berlin',
          '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z']
       )
-    ).rejects.toThrow()
+    ).rejects.toThrow(/FOREIGN KEY constraint failed/)
   })
 
   it('allows account_id__from / account_id__to to be NULL (Global Economy)', async () => {

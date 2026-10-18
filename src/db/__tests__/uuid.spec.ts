@@ -18,4 +18,11 @@ describe('newId', () => {
     const ids = new Set(Array.from({ length: 1000 }, () => newId()))
     expect(ids.size).toBe(1000)
   })
+
+  it('keeps creation order even within the same millisecond', () => {
+    // 1000 ids in a tight loop share milliseconds; UUIDv7's counter must still
+    // make them sort in generation order (the reason v7 was chosen for PKs).
+    const ids = Array.from({ length: 1000 }, () => newId())
+    expect([...ids].sort()).toEqual(ids)
+  })
 })

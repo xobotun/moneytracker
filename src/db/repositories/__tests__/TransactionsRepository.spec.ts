@@ -391,7 +391,8 @@ describe('TransactionsRepository', () => {
     expect(updated!.tags).toEqual(['updated', 'modified'])
     expect(updated!.amount__from).toEqual(moneyAmount(2000, 2, 'USD'))
     expect(updated!.amount__to).toEqual(moneyAmount(950, 2, 'EUR')) // unchanged
-    expect(updated!.updated_at_utc).not.toBe(originalUpdatedAt)
+    // Compare instants: `.not.toBe` on two Date objects compares identity and always passes.
+    expect(updated!.updated_at_utc.getTime()).toBeGreaterThan(originalUpdatedAt.getTime())
   })
 
   describe('ordering', () => {

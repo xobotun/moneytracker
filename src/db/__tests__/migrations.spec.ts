@@ -61,4 +61,20 @@ describe('runMigrations', () => {
     )
     expect(applied.map((r) => r.version)).toEqual([1, 2])
   })
+
+  it('rolls a failing migration back completely and records nothing for it', async () => {
+    db = new Database()
+    await db.init()
+    const failing: Migration = {
+      version: 1,
+      // First statement succeeds, second fails: the table must not survive.
+      up: 'CREATE TABLE half_done (id INTEGER PRIMARY KEY); INSERT INTO no_such_table VALUES (1)',
+    }
+
+    await expect(runMigrations(db, [failing])).rejects.toThrow(/no such table/)
+
+    const tables = await db.exec('SELECT name FROM sqlite_master WHERE name = ?', ['half_done'])
+    expect(tables).toHaveLength(0)
+    expect(await db.exec('SELECT version FROM migrations')).toHaveLength(0)
+  })
 })
