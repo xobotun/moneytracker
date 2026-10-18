@@ -105,4 +105,20 @@ describe('hashDatabase', () => {
     const after = await hashDatabase(db)
     expect(after).not.toBe(before)
   })
+
+  it('does not cache a stale hash when a write lands mid-walk', async () => {
+    const db = await migratedDb()
+    dbs.push(db)
+    // Start hashing; the write below queues behind the first table read, so it
+    // lands after `locations` was already hashed but before the walk finishes.
+    const during = hashDatabase(db)
+    await db.run(
+      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
+       VALUES (?, 'Home', '[]', ?, ?)`,
+      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
+    )
+    const hashMissingTheRow = await during
+    // The row is now in the DB, so the next hash must reflect it.
+    expect(await hashDatabase(db)).not.toBe(hashMissingTheRow)
+  })
 })

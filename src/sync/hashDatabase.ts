@@ -37,6 +37,14 @@ export async function hashDatabase(db: Database): Promise<string> {
     return cached.hash
   }
 
+  // Capture the counter BEFORE walking the tables. Each table read is a
+  // separate queued call, so an app write can land between two of them. Had
+  // we read the counter after the walk, it would already include that write
+  // while the hash does not, and the stale hash would be served from the cache
+  // until the next unrelated write. Read before, a mid-walk write leaves the
+  // entry outdated, so the next call re-hashes.
+  const atMutation = db.mutationCounter
+
   // crypto.subtle.digest works on the assembled byte buffer. For a small
   // personal-finance DB this fits comfortably in memory; if we ever push
   // past ~50MB of row text we'd switch to a streaming SHA-256 (an
@@ -68,6 +76,6 @@ export async function hashDatabase(db: Database): Promise<string> {
   const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
   const result = `sha256:${hex}`
 
-  cache.set(db, { hash: result, atMutation: db.mutationCounter })
+  cache.set(db, { hash: result, atMutation })
   return result
 }
