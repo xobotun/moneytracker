@@ -46,6 +46,16 @@ describe('TagsRepository', () => {
     expect(after.updated_at_utc > before.updated_at_utc).toBe(true)
   })
 
+  it('stores an empty description as NULL, on create and on update', async () => {
+    // See the matching LocationsRepository test: '' does not survive a CSV sync.
+    await repo.create({ tag: 'blank', description: '', synonyms: [], colour: '#000', icon: 'x' })
+    expect((await repo.findByName('blank'))!.description).toBeNull()
+
+    await repo.update('blank', { description: 'x' })
+    await repo.update('blank', { description: '' })
+    expect((await repo.findByName('blank'))!.description).toBeNull()
+  })
+
   it('soft-deletes a tag', async () => {
     await repo.create({ tag: 'temp', synonyms: [], colour: '#FFF', icon: 'x' })
     await repo.softDelete('temp')

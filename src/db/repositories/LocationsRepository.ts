@@ -8,6 +8,7 @@ import {
   jsonArrayFromColumn,
   jsonArrayToColumn,
   uuidFromColumn,
+  optionalTextToColumn,
 } from '../columnMappers'
 
 type LocationRow = {
@@ -63,10 +64,10 @@ export class LocationsRepository {
       [
         id,
         input.name,
-        input.description ?? null,
-        input.address ?? null,
-        input.city ?? null,
-        input.country ?? null,
+        optionalTextToColumn(input.description),
+        optionalTextToColumn(input.address),
+        optionalTextToColumn(input.city),
+        optionalTextToColumn(input.country),
         input.latitude ?? null,
         input.longitude ?? null,
         jsonArrayToColumn(input.tags),
@@ -102,19 +103,19 @@ export class LocationsRepository {
     }
     if (patch.description !== undefined) {
       sets.push('description = ?')
-      params.push(patch.description)
+      params.push(optionalTextToColumn(patch.description))
     }
     if (patch.address !== undefined) {
       sets.push('address = ?')
-      params.push(patch.address)
+      params.push(optionalTextToColumn(patch.address))
     }
     if (patch.city !== undefined) {
       sets.push('city = ?')
-      params.push(patch.city)
+      params.push(optionalTextToColumn(patch.city))
     }
     if (patch.country !== undefined) {
       sets.push('country = ?')
-      params.push(patch.country)
+      params.push(optionalTextToColumn(patch.country))
     }
     if (patch.latitude !== undefined) {
       sets.push('latitude = ?')

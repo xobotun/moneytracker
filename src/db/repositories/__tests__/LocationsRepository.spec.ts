@@ -121,6 +121,26 @@ describe('LocationsRepository', () => {
     expect(after.updated_at_utc > before.updated_at_utc).toBe(true)
   })
 
+  it('stores an empty optional text field as NULL, on create and on update', async () => {
+    // A CSV cell cannot tell '' from NULL, so '' would come back as NULL after
+    // a GitHub sync — and the content hash would differ on every device.
+    const created = await repo.create({
+      name: 'Blank',
+      description: '',
+      address: '',
+      city: '',
+      country: '',
+      latitude: null,
+      longitude: null,
+      tags: [],
+    })
+    expect(created).toMatchObject({ description: null, address: null, city: null, country: null })
+
+    await repo.update(created.id, { description: 'x', city: 'y' })
+    await repo.update(created.id, { description: '', city: '' })
+    expect(await repo.findById(created.id)).toMatchObject({ description: null, city: null })
+  })
+
   it('softDelete excludes from findById and list', async () => {
     const created = await repo.create({
       name: 'Temporary',

@@ -11,7 +11,9 @@ async function loadPapa() {
 // CSV ↔ Database round-trip for GitHubCsvBackend.
 //
 // Export: SELECT columns FROM <table> ORDER BY <pk> with column order pinned
-// by SYNC_COLUMNS; Papa.unparse for RFC 4180 quoting / embedded-newline /
+// by SYNC_COLUMNS, split into slices of ROWS_PER_CSV_FILE rows (one CSV text
+// per slice, each with its own header; an empty table yields one header-only
+// text); Papa.unparse for RFC 4180 quoting / embedded-newline /
 // quote-in-cell escaping. Newline pinned to \n (matches .gitattributes; the
 // platform default would produce CRLF on Windows).
 //
@@ -25,7 +27,32 @@ async function loadPapa() {
 //   TEXT null → nullif(json_extract(value, '$.col'), '')
 //   TEXT !null→ json_extract(value, '$.col')
 
-export async function exportTableToCsv(db: SqlExecutor, table: SyncTable): Promise<string> {
+/**
+ * Data rows per CSV file. Why 1000: files are read through the blobs API, so
+ * GitHub's 1 MB contents limit does not bind; ~1000 rows keep transaction
+ * files to a few hundred KB, readable and diffable on github.com. Tables
+ * with large JSON cells (exchange_rates.rates) can be bigger; only GitHub's
+ * 100 MB blob limit binds. For tables with time-ordered UUIDv7 keys, new
+ * rows land in the last file and earlier files stay byte-identical (git
+ * stores them once); not so for tags (natural key) or exchange_rates (UUIDv5).
+ *
+ * This is a fixed format constant: NEVER change it. Uploads never delete
+ * files, so a LARGER value leaves stale trailing files whose rows are also in
+ * an earlier file. ANY change breaks while some device still runs the old
+ * value (devices update at different times): an old-limit device uploading
+ * after a new-limit one leaves the new one's extra files stale. Either way
+ * the next download fails on duplicate primary keys on every device until
+ * the files are removed by hand. Tables never shrink in normal use (deletes
+ * are soft), so with a fixed limit the file set only grows.
+ */
+export const ROWS_PER_CSV_FILE = 1000
+
+/** The table as CSV texts of at most `rowsPerFile` rows, in primary-key order (at least one). */
+export async function exportTableToCsvFiles(
+  db: SqlExecutor,
+  table: SyncTable,
+  rowsPerFile = ROWS_PER_CSV_FILE,
+): Promise<string[]> {
   const columns = SYNC_COLUMNS[table.name]
   if (!columns) throw new Error(`csvCodec: no syncColumns descriptor for "${table.name}"`)
   const columnList = columns.map((c) => c.name).join(', ')
@@ -43,15 +70,18 @@ export async function exportTableToCsv(db: SqlExecutor, table: SyncTable): Promi
   // as-yet-unpopulated table's CSV is still "header,row\n" and every table's
   // header line is column-count-comparable to a later appended data row.
   const Papa = await loadPapa()
-  return (
-    Papa.unparse(
-      { fields: columns.map((c) => c.name), data: rows },
-      {
-        header: true,
-        newline: '\n',
-      },
-    ) + '\n'
-  )
+  const fields = columns.map((c) => c.name)
+  const files: string[] = []
+  // `do … while` so an empty table still yields one header-only file.
+  let start = 0
+  do {
+    const data = rows.slice(start, start + rowsPerFile)
+    const csv = Papa.unparse({ fields, data }, { header: true, newline: '\n' })
+    // Papa ends a header-only output with a newline already, but not one that has rows.
+    files.push(csv.endsWith('\n') ? csv : csv + '\n')
+    start += rowsPerFile
+  } while (start < rows.length)
+  return files
 }
 
 export async function importCsvIntoTable(
@@ -67,7 +97,7 @@ export async function importCsvIntoTable(
     header: true,
     skipEmptyLines: true,
     dynamicTyping: false,
-    // Pinned to ',': exportTableToCsv always writes comma-delimited CSV
+    // Pinned to ',': exportTableToCsvFiles always writes comma-delimited CSV
     // (Papa.unparse's default). Without this, Papa's delimiter auto-detect
     // has no data row to sample on a header-only CSV and reports a
     // (non-fatal, but still populated into `errors`) "Unable to
@@ -110,37 +140,41 @@ function selectExpressionFor(c: ColumnDescriptor): string {
 }
 
 /**
- * Export every domain table to a Map<name, csv>. Insertion order matches
- * SYNC_TABLES. All tables are read inside one transaction so the export is a
- * consistent snapshot: an app write cannot land between two table reads
- * (e.g. a transaction exported without the account it references).
+ * Export every domain table to a Map<name, csv files> (see
+ * exportTableToCsvFiles). Insertion order matches SYNC_TABLES. All tables are
+ * read inside one transaction so the export is a consistent snapshot: an app
+ * write cannot land between two table reads (e.g. a transaction exported
+ * without the account it references).
  */
-export async function exportAllTables(db: Database): Promise<Map<string, string>> {
+export async function exportAllTables(
+  db: Database,
+  rowsPerFile = ROWS_PER_CSV_FILE,
+): Promise<Map<string, string[]>> {
   // Load the library BEFORE taking the database lock: a slow chunk download
   // inside the transaction would freeze every other query of the app.
   await loadPapa()
   return db.transaction(async (tx) => {
-    const out = new Map<string, string>()
-    for (const t of SYNC_TABLES) out.set(t.name, await exportTableToCsv(tx, t))
+    const out = new Map<string, string[]>()
+    for (const t of SYNC_TABLES) out.set(t.name, await exportTableToCsvFiles(tx, t, rowsPerFile))
     return out
   })
 }
 
 /**
- * Import every domain table from a Map<name, csv> in FK order (parents before
+ * Import every domain table from a Map<name, csv files> in FK order (parents before
  * children, per SYNC_TABLES). Wrapped in a single BEGIN/COMMIT so a mid-
  * import failure (FK violation, malformed CSV, missing entry) rolls back
  * cleanly rather than leaving a partially-populated DB.
  */
-export async function importAllTables(db: Database, bundle: Map<string, string>): Promise<void> {
+export async function importAllTables(db: Database, bundle: Map<string, string[]>): Promise<void> {
   await loadPapa() // before the lock — see exportAllTables
   await db.transaction(async (tx) => {
     for (const t of SYNC_TABLES) {
-      const csv = bundle.get(t.name)
-      if (csv === undefined) {
+      const csvs = bundle.get(t.name)
+      if (csvs === undefined) {
         throw new Error(`csvCodec.importAllTables: missing CSV for "${t.name}"`)
       }
-      await importCsvIntoTable(tx, t, csv)
+      for (const csv of csvs) await importCsvIntoTable(tx, t, csv)
     }
   })
 }

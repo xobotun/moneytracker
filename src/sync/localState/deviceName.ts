@@ -8,7 +8,9 @@ import { stringStore } from './storage'
 //     Settings can display "Office iMac" instead of "019432bc-…". The trade-off
 //     is documented in docs/plans/2026-05-27-sync-settings-design.md:
 //     renaming triggers one harmless re-merge; un-renamed devices rely on the
-//     8-char random suffix to stay distinguishable.
+//     8-char random suffix to stay distinguishable. Names must stay unique:
+//     sync treats a remote upload under this device's name as its own, so a
+//     duplicate name skips the merge (see TASKS.md, known sync defects).
 //
 //  2. Identity lives in localStorage, not in the SQLite database, because the
 //     whole database is uploaded as one blob — anything inside it would be

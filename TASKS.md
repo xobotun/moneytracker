@@ -274,13 +274,22 @@ Known sync defects, postponed (review 2026-10-18):
   becomes `""` and every upload then fails as a CAS miss; S3's 409
   `ConditionalRequestConflict` is not treated as a CAS miss. Needs a live
   probe per provider.
-- **GitHub REST path limits:** the contents API stops at 1 MB per file
-  (~7k transactions); downloads are not pinned to one commit SHA;
-  empty-string text columns come back as NULL after the CSV round trip
-  (hash ping-pong); importing an older-schema remote breaks after the first
-  column-adding migration; `createRef` race throws instead of counting as a
-  CAS miss; branch/path `%2F` encoding and empty-repo bootstrap are
-  unverified. Long-term idea: sync over real git instead of the REST API.
+- **GitHub REST path limits:** importing an older-schema remote breaks after the first
+  column-adding migration; bootstrapping a repository with zero commits is
+  unverified (create it with a README). Verified live on 2026-10-18
+  (`npm run test:live`): `%2F` path encoding, creating a new branch in a
+  non-empty repo, merge, stale CAS. Fixed then: a concurrent first sync
+  (`createRef` 422) now counts as a CAS miss, and `''` in optional text
+  columns is stored as NULL so it survives the CSV round trip. Browser
+  CORS is still untested — needs one manual "Sync now" in the app.
+  Long-term idea: sync over real git instead of the REST API.
+  **Upload cost:** fixed — an upload sends only the files whose content
+  changed (git blob ids computed locally and compared with the pinned
+  commit; the live test checks the ids match GitHub's).
+  **Device names must be unique** (the default has a random suffix; renaming
+  a device to another device's name is unsupported): a device with a
+  duplicate name and a smaller or empty database takes `upload-local`, which
+  can drop data and leave stale trailing CSV files.
 - **Clock skew / ties:** the merge cutoff compares timestamps from
   different devices' clocks, and equal timestamps resolve to the local side
   (two devices can flip-flop). Accepted for now; concurrent edits expected

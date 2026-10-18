@@ -4,6 +4,7 @@
   "include": [
     "vite.config.*",
     "vitest.config.*",
+    "vitest.live.config.*",
     "cypress.config.*",
     "nightwatch.conf.*",
     "playwright.config.*",

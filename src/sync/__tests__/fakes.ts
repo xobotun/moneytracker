@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { Database } from '../../db/Database'
 import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
@@ -110,6 +111,14 @@ export class FakeSyncBackend implements SyncBackend {
   }
 }
 
+/** Git's blob id (as `git hash-object`), computed independently of the
+ *  production gitBlobSha so the fake also checks it. Blobs get real ids so the
+ *  backend can recognise content the remote already holds. */
+function gitBlobId(content: string): string {
+  const body = Buffer.from(content, 'utf8')
+  return createHash('sha1').update(`blob ${body.length}\0`).update(body).digest('hex')
+}
+
 /**
  * In-memory simulation of the GitHub REST data API. Stores blobs (sha →
  * text), trees (sha → entries), commits, and the single branch HEAD.
@@ -123,6 +132,8 @@ export class FakeGitHubRemote {
   private commits = new Map<string, { tree: string; parents: string[]; atUtc: string }>()
   private branchHead: string | null = null
   private nextSha = 1
+  /** Test introspection: how many POST /git/blobs requests were served. */
+  blobPosts = 0
 
   fetch(): GitHubFetch {
     return async (url, init) => {
@@ -154,9 +165,27 @@ export class FakeGitHubRemote {
         if (!c) return jsonRes(404, { message: 'not found' })
         return jsonRes(200, { tree: { sha: c.tree } })
       }
+      const treeGet = u.pathname.match(/\/git\/trees\/([^/]+)$/)
+      if (method === 'GET' && treeGet && u.searchParams.get('recursive') === '1') {
+        const entries = this.trees.get(treeGet[1]!)
+        if (!entries) return jsonRes(404, { message: 'not found' })
+        return jsonRes(200, {
+          sha: treeGet[1],
+          tree: entries.map((e) => ({ path: e.path, type: 'blob', sha: e.sha, mode: '100644' })),
+          truncated: false,
+        })
+      }
+      const blobGet = u.pathname.match(/\/git\/blobs\/([^/]+)$/)
+      if (method === 'GET' && blobGet) {
+        const text = this.blobs.get(blobGet[1]!)
+        if (text === undefined) return jsonRes(404, { message: 'not found' })
+        return jsonRes(200, { content: encodeBase64Utf8(text), encoding: 'base64' })
+      }
       if (method === 'POST' && u.pathname.endsWith('/git/blobs')) {
-        const sha = `b${this.nextSha++}`
-        this.blobs.set(sha, decodeBase64Utf8((body as { content: string }).content))
+        const content = decodeBase64Utf8((body as { content: string }).content)
+        const sha = gitBlobId(content)
+        this.blobs.set(sha, content)
+        this.blobPosts++
         return jsonRes(201, { sha })
       }
       if (method === 'POST' && u.pathname.endsWith('/git/trees')) {
@@ -191,6 +220,7 @@ export class FakeGitHubRemote {
         return jsonRes(200, {})
       }
       if (method === 'POST' && u.pathname.endsWith('/git/refs')) {
+        if (this.branchHead) return jsonRes(422, { message: 'Reference already exists' })
         this.branchHead = body!.sha as string
         return jsonRes(201, {})
       }
@@ -216,7 +246,7 @@ export class FakeGitHubRemote {
    *  doing other work. Used to test CAS-miss behaviour. */
   injectForeignCommit(treeEntries: Array<{ path: string; content: string }>): void {
     const treeEntriesWithSha = treeEntries.map((e) => {
-      const sha = `b${this.nextSha++}`
+      const sha = gitBlobId(e.content)
       this.blobs.set(sha, e.content)
       return { path: e.path, sha }
     })
@@ -234,6 +264,23 @@ export class FakeGitHubRemote {
     this.commits.set(commitSha, {
       tree: treeSha,
       parents: this.branchHead ? [this.branchHead] : [],
+      atUtc: '2026-05-28T00:00:00.000Z',
+    })
+    this.branchHead = commitSha
+  }
+
+  /** Test hook: commit on HEAD a tree without `path` (a file vanishing from the remote). */
+  removePath(path: string): void {
+    const currentTreeSha = this.commits.get(this.branchHead!)!.tree
+    const treeSha = `t${this.nextSha++}`
+    this.trees.set(
+      treeSha,
+      (this.trees.get(currentTreeSha) ?? []).filter((e) => e.path !== path),
+    )
+    const commitSha = `c${this.nextSha++}`
+    this.commits.set(commitSha, {
+      tree: treeSha,
+      parents: [this.branchHead!],
       atUtc: '2026-05-28T00:00:00.000Z',
     })
     this.branchHead = commitSha

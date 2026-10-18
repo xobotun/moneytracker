@@ -4,7 +4,7 @@ import type { SyncMetadata } from './types'
 /**
  * The single seam between the sync orchestrator and the world. One concrete
  * backend per provider:
- *   - GitHubCsvBackend stores CSV-per-table inside a git repo.
+ *   - GitHubCsvBackend stores numbered CSV files per table inside a git repo.
  *   - SqliteBlobBackend stores a single .sqlite blob plus a metadata sidecar
  *     (used by Supabase Storage and S3-compatible transports).
  *
@@ -16,7 +16,9 @@ import type { SyncMetadata } from './types'
  *    next tryUpload() needs (e.g., the current branch HEAD commit SHA for
  *    GitHub, the metadata sidecar's ETag for S3).
  *  - tryUpload() requires a prior getMetadata() — calling it cold is a
- *    programming error and the backend should throw.
+ *    programming error and the backend should throw. The GitHub backend's
+ *    downloadDatabase() needs one too: its reads are pinned to the commit
+ *    getMetadata() saw.
  *  - downloadDatabase() returns a freshly-opened in-memory Database. The
  *    caller owns the lifecycle and closes it after use.
  *  - hashDatabase(db) is provider-independent (delegates to the shared

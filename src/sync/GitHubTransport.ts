@@ -24,9 +24,9 @@ export interface CommitParams {
  * and JSON encoding; knows nothing about CAS strategy — composing the
  * blob → tree → commit → ref-update sequence is the backend's job.
  *
- * 404 (not found) and 422 (non-fast-forward) are translated to null /
- * false so the backend can branch on them. Other non-2xx statuses throw
- * with the response body for diagnostics.
+ * 404 (not found) and 422 (non-fast-forward, or branch already exists) are
+ * translated to null / false so the backend can branch on them. Other
+ * non-2xx statuses throw with the response body for diagnostics.
  */
 export class GitHubTransport {
   private readonly fetch: GitHubFetch
@@ -43,16 +43,26 @@ export class GitHubTransport {
     if (!res.ok) throw await asError(res, 'validate')
   }
 
-  async getContent(path: string): Promise<string | null> {
-    const res = await this.req(
-      `/repos/${this.cfg.repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(this.cfg.branch)}`,
-      { method: 'GET' },
-    )
-    if (res.status === 404) return null
-    if (!res.ok) throw await asError(res, 'getContent')
+  /** Every file (blob) in the tree, recursively. Throws if GitHub truncated the listing. */
+  async listTree(treeSha: string): Promise<TreeEntry[]> {
+    const res = await this.req(`/repos/${this.cfg.repo}/git/trees/${treeSha}?recursive=1`, {
+      method: 'GET',
+    })
+    if (!res.ok) throw await asError(res, 'listTree')
+    const json = (await res.json()) as {
+      tree: Array<{ path: string; type: string; sha: string }>
+      truncated: boolean
+    }
+    if (json.truncated) throw new Error('GitHubTransport.listTree: tree listing truncated')
+    return json.tree.filter((e) => e.type === 'blob').map((e) => ({ path: e.path, sha: e.sha }))
+  }
+
+  async getBlob(sha: string): Promise<string> {
+    const res = await this.req(`/repos/${this.cfg.repo}/git/blobs/${sha}`, { method: 'GET' })
+    if (!res.ok) throw await asError(res, 'getBlob')
     const json = (await res.json()) as { content: string; encoding: string }
     if (json.encoding !== 'base64') {
-      throw new Error(`GitHubTransport.getContent: unexpected encoding "${json.encoding}"`)
+      throw new Error(`GitHubTransport.getBlob: unexpected encoding "${json.encoding}"`)
     }
     return decodeBase64Utf8(json.content)
   }
@@ -128,12 +138,15 @@ export class GitHubTransport {
     throw await asError(res, 'updateRef')
   }
 
-  async createRef(newSha: string): Promise<void> {
+  /** Creates the branch. Returns false (422) when it already exists — another device created it first. */
+  async createRef(newSha: string): Promise<boolean> {
     const res = await this.req(`/repos/${this.cfg.repo}/git/refs`, {
       method: 'POST',
       body: JSON.stringify({ ref: `refs/heads/${this.cfg.branch}`, sha: newSha }),
     })
-    if (!res.ok) throw await asError(res, 'createRef')
+    if (res.ok) return true
+    if (res.status === 422) return false
+    throw await asError(res, 'createRef')
   }
 
   private req(path: string, init: RequestInit): Promise<Response> {

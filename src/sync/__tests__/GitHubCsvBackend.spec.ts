@@ -4,6 +4,8 @@ import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
+import { exportTableToCsvFiles } from '../csvCodec'
+import { seedLocations } from './helpers'
 import { FakeGitHubRemote } from './fakes'
 import { rowsEqual } from '../rows'
 import { SYNC_TABLES } from '../syncTables'
@@ -35,11 +37,11 @@ describe('GitHubCsvBackend', () => {
     remotes = []
   })
 
-  function setup() {
+  function setup(options: { rowsPerFileForTest?: number } = {}) {
     const remote = new FakeGitHubRemote()
     remotes.push(remote)
     const transport = remote.transport({ repo: 'me/mt', branch: 'main', token: 't', path: '' })
-    const backend = new GitHubCsvBackend(transport)
+    const backend = new GitHubCsvBackend(transport, options)
     return { remote, backend }
   }
 
@@ -64,9 +66,26 @@ describe('GitHubCsvBackend', () => {
     expect(ok).toBe(true)
     expect(remote.headSha()).not.toBeNull()
     expect(remote.blobAt('metadata.json')).toContain('"device":"dev-A"')
-    expect(remote.blobAt('data/locations.csv')).toContain('Home')
+    expect(remote.blobAt('data/locations-0001.csv')).toContain('Home')
     expect(remote.blobAt('README.md')).toMatch(/Moneytracker/)
     expect(remote.blobAt('.gitattributes')).toMatch(/\.csv text eol=lf/)
+  })
+
+  it('a second first-sync upload to the same empty repo loses the race (returns false)', async () => {
+    const { backend: first, remote } = setup()
+    const second = new GitHubCsvBackend(
+      remote.transport({ repo: 'me/mt', branch: 'main', token: 't', path: '' }),
+    )
+    const local = await migratedDb()
+    dbs.push(local)
+    // Both devices see the empty repo before either uploads.
+    expect(await first.getMetadata()).toBeNull()
+    expect(await second.getMetadata()).toBeNull()
+
+    expect(await first.tryUpload(local, META({ device: 'dev-A' }), null)).toBe(true)
+    const headAfterFirst = remote.headSha()
+    expect(await second.tryUpload(local, META({ device: 'dev-B' }), null)).toBe(false)
+    expect(remote.headSha()).toBe(headAfterFirst)
   })
 
   it('getMetadata after first sync returns the uploaded metadata', async () => {
@@ -151,6 +170,7 @@ describe('GitHubCsvBackend', () => {
         path: 'metadata.json',
         content: '{"device":"foreigner","uploadedAtUtc":"x","hash":"x","migrationVersion":2}',
       },
+      { path: 'foreign-only.txt', content: 'kept' },
     ])
 
     const b = await migratedDb()
@@ -166,6 +186,19 @@ describe('GitHubCsvBackend', () => {
       expectedMeta,
     )
     expect(ok).toBe(false)
+
+    // Retry path: re-read the remote, then the same upload succeeds on top of the foreign commit.
+    const refreshed = await backend.getMetadata()
+    expect(refreshed?.device).toBe('foreigner')
+    const retried = await backend.tryUpload(
+      b,
+      META({ device: 'dev-B', hash: await backend.hashDatabase(b) }),
+      refreshed,
+    )
+    expect(retried).toBe(true)
+    expect(remote.blobAt('metadata.json')).toContain('"device":"dev-B"')
+    // A file only the foreign commit wrote survives (built on its tree via base_tree).
+    expect(remote.blobAt('foreign-only.txt')).toBe('kept')
   })
 
   it('tryUpload throws if called without a prior getMetadata (and remote exists)', async () => {
@@ -185,6 +218,50 @@ describe('GitHubCsvBackend', () => {
     await expect(fresh.tryUpload(a, meta, meta)).rejects.toThrow(/getMetadata/)
   })
 
+  it('downloadDatabase reads the commit getMetadata saw, even after the branch moved', async () => {
+    const { backend, remote } = setup()
+    const src = await migratedDb()
+    dbs.push(src)
+    await src.run(
+      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
+       VALUES (?, 'Home', '[]', ?, ?)`,
+      [newId(), CUTOFF, CUTOFF],
+    )
+    await backend.getMetadata()
+    await backend.tryUpload(src, META({ hash: await backend.hashDatabase(src) }), null)
+    await backend.getMetadata()
+
+    // A foreign commit empties locations and rewrites metadata after our getMetadata().
+    const empty = await migratedDb()
+    dbs.push(empty)
+    const locations = SYNC_TABLES.find((t) => t.name === 'locations')!
+    remote.injectForeignCommit([
+      {
+        path: 'data/locations-0001.csv',
+        content: (await exportTableToCsvFiles(empty, locations))[0]!,
+      },
+      { path: 'metadata.json', content: JSON.stringify(META({ device: 'dev-X' })) },
+    ])
+
+    const downloaded = await backend.downloadDatabase()
+    dbs.push(downloaded)
+    const rows = await downloaded.exec<{ name: string }>('SELECT name FROM locations')
+    expect(rows.map((r) => r.name)).toEqual(['Home'])
+  })
+
+  it('downloadDatabase throws without a prior getMetadata', async () => {
+    const { backend, remote } = setup()
+    const a = await migratedDb()
+    dbs.push(a)
+    await backend.getMetadata()
+    await backend.tryUpload(a, META({ hash: await backend.hashDatabase(a) }), null)
+
+    const fresh = new GitHubCsvBackend(
+      remote.transport({ repo: 'me/mt', branch: 'main', token: 't', path: '' }),
+    )
+    await expect(fresh.downloadDatabase()).rejects.toThrow(/without prior getMetadata/)
+  })
+
   it('preserves an unrelated file (README.md) when committing a sync', async () => {
     const { backend, remote } = setup()
     // Bootstrap (creates README, metadata, .gitattributes, all six CSVs).
@@ -202,5 +279,114 @@ describe('GitHubCsvBackend', () => {
       await backend.getMetadata(),
     )
     expect(remote.blobAt('README.md')).toBe(readmeAfter1)
+  })
+
+  describe('chunked layout', () => {
+    async function uploadFrom(backend: GitHubCsvBackend, db: Database) {
+      await backend.getMetadata()
+      await backend.tryUpload(db, META({ hash: await backend.hashDatabase(db) }), null)
+      await backend.getMetadata()
+    }
+
+    it('writes data/<table>-0001.csv for every table, header-only when empty', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await uploadFrom(backend, a)
+      for (const t of SYNC_TABLES) {
+        expect(remote.blobAt(`data/${t.name}-0001.csv`), t.name).toMatch(/\n$/)
+        expect(remote.blobAt(`data/${t.name}.csv`), t.name).toBeNull()
+      }
+      expect(remote.blobAt('data/tags-0001.csv')!.trim().split('\n')).toHaveLength(1)
+    })
+
+    it('numbers files past -0003: four rows at one row per file give -0001..-0004', async () => {
+      const { backend, remote } = setup({ rowsPerFileForTest: 1 })
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 4)
+      await uploadFrom(backend, a)
+      for (const n of ['0001', '0002', '0003', '0004']) {
+        expect(remote.blobAt(`data/locations-${n}.csv`), n).not.toBeNull()
+      }
+      expect(remote.blobAt('data/locations-0005.csv')).toBeNull()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
+    })
+
+    it('a 2001-row table uploads as three files and downloads identically', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 2001)
+      await uploadFrom(backend, a)
+      for (const n of ['0001', '0002', '0003']) {
+        expect(remote.blobAt(`data/locations-${n}.csv`), n).not.toBeNull()
+      }
+      expect(remote.blobAt('data/locations-0004.csv')).toBeNull()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
+    })
+
+    it('a later upload sends only metadata.json and the files whose content changed', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 2001)
+      await uploadFrom(backend, a) // leaves the snapshot on the uploaded commit
+      await a.run(
+        `INSERT INTO tags (tag, synonyms, colour, icon, created_at_utc, updated_at_utc)
+         VALUES ('new', '[]', '#000', 'x', ?, ?)`,
+        [CUTOFF, CUTOFF],
+      )
+
+      const postsBefore = remote.blobPosts
+      const meta = META({ uploadedAtUtc: '2026-05-29T10:00:00.000Z' })
+      expect(
+        await backend.tryUpload(a, { ...meta, hash: await backend.hashDatabase(a) }, META()),
+      ).toBe(true)
+      // metadata.json + data/tags-0001.csv; the three locations files are unchanged.
+      expect(remote.blobPosts - postsBefore).toBe(2)
+
+      await backend.getMetadata()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
+    })
+
+    it('download throws naming the missing file when numbering has a gap', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 2001)
+      await uploadFrom(backend, a)
+      remote.removePath('data/locations-0002.csv')
+      await backend.getMetadata()
+      await expect(backend.downloadDatabase()).rejects.toThrow(/missing data\/locations-0002\.csv/)
+    })
+
+    it('download ignores an old-layout data/<table>.csv', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await uploadFrom(backend, a)
+      const tags = SYNC_TABLES.find((t) => t.name === 'tags')!
+      const withTag = await migratedDb()
+      dbs.push(withTag)
+      await withTag.run(
+        `INSERT INTO tags (tag, description, synonyms, colour, icon, created_at_utc, updated_at_utc)
+         VALUES ('old', NULL, '[]', '#00ff00', 'tag', ?, ?)`,
+        [CUTOFF, CUTOFF],
+      )
+      remote.injectForeignCommit([
+        { path: 'data/tags.csv', content: (await exportTableToCsvFiles(withTag, tags))[0]! },
+      ])
+      await backend.getMetadata()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await downloaded.exec('SELECT tag FROM tags')).toEqual([])
+    })
   })
 })

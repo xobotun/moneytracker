@@ -25,23 +25,6 @@ function makeFakeFetch(
 const cfg = { repo: 'me/mt', branch: 'main', token: 'ghp_test', path: '' }
 
 describe('GitHubTransport', () => {
-  it('getContent returns null on 404', async () => {
-    expect(await new GitHubTransport(cfg, makeFakeFetch([])).getContent('metadata.json')).toBeNull()
-  })
-
-  it('getContent decodes base64 to text on 200', async () => {
-    const text = '{"device":"x"}'
-    const fetchFn = makeFakeFetch([
-      {
-        url: /contents\/metadata\.json/,
-        method: 'GET',
-        status: 200,
-        body: { content: btoa(text), encoding: 'base64' },
-      },
-    ])
-    expect(await new GitHubTransport(cfg, fetchFn).getContent('metadata.json')).toBe(text)
-  })
-
   it('getRef returns null on 404 and SHA on 200', async () => {
     expect(await new GitHubTransport(cfg, makeFakeFetch([])).getRef()).toBeNull()
     const ok = makeFakeFetch([
@@ -95,6 +78,66 @@ describe('GitHubTransport', () => {
       { url: /git\/refs\/heads\/main/, method: 'PATCH', status: 422, body: {} },
     ])
     expect(await new GitHubTransport(cfg, miss).updateRef('new')).toBe(false)
+  })
+
+  it('createRef returns true on 201 and false on 422 (the branch already exists)', async () => {
+    const ok = makeFakeFetch([{ url: /git\/refs$/, method: 'POST', status: 201, body: {} }])
+    expect(await new GitHubTransport(cfg, ok).createRef('new')).toBe(true)
+    const taken = makeFakeFetch([
+      {
+        url: /git\/refs$/,
+        method: 'POST',
+        status: 422,
+        body: { message: 'Reference already exists' },
+      },
+    ])
+    expect(await new GitHubTransport(cfg, taken).createRef('new')).toBe(false)
+  })
+
+  it('listTree returns blob entries only, from the recursive listing', async () => {
+    const fetchFn = makeFakeFetch([
+      {
+        url: /git\/trees\/t1\?recursive=1/,
+        method: 'GET',
+        status: 200,
+        body: {
+          tree: [
+            { path: 'data', type: 'tree', sha: 'd' },
+            { path: 'data/tags-0001.csv', type: 'blob', sha: 'b1' },
+          ],
+          truncated: false,
+        },
+      },
+    ])
+    expect(await new GitHubTransport(cfg, fetchFn).listTree('t1')).toEqual([
+      { path: 'data/tags-0001.csv', sha: 'b1' },
+    ])
+  })
+
+  it('listTree throws when GitHub truncates the listing', async () => {
+    const fetchFn = makeFakeFetch([
+      {
+        url: /git\/trees\/t1\?recursive=1/,
+        method: 'GET',
+        status: 200,
+        body: { tree: [], truncated: true },
+      },
+    ])
+    await expect(new GitHubTransport(cfg, fetchFn).listTree('t1')).rejects.toThrow(/truncated/)
+  })
+
+  it('getBlob decodes base64 UTF-8 content', async () => {
+    const text = 'Café ✈️\n'
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+    const fetchFn = makeFakeFetch([
+      {
+        url: /git\/blobs\/b1$/,
+        method: 'GET',
+        status: 200,
+        body: { content: b64.match(/.{1,60}/g)!.join('\n'), encoding: 'base64' },
+      },
+    ])
+    expect(await new GitHubTransport(cfg, fetchFn).getBlob('b1')).toBe(text)
   })
 
   it('sends Authorization: Bearer on every request', async () => {
