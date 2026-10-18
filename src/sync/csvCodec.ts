@@ -28,23 +28,26 @@ async function loadPapa() {
 //   TEXT !null→ json_extract(value, '$.col')
 
 /**
- * Data rows per CSV file. Why 1000: it keeps every file far below GitHub's
- * 1 MB contents limit (about 300-400 KB for transactions) and keeps each
- * sync's diff small. Rows are in primary-key order and UUIDv7 keys are
- * time-ordered, so new rows land in the last file and earlier files stay
- * byte-identical (git stores them once).
+ * Data rows per CSV file. Why 1000: files are read through the blobs API, so
+ * GitHub's 1 MB contents limit does not bind; ~1000 rows keep transaction
+ * files to a few hundred KB, readable and diffable on github.com. Tables
+ * with large JSON cells (exchange_rates.rates) can be bigger; only GitHub's
+ * 100 MB blob limit binds. For tables with time-ordered UUIDv7 keys, new
+ * rows land in the last file and earlier files stay byte-identical (git
+ * stores them once); not so for tags (natural key) or exchange_rates (UUIDv5).
  *
- * This is a fixed format constant: NEVER change it. Uploads only add or
- * rewrite files and never delete any, so a smaller value would leave rows
- * duplicated across files, and a larger one would leave stale trailing files
- * whose rows are also in an earlier file. The next download then fails on
- * duplicate primary keys on every device until the files are removed by
- * hand. Tables never shrink in normal use (deletes are soft), so with a
- * fixed limit the file set only grows.
+ * This is a fixed format constant: NEVER change it. Uploads never delete
+ * files, so a LARGER value leaves stale trailing files whose rows are also in
+ * an earlier file. ANY change breaks while some device still runs the old
+ * value (devices update at different times): an old-limit device uploading
+ * after a new-limit one leaves the new one's extra files stale. Either way
+ * the next download fails on duplicate primary keys on every device until
+ * the files are removed by hand. Tables never shrink in normal use (deletes
+ * are soft), so with a fixed limit the file set only grows.
  */
 export const ROWS_PER_CSV_FILE = 1000
 
-/** The table as CSV texts of at most `rowsPerFile` rows, in primary-key order (always at least one). */
+/** The table as CSV texts of at most `rowsPerFile` rows, in primary-key order (at least one). */
 export async function exportTableToCsvFiles(
   db: SqlExecutor,
   table: SyncTable,
@@ -138,9 +141,10 @@ function selectExpressionFor(c: ColumnDescriptor): string {
 
 /**
  * Export every domain table to a Map<name, csv files> (see
- * exportTableToCsvFiles). Insertion order matches SYNC_TABLES. All tables are read inside one transaction so the export is a
- * consistent snapshot: an app write cannot land between two table reads
- * (e.g. a transaction exported without the account it references).
+ * exportTableToCsvFiles). Insertion order matches SYNC_TABLES. All tables are
+ * read inside one transaction so the export is a consistent snapshot: an app
+ * write cannot land between two table reads (e.g. a transaction exported
+ * without the account it references).
  */
 export async function exportAllTables(
   db: Database,

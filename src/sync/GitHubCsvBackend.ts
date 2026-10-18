@@ -23,7 +23,11 @@ not edit files by hand — the app overwrites everything on the next sync.
 \`metadata.json\` is the source of truth for the current snapshot. Each CSV
 in \`data/\` is a slice of the rows of one domain table: the files
 \`data/<table>-0001.csv\`, \`-0002\`, … hold at most 1000 rows each, in
-primary-key order, and every file starts with the header row.
+primary-key order, and every file starts with the header row. For tables
+with time-ordered keys (UUIDv7, e.g. transactions) new rows land in the last
+file; tags and exchange_rates are not time-ordered, so any file can change.
+1000 rows keep transaction files to a few hundred KB; tables with large JSON
+cells (exchange_rates) can be bigger.
 `
 
 const GITATTRIBUTES_CONTENT = `*.csv text eol=lf
@@ -39,7 +43,8 @@ function csvFilePath(table: string, index: number): string {
 
 /**
  * GitHub-backed SyncBackend. Encodes the database as numbered CSV files
- * (data/<table>-NNNN.csv, at most ROWS_PER_CSV_FILE rows each) under data/, with metadata.json + README.md + .gitattributes at the root.
+ * (data/<table>-NNNN.csv, at most ROWS_PER_CSV_FILE rows each) under data/,
+ * with metadata.json + README.md + .gitattributes at the root.
  * Commits via the REST data API (blob → tree → commit → ref-update). CAS
  * comes for free from PATCH /git/refs with force: false.
  *
@@ -104,9 +109,9 @@ export class GitHubCsvBackend implements SyncBackend {
       throw new Error('GitHubCsvBackend.downloadDatabase: no remote (metadata.json missing)')
     const meta = JSON.parse(await this.transport.getBlob(metadataSha)) as SyncMetadata
 
-    // Fetch every CSV. Done sequentially because wa-sqlite cannot tolerate
-    // concurrent operations against the destination DB anyway; the
-    // serialised network cost is the dominant term, not parallelism.
+    // Fetch every CSV. Done sequentially for simplicity (the destination DB
+    // does not exist yet, so nothing forbids parallel fetches); parallelism
+    // can be added later if the serialised network cost starts to matter.
     const shasByTable = new Map<string, Map<number, string>>()
     for (const [path, sha] of this.snapshot.files) {
       const m = /^data\/(.+)-(\d{4,})\.csv$/.exec(path)

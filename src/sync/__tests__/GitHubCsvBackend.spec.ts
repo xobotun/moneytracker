@@ -170,6 +170,7 @@ describe('GitHubCsvBackend', () => {
         path: 'metadata.json',
         content: '{"device":"foreigner","uploadedAtUtc":"x","hash":"x","migrationVersion":2}',
       },
+      { path: 'foreign-only.txt', content: 'kept' },
     ])
 
     const b = await migratedDb()
@@ -185,6 +186,19 @@ describe('GitHubCsvBackend', () => {
       expectedMeta,
     )
     expect(ok).toBe(false)
+
+    // Retry path: re-read the remote, then the same upload succeeds on top of the foreign commit.
+    const refreshed = await backend.getMetadata()
+    expect(refreshed?.device).toBe('foreigner')
+    const retried = await backend.tryUpload(
+      b,
+      META({ device: 'dev-B', hash: await backend.hashDatabase(b) }),
+      refreshed,
+    )
+    expect(retried).toBe(true)
+    expect(remote.blobAt('metadata.json')).toContain('"device":"dev-B"')
+    // A file only the foreign commit wrote survives (built on its tree via base_tree).
+    expect(remote.blobAt('foreign-only.txt')).toBe('kept')
   })
 
   it('tryUpload throws if called without a prior getMetadata (and remote exists)', async () => {
