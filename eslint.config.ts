@@ -30,6 +30,11 @@ export default defineConfigWithVueTs(
   {
     ...pluginVitest.configs.recommended,
     files: ['src/**/__tests__/*'],
+    rules: {
+      ...pluginVitest.configs.recommended.rules,
+      // Vitest supports `expect(value, message)`; allow the message argument.
+      'vitest/valid-expect': ['error', { maxArgs: 2 }],
+    },
   },
 
   ...pluginOxlint.buildFromOxlintConfigFile('.oxlintrc.json'),
