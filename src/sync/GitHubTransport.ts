@@ -43,20 +43,6 @@ export class GitHubTransport {
     if (!res.ok) throw await asError(res, 'validate')
   }
 
-  async getContent(path: string): Promise<string | null> {
-    const res = await this.req(
-      `/repos/${this.cfg.repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(this.cfg.branch)}`,
-      { method: 'GET' },
-    )
-    if (res.status === 404) return null
-    if (!res.ok) throw await asError(res, 'getContent')
-    const json = (await res.json()) as { content: string; encoding: string }
-    if (json.encoding !== 'base64') {
-      throw new Error(`GitHubTransport.getContent: unexpected encoding "${json.encoding}"`)
-    }
-    return decodeBase64Utf8(json.content)
-  }
-
   /** Every file (blob) in the tree, recursively. Throws if GitHub truncated the listing. */
   async listTree(treeSha: string): Promise<TreeEntry[]> {
     const res = await this.req(`/repos/${this.cfg.repo}/git/trees/${treeSha}?recursive=1`, {

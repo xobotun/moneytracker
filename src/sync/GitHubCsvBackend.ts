@@ -38,10 +38,12 @@ const SYNTHETIC_EMAIL = 'sync@moneytracker.local'
  * comes for free from PATCH /git/refs with force: false.
  *
  * Contract notes:
- *  - getMetadata() caches the current branch HEAD commit SHA as the CAS
- *    handle for the next tryUpload(). The cache is on this instance only,
- *    so a fresh GitHubCsvBackend must call getMetadata() before its first
- *    non-null tryUpload — verified by test.
+ *  - getMetadata() pins a snapshot: the branch HEAD commit, its tree and the
+ *    tree's file list. Every later read (downloadDatabase) comes from that
+ *    commit, never from the moving branch, and the snapshot's HEAD is the
+ *    CAS handle for the next tryUpload(). It lives on this instance only, so
+ *    a fresh GitHubCsvBackend must call getMetadata() before downloadDatabase()
+ *    or its first non-null tryUpload — verified by test.
  *  - downloadDatabase() returns a fresh in-memory Database with migrations
  *    applied to metadata.migrationVersion, then CSVs imported via the
  *    bulk json_each path.
@@ -50,21 +52,28 @@ const SYNTHETIC_EMAIL = 'sync@moneytracker.local'
  *    for why this is acceptable at personal-finance scale).
  */
 export class GitHubCsvBackend implements SyncBackend {
-  /** HEAD commit SHA captured by the most recent getMetadata() call.
+  /** The commit the most recent getMetadata() saw, with its file list (path → blob SHA).
    *  null = empty repo (no branch ref) or never called. */
-  private cachedHeadSha: string | null = null
+  private snapshot: { headSha: string; treeSha: string; files: Map<string, string> } | null = null
   private getMetadataCalled = false
 
   constructor(private readonly transport: GitHubTransport) {}
 
   async getMetadata(): Promise<SyncMetadata | null> {
     this.getMetadataCalled = true
-    // Two reads in parallel would be tempting but: each must complete its
-    // own HTTP round-trip, and the cost of doing them sequentially is one
-    // extra hop. Keep it simple.
-    this.cachedHeadSha = await this.transport.getRef()
-    const text = await this.transport.getContent(METADATA_PATH)
-    if (!text) return null
+    const headSha = await this.transport.getRef()
+    if (headSha === null) {
+      this.snapshot = null
+      return null
+    }
+    const treeSha = await this.transport.getCommitTreeSha(headSha)
+    const files = new Map<string, string>()
+    for (const e of await this.transport.listTree(treeSha)) files.set(e.path, e.sha)
+    // Kept even when metadata.json is absent, so an upload builds on this commit.
+    this.snapshot = { headSha, treeSha, files }
+    const metadataSha = files.get(METADATA_PATH)
+    if (metadataSha === undefined) return null
+    const text = await this.transport.getBlob(metadataSha)
     try {
       return JSON.parse(text) as SyncMetadata
     } catch (e) {
@@ -73,21 +82,24 @@ export class GitHubCsvBackend implements SyncBackend {
   }
 
   async downloadDatabase(): Promise<Database> {
-    const text = await this.transport.getContent(METADATA_PATH)
-    if (!text)
+    if (!this.getMetadataCalled) {
+      throw new Error('GitHubCsvBackend.downloadDatabase called without prior getMetadata')
+    }
+    const metadataSha = this.snapshot?.files.get(METADATA_PATH)
+    if (!this.snapshot || metadataSha === undefined)
       throw new Error('GitHubCsvBackend.downloadDatabase: no remote (metadata.json missing)')
-    const meta = JSON.parse(text) as SyncMetadata
+    const meta = JSON.parse(await this.transport.getBlob(metadataSha)) as SyncMetadata
 
     // Fetch every CSV. Done sequentially because wa-sqlite cannot tolerate
     // concurrent operations against the destination DB anyway; the
     // serialised network cost is the dominant term, not parallelism.
     const bundle = new Map<string, string>()
     for (const t of SYNC_TABLES) {
-      const csv = await this.transport.getContent(`data/${t.name}.csv`)
-      if (csv === null) {
+      const sha = this.snapshot.files.get(`data/${t.name}.csv`)
+      if (sha === undefined) {
         throw new Error(`GitHubCsvBackend.downloadDatabase: missing data/${t.name}.csv`)
       }
-      bundle.set(t.name, csv)
+      bundle.set(t.name, await this.transport.getBlob(sha))
     }
 
     // Fresh in-memory DB at the schema version the snapshot was written
@@ -111,15 +123,15 @@ export class GitHubCsvBackend implements SyncBackend {
   ): Promise<boolean> {
     if (!this.getMetadataCalled) {
       throw new Error(
-        'GitHubCsvBackend.tryUpload called without prior getMetadata — the backend needs the cached HEAD SHA',
+        'GitHubCsvBackend.tryUpload called without prior getMetadata — the backend needs the snapshot',
       )
     }
     // If expected is non-null the caller has seen *some* remote state; if
-    // cachedHeadSha is null then the remote was empty when they looked,
+    // the snapshot is null then the remote was empty when they looked,
     // which contradicts the non-null expected. Either the caller is wrong
     // or the remote was wiped in the meantime — in either case we treat
     // this as a CAS miss rather than blowing up.
-    if (expected !== null && this.cachedHeadSha === null) return false
+    if (expected !== null && this.snapshot === null) return false
 
     const csvs = await exportAllTables(localDb)
     const blobs: TreeEntry[] = []
@@ -137,7 +149,7 @@ export class GitHubCsvBackend implements SyncBackend {
     }
     // Bootstrap files only on first sync (no existing tree to inherit
     // from). On subsequent syncs base_tree carries them through.
-    const isBootstrap = this.cachedHeadSha === null
+    const isBootstrap = this.snapshot === null
     if (isBootstrap) {
       blobs.push({
         path: README_PATH,
@@ -149,14 +161,11 @@ export class GitHubCsvBackend implements SyncBackend {
       })
     }
 
-    const baseTree = this.cachedHeadSha
-      ? await this.transport.getCommitTreeSha(this.cachedHeadSha)
-      : undefined
-    const treeSha = await this.transport.createTree(blobs, baseTree)
+    const treeSha = await this.transport.createTree(blobs, this.snapshot?.treeSha)
     const commitSha = await this.transport.createCommit({
       message: `Sync ${metadata.uploadedAtUtc} from ${metadata.device}`,
       tree: treeSha,
-      parents: this.cachedHeadSha ? [this.cachedHeadSha] : [],
+      parents: this.snapshot ? [this.snapshot.headSha] : [],
       authorName: metadata.device,
       authorEmail: SYNTHETIC_EMAIL,
       atUtc: metadata.uploadedAtUtc,
@@ -167,7 +176,11 @@ export class GitHubCsvBackend implements SyncBackend {
     const ok = isBootstrap
       ? await this.transport.createRef(commitSha)
       : await this.transport.updateRef(commitSha)
-    if (ok) this.cachedHeadSha = commitSha
+    if (ok) {
+      const files = new Map(this.snapshot?.files)
+      for (const e of blobs) files.set(e.path, e.sha)
+      this.snapshot = { headSha: commitSha, treeSha, files }
+    }
     return ok
   }
 }

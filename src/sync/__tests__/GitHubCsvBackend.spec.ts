@@ -4,6 +4,7 @@ import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
+import { exportTableToCsv } from '../csvCodec'
 import { FakeGitHubRemote } from './fakes'
 import { rowsEqual } from '../rows'
 import { SYNC_TABLES } from '../syncTables'
@@ -200,6 +201,47 @@ describe('GitHubCsvBackend', () => {
     )
     const meta = META({ hash: await fresh.hashDatabase(a) })
     await expect(fresh.tryUpload(a, meta, meta)).rejects.toThrow(/getMetadata/)
+  })
+
+  it('downloadDatabase reads the commit getMetadata saw, even after the branch moved', async () => {
+    const { backend, remote } = setup()
+    const src = await migratedDb()
+    dbs.push(src)
+    await src.run(
+      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
+       VALUES (?, 'Home', '[]', ?, ?)`,
+      [newId(), CUTOFF, CUTOFF],
+    )
+    await backend.getMetadata()
+    await backend.tryUpload(src, META({ hash: await backend.hashDatabase(src) }), null)
+    await backend.getMetadata()
+
+    // A foreign commit empties locations and rewrites metadata after our getMetadata().
+    const empty = await migratedDb()
+    dbs.push(empty)
+    const locations = SYNC_TABLES.find((t) => t.name === 'locations')!
+    remote.injectForeignCommit([
+      { path: 'data/locations.csv', content: await exportTableToCsv(empty, locations) },
+      { path: 'metadata.json', content: JSON.stringify(META({ device: 'dev-X' })) },
+    ])
+
+    const downloaded = await backend.downloadDatabase()
+    dbs.push(downloaded)
+    const rows = await downloaded.exec<{ name: string }>('SELECT name FROM locations')
+    expect(rows.map((r) => r.name)).toEqual(['Home'])
+  })
+
+  it('downloadDatabase throws without a prior getMetadata', async () => {
+    const { backend, remote } = setup()
+    const a = await migratedDb()
+    dbs.push(a)
+    await backend.getMetadata()
+    await backend.tryUpload(a, META({ hash: await backend.hashDatabase(a) }), null)
+
+    const fresh = new GitHubCsvBackend(
+      remote.transport({ repo: 'me/mt', branch: 'main', token: 't', path: '' }),
+    )
+    await expect(fresh.downloadDatabase()).rejects.toThrow(/without prior getMetadata/)
   })
 
   it('preserves an unrelated file (README.md) when committing a sync', async () => {

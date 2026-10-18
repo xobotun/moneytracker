@@ -25,23 +25,6 @@ function makeFakeFetch(
 const cfg = { repo: 'me/mt', branch: 'main', token: 'ghp_test', path: '' }
 
 describe('GitHubTransport', () => {
-  it('getContent returns null on 404', async () => {
-    expect(await new GitHubTransport(cfg, makeFakeFetch([])).getContent('metadata.json')).toBeNull()
-  })
-
-  it('getContent decodes base64 to text on 200', async () => {
-    const text = '{"device":"x"}'
-    const fetchFn = makeFakeFetch([
-      {
-        url: /contents\/metadata\.json/,
-        method: 'GET',
-        status: 200,
-        body: { content: btoa(text), encoding: 'base64' },
-      },
-    ])
-    expect(await new GitHubTransport(cfg, fetchFn).getContent('metadata.json')).toBe(text)
-  })
-
   it('getRef returns null on 404 and SHA on 200', async () => {
     expect(await new GitHubTransport(cfg, makeFakeFetch([])).getRef()).toBeNull()
     const ok = makeFakeFetch([
