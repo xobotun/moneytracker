@@ -68,3 +68,28 @@ export async function seedTransaction(db: Database, input: SeedTransactionInput)
     [input.id, input.accountFrom, input.created, input.updated],
   )
 }
+
+/**
+ * Bulk-inserts `count` live locations in one statement. Ids are
+ * zero-padded hex counters (1-based), so primary-key order equals n;
+ * `descriptionFor(n)` may set a description.
+ */
+export async function seedLocations(
+  db: Database,
+  count: number,
+  descriptionFor: (n: number) => string | null = () => null,
+): Promise<void> {
+  const rows = Array.from({ length: count }, (_, i) => ({
+    id: (i + 1).toString(16).padStart(32, '0'),
+    name: `Loc ${i + 1}`,
+    description: descriptionFor(i + 1),
+  }))
+  await db.run(
+    `INSERT INTO locations (id, name, description, tags, created_at_utc, updated_at_utc)
+     SELECT json_extract(value, '$.id'), json_extract(value, '$.name'),
+            json_extract(value, '$.description'), '[]',
+            '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'
+     FROM json_each(?)`,
+    [JSON.stringify(rows)],
+  )
+}

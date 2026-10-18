@@ -256,6 +256,23 @@ export class FakeGitHubRemote {
     this.branchHead = commitSha
   }
 
+  /** Test hook: commit on HEAD a tree without `path` (a file vanishing from the remote). */
+  removePath(path: string): void {
+    const currentTreeSha = this.commits.get(this.branchHead!)!.tree
+    const treeSha = `t${this.nextSha++}`
+    this.trees.set(
+      treeSha,
+      (this.trees.get(currentTreeSha) ?? []).filter((e) => e.path !== path),
+    )
+    const commitSha = `c${this.nextSha++}`
+    this.commits.set(commitSha, {
+      tree: treeSha,
+      parents: [this.branchHead!],
+      atUtc: '2026-05-28T00:00:00.000Z',
+    })
+    this.branchHead = commitSha
+  }
+
   private pathSha(path: string): string | null {
     if (!this.branchHead) return null
     const commit = this.commits.get(this.branchHead)

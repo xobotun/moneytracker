@@ -4,7 +4,8 @@ import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
-import { exportTableToCsv } from '../csvCodec'
+import { exportTableToCsvFiles } from '../csvCodec'
+import { seedLocations } from './helpers'
 import { FakeGitHubRemote } from './fakes'
 import { rowsEqual } from '../rows'
 import { SYNC_TABLES } from '../syncTables'
@@ -36,11 +37,11 @@ describe('GitHubCsvBackend', () => {
     remotes = []
   })
 
-  function setup() {
+  function setup(options: { rowsPerFileForTest?: number } = {}) {
     const remote = new FakeGitHubRemote()
     remotes.push(remote)
     const transport = remote.transport({ repo: 'me/mt', branch: 'main', token: 't', path: '' })
-    const backend = new GitHubCsvBackend(transport)
+    const backend = new GitHubCsvBackend(transport, options)
     return { remote, backend }
   }
 
@@ -65,7 +66,7 @@ describe('GitHubCsvBackend', () => {
     expect(ok).toBe(true)
     expect(remote.headSha()).not.toBeNull()
     expect(remote.blobAt('metadata.json')).toContain('"device":"dev-A"')
-    expect(remote.blobAt('data/locations.csv')).toContain('Home')
+    expect(remote.blobAt('data/locations-0001.csv')).toContain('Home')
     expect(remote.blobAt('README.md')).toMatch(/Moneytracker/)
     expect(remote.blobAt('.gitattributes')).toMatch(/\.csv text eol=lf/)
   })
@@ -221,7 +222,10 @@ describe('GitHubCsvBackend', () => {
     dbs.push(empty)
     const locations = SYNC_TABLES.find((t) => t.name === 'locations')!
     remote.injectForeignCommit([
-      { path: 'data/locations.csv', content: await exportTableToCsv(empty, locations) },
+      {
+        path: 'data/locations-0001.csv',
+        content: (await exportTableToCsvFiles(empty, locations))[0]!,
+      },
       { path: 'metadata.json', content: JSON.stringify(META({ device: 'dev-X' })) },
     ])
 
@@ -261,5 +265,88 @@ describe('GitHubCsvBackend', () => {
       await backend.getMetadata(),
     )
     expect(remote.blobAt('README.md')).toBe(readmeAfter1)
+  })
+
+  describe('chunked layout', () => {
+    async function uploadFrom(backend: GitHubCsvBackend, db: Database) {
+      await backend.getMetadata()
+      await backend.tryUpload(db, META({ hash: await backend.hashDatabase(db) }), null)
+      await backend.getMetadata()
+    }
+
+    it('writes data/<table>-0001.csv for every table, header-only when empty', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await uploadFrom(backend, a)
+      for (const t of SYNC_TABLES) {
+        expect(remote.blobAt(`data/${t.name}-0001.csv`), t.name).toMatch(/\n$/)
+        expect(remote.blobAt(`data/${t.name}.csv`), t.name).toBeNull()
+      }
+      expect(remote.blobAt('data/tags-0001.csv')!.trim().split('\n')).toHaveLength(1)
+    })
+
+    it('numbers files past -0003: four rows at one row per file give -0001..-0004', async () => {
+      const { backend, remote } = setup({ rowsPerFileForTest: 1 })
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 4)
+      await uploadFrom(backend, a)
+      for (const n of ['0001', '0002', '0003', '0004']) {
+        expect(remote.blobAt(`data/locations-${n}.csv`), n).not.toBeNull()
+      }
+      expect(remote.blobAt('data/locations-0005.csv')).toBeNull()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
+    })
+
+    it('a 2001-row table uploads as three files and downloads identically', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 2001)
+      await uploadFrom(backend, a)
+      for (const n of ['0001', '0002', '0003']) {
+        expect(remote.blobAt(`data/locations-${n}.csv`), n).not.toBeNull()
+      }
+      expect(remote.blobAt('data/locations-0004.csv')).toBeNull()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
+    })
+
+    it('download throws naming the missing file when numbering has a gap', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await seedLocations(a, 2001)
+      await uploadFrom(backend, a)
+      remote.removePath('data/locations-0002.csv')
+      await backend.getMetadata()
+      await expect(backend.downloadDatabase()).rejects.toThrow(/missing data\/locations-0002\.csv/)
+    })
+
+    it('download ignores an old-layout data/<table>.csv', async () => {
+      const { backend, remote } = setup()
+      const a = await migratedDb()
+      dbs.push(a)
+      await uploadFrom(backend, a)
+      const tags = SYNC_TABLES.find((t) => t.name === 'tags')!
+      const withTag = await migratedDb()
+      dbs.push(withTag)
+      await withTag.run(
+        `INSERT INTO tags (tag, description, synonyms, colour, icon, created_at_utc, updated_at_utc)
+         VALUES ('old', NULL, '[]', '#00ff00', 'tag', ?, ?)`,
+        [CUTOFF, CUTOFF],
+      )
+      remote.injectForeignCommit([
+        { path: 'data/tags.csv', content: (await exportTableToCsvFiles(withTag, tags))[0]! },
+      ])
+      await backend.getMetadata()
+      const downloaded = await backend.downloadDatabase()
+      dbs.push(downloaded)
+      expect(await downloaded.exec('SELECT tag FROM tags')).toEqual([])
+    })
   })
 })

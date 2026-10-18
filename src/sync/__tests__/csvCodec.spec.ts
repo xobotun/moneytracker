@@ -3,10 +3,18 @@ import { Database } from '../../db/Database'
 import { runMigrations } from '../../db/migrations'
 import { migration as settingsMigration } from '../../db/migrations/001_settings'
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
-import { exportTableToCsv, importCsvIntoTable, exportAllTables, importAllTables } from '../csvCodec'
+import {
+  exportTableToCsvFiles,
+  importCsvIntoTable,
+  exportAllTables,
+  importAllTables,
+} from '../csvCodec'
 import { SYNC_TABLES } from '../syncTables'
 import { rowsEqual } from '../rows'
 import { newId } from '../../db/uuid'
+import { seedLocations } from './helpers'
+import Papa from 'papaparse'
+import { hashDatabase } from '../hashDatabase'
 
 async function migratedDb(): Promise<Database> {
   const db = new Database()
@@ -25,7 +33,7 @@ describe('csvCodec', () => {
     dbs = []
   })
 
-  describe('exportTableToCsv', () => {
+  describe('exportTableToCsvFiles', () => {
     it('emits a header row followed by sorted-by-PK rows', async () => {
       const db = await migratedDb()
       dbs.push(db)
@@ -41,7 +49,7 @@ describe('csvCodec', () => {
          VALUES (?, 'One', '[]', ?, ?)`,
         [id1, CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(db, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(db, { name: 'locations', pk: 'id' }))[0]!
       const lines = csv.split('\n').filter((l) => l.length > 0)
       expect(lines[0]).toMatch(/^id,name,/)
       expect(lines[1]!).toContain(id1)
@@ -56,7 +64,7 @@ describe('csvCodec', () => {
          VALUES (?, ?, '[]', ?, ?)`,
         [newId(), 'Smith, "Jr."\nNYC', CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(db, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(db, { name: 'locations', pk: 'id' }))[0]!
       // The Name cell should be quoted; the embedded double quote should
       // be doubled; the embedded newline should sit inside the quoted cell.
       expect(csv).toMatch(/"Smith, ""Jr\.""\nNYC"/)
@@ -70,9 +78,52 @@ describe('csvCodec', () => {
          VALUES (?, 'X', NULL, '[]', ?, ?)`,
         [newId(), CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(db, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(db, { name: 'locations', pk: 'id' }))[0]!
       const dataLine = csv.split('\n')[1]!
       expect(dataLine.split(',').some((c) => c === '')).toBe(true)
+    })
+  })
+
+  describe('exportTableToCsvFiles chunking', () => {
+    const locations = { name: 'locations', pk: 'id' }
+    const dataRows = (csv: string) =>
+      Papa.parse<string[]>(csv, { skipEmptyLines: true }).data.slice(1)
+    const header = (csv: string) => Papa.parse<string[]>(csv).data[0]!
+
+    it('splits 1001 rows into 1000 + 1, each with the header', async () => {
+      const db = await migratedDb()
+      dbs.push(db)
+      await seedLocations(db, 1001)
+      const files = await exportTableToCsvFiles(db, locations)
+      expect(files).toHaveLength(2)
+      expect(dataRows(files[0]!)).toHaveLength(1000)
+      expect(dataRows(files[1]!)).toHaveLength(1)
+      expect(header(files[0]!)[0]).toBe('id')
+      expect(header(files[1]!)).toEqual(header(files[0]!))
+    })
+
+    it('keeps exactly 1000 rows in one file', async () => {
+      const db = await migratedDb()
+      dbs.push(db)
+      await seedLocations(db, 1000)
+      expect(await exportTableToCsvFiles(db, locations)).toHaveLength(1)
+    })
+
+    it('gives an empty table one header-only file', async () => {
+      const db = await migratedDb()
+      dbs.push(db)
+      const files = await exportTableToCsvFiles(db, locations)
+      expect(files).toHaveLength(1)
+      expect(files[0]).toMatch(/^id,name,[^\n]*\n$/)
+    })
+
+    it('a multi-line, quoted row at a file boundary round-trips', async () => {
+      const src = await migratedDb()
+      const dst = await migratedDb()
+      dbs.push(src, dst)
+      await seedLocations(src, 1001, (n) => (n >= 1000 ? 'line1\nline2, "q"' : null))
+      await importAllTables(dst, await exportAllTables(src))
+      expect(await hashDatabase(dst)).toBe(await hashDatabase(src))
     })
   })
 
@@ -87,7 +138,7 @@ describe('csvCodec', () => {
          VALUES (?, 'Home', 'Berlin', 'DE', '["a","b"]', ?, ?)`,
         [id, CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(src, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
       const srcRows = await src.exec<Record<string, unknown>>('SELECT * FROM locations')
       const dstRows = await dst.exec<Record<string, unknown>>('SELECT * FROM locations')
@@ -104,7 +155,7 @@ describe('csvCodec', () => {
          VALUES (?, 'GPS', 52.5, 13.4, '[]', ?, ?)`,
         [newId(), CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(src, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
       const row = (
         await dst.exec<{ latitude: unknown; longitude: unknown }>(
@@ -124,7 +175,7 @@ describe('csvCodec', () => {
          VALUES (?, 'X', NULL, '[]', ?, ?)`,
         [newId(), CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(src, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
       const row = (await dst.exec<{ city: unknown }>('SELECT city FROM locations'))[0]!
       expect(row.city).toBeNull()
@@ -139,7 +190,7 @@ describe('csvCodec', () => {
          VALUES (?, 'X', ?, ?, ?)`,
         [newId(), '["a","b","c"]', CUTOFF, CUTOFF],
       )
-      const csv = await exportTableToCsv(src, { name: 'locations', pk: 'id' })
+      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
       const row = (await dst.exec<{ tags: string }>('SELECT tags FROM locations'))[0]!
       expect(JSON.parse(row.tags)).toEqual(['a', 'b', 'c'])
@@ -148,7 +199,7 @@ describe('csvCodec', () => {
     it('imports nothing from an empty CSV (header only)', async () => {
       const dst = await migratedDb()
       dbs.push(dst)
-      const headerOnly = await exportTableToCsv(dst, { name: 'locations', pk: 'id' })
+      const headerOnly = (await exportTableToCsvFiles(dst, { name: 'locations', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, headerOnly)
       expect(await dst.exec('SELECT * FROM locations')).toHaveLength(0)
     })
@@ -221,19 +272,18 @@ describe('csvCodec', () => {
     it('rolls back the destination on an FK violation mid-import', async () => {
       const dst = await migratedDb()
       dbs.push(dst)
-      const bundle = new Map<string, string>()
+      const bundle = new Map<string, string[]>()
       // Empty parents but a transaction referencing a non-existent account.
-      // exportTableToCsv on an empty dst gives us header-only CSVs for the
+      // exportTableToCsvFiles on an empty dst gives us header-only CSVs for the
       // tables that aren't transactions.
       for (const t of SYNC_TABLES) {
-        bundle.set(t.name, await exportTableToCsv(dst, t))
+        bundle.set(t.name, await exportTableToCsvFiles(dst, t))
       }
-      const txnHeader = bundle.get('transactions')!
-      bundle.set(
-        'transactions',
+      const txnHeader = bundle.get('transactions')![0]!
+      bundle.set('transactions', [
         txnHeader +
           `${newId()},missing-account,,100,2,USD,100,2,USD,2026-05-01T09:00:00.000+00:00,UTC,,,[],,,,${CUTOFF},${CUTOFF},\n`,
-      )
+      ])
       await expect(importAllTables(dst, bundle)).rejects.toThrow()
       // Other tables also imported nothing — everything rolled back.
       for (const t of SYNC_TABLES) {

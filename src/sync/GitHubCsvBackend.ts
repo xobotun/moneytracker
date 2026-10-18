@@ -21,7 +21,9 @@ to back up and sync a personal-finance SQLite database across devices. Do
 not edit files by hand — the app overwrites everything on the next sync.
 
 \`metadata.json\` is the source of truth for the current snapshot. Each CSV
-in \`data/\` is the rows of one domain table, sorted by primary key.
+in \`data/\` is a slice of the rows of one domain table: the files
+\`data/<table>-0001.csv\`, \`-0002\`, … hold at most 1000 rows each, in
+primary-key order, and every file starts with the header row.
 `
 
 const GITATTRIBUTES_CONTENT = `*.csv text eol=lf
@@ -31,9 +33,13 @@ const GITATTRIBUTES_CONTENT = `*.csv text eol=lf
 
 const SYNTHETIC_EMAIL = 'sync@moneytracker.local'
 
+function csvFilePath(table: string, index: number): string {
+  return `data/${table}-${String(index).padStart(4, '0')}.csv`
+}
+
 /**
- * GitHub-backed SyncBackend. Encodes the database as CSV-per-table under
- * data/, with metadata.json + README.md + .gitattributes at the root.
+ * GitHub-backed SyncBackend. Encodes the database as numbered CSV files
+ * (data/<table>-NNNN.csv, at most ROWS_PER_CSV_FILE rows each) under data/, with metadata.json + README.md + .gitattributes at the root.
  * Commits via the REST data API (blob → tree → commit → ref-update). CAS
  * comes for free from PATCH /git/refs with force: false.
  *
@@ -57,7 +63,15 @@ export class GitHubCsvBackend implements SyncBackend {
   private snapshot: { headSha: string; treeSha: string; files: Map<string, string> } | null = null
   private getMetadataCalled = false
 
-  constructor(private readonly transport: GitHubTransport) {}
+  /**
+   * `options.rowsPerFileForTest` overrides ROWS_PER_CSV_FILE; it exists for the one test
+   * that checks file numbering beyond -0003. Production never sets it: the file layout
+   * is a fixed format (see ROWS_PER_CSV_FILE).
+   */
+  constructor(
+    private readonly transport: GitHubTransport,
+    private readonly options: { rowsPerFileForTest?: number } = {},
+  ) {}
 
   async getMetadata(): Promise<SyncMetadata | null> {
     this.getMetadataCalled = true
@@ -93,13 +107,27 @@ export class GitHubCsvBackend implements SyncBackend {
     // Fetch every CSV. Done sequentially because wa-sqlite cannot tolerate
     // concurrent operations against the destination DB anyway; the
     // serialised network cost is the dominant term, not parallelism.
-    const bundle = new Map<string, string>()
+    const shasByTable = new Map<string, Map<number, string>>()
+    for (const [path, sha] of this.snapshot.files) {
+      const m = /^data\/(.+)-(\d{4,})\.csv$/.exec(path)
+      if (!m) continue // an old-layout data/<table>.csv or anything else is ignored
+      const shas = shasByTable.get(m[1]!) ?? new Map<number, string>()
+      shas.set(Number(m[2]), sha)
+      shasByTable.set(m[1]!, shas)
+    }
+    const bundle = new Map<string, string[]>()
     for (const t of SYNC_TABLES) {
-      const sha = this.snapshot.files.get(`data/${t.name}.csv`)
-      if (sha === undefined) {
-        throw new Error(`GitHubCsvBackend.downloadDatabase: missing data/${t.name}.csv`)
+      const shas = shasByTable.get(t.name) ?? new Map<number, string>()
+      const csvs: string[] = []
+      // Indexes must run 1..N without a gap, N >= 1.
+      for (let i = 1; i <= Math.max(shas.size, 1); i++) {
+        const sha = shas.get(i)
+        if (sha === undefined) {
+          throw new Error(`GitHubCsvBackend.downloadDatabase: missing ${csvFilePath(t.name, i)}`)
+        }
+        csvs.push(await this.transport.getBlob(sha))
       }
-      bundle.set(t.name, await this.transport.getBlob(sha))
+      bundle.set(t.name, csvs)
     }
 
     // Fresh in-memory DB at the schema version the snapshot was written
@@ -133,7 +161,7 @@ export class GitHubCsvBackend implements SyncBackend {
     // this as a CAS miss rather than blowing up.
     if (expected !== null && this.snapshot === null) return false
 
-    const csvs = await exportAllTables(localDb)
+    const csvs = await exportAllTables(localDb, this.options.rowsPerFileForTest)
     const blobs: TreeEntry[] = []
     // metadata.json
     blobs.push({
@@ -142,10 +170,13 @@ export class GitHubCsvBackend implements SyncBackend {
     })
     // CSVs
     for (const t of SYNC_TABLES) {
-      blobs.push({
-        path: `data/${t.name}.csv`,
-        sha: await this.transport.createBlob(csvs.get(t.name)!),
-      })
+      const files = csvs.get(t.name)!
+      for (let i = 0; i < files.length; i++) {
+        blobs.push({
+          path: csvFilePath(t.name, i + 1),
+          sha: await this.transport.createBlob(files[i]!),
+        })
+      }
     }
     // Bootstrap files only on first sync (no existing tree to inherit
     // from). On subsequent syncs base_tree carries them through.
