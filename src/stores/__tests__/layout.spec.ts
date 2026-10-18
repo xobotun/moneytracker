@@ -4,10 +4,14 @@ import { useLayoutStore } from '../layout'
 
 // Mock the db/init module — SettingsKey objects have a .key string property
 const mockStore = new Map<string, unknown>()
+// Controls the mocked repository's writes: "ok" stores, "fail" rejects, "hang" never settles.
+const writeMode = { value: 'ok' as 'ok' | 'fail' | 'hang' }
 vi.mock('@/db/init', () => ({
   getSettingsRepository: () => ({
     get: async (key: { key: string }) => mockStore.get(key.key) ?? null,
     set: async (key: { key: string }, value: unknown) => {
+      if (writeMode.value === 'fail') throw new Error('disk full')
+      if (writeMode.value === 'hang') return new Promise<void>(() => {})
       mockStore.set(key.key, value)
     },
     getAll: async () => Object.fromEntries(mockStore),
@@ -21,6 +25,8 @@ describe('useLayoutStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     mockStore.clear()
+    writeMode.value = 'ok'
+    document.documentElement.classList.remove('dark')
   })
 
   it('has correct defaults', () => {
@@ -105,6 +111,44 @@ describe('useLayoutStore', () => {
       await store.setCollapseMode('always-expanded')
       expect(store.collapseMode).toBe('always-expanded')
       expect(mockStore.get('layout.collapseMode')).toBe('always-expanded')
+    })
+  })
+
+  describe('hydrate ignores invalid stored values (keeps the default)', () => {
+    it.each([
+      ['layout.navPosition', 'diagonal', 'navPosition', 'auto'],
+      ['layout.collapseMode', 42, 'collapseMode', 'opens-on-hover'],
+      ['layout.isDark', 'yes', 'isDark', false],
+      ['layout.themePreset', 'RemovedTheme', 'themePreset', 'Aura'],
+    ] as const)('%s = %j', async (storageKey, stored, field, expected) => {
+      mockStore.set(storageKey, stored)
+      const store = useLayoutStore()
+      await store.hydrate()
+      expect(store[field]).toBe(expected)
+    })
+  })
+
+  describe('visual settings are optimistic (applied immediately, reverted if the save fails)', () => {
+    it('shows the new value before the save completes', () => {
+      writeMode.value = 'hang'
+      const store = useLayoutStore()
+      void store.setNavPosition('top')
+      expect(store.navPosition).toBe('top')
+    })
+
+    it('reverts the value and rethrows when the save fails', async () => {
+      writeMode.value = 'fail'
+      const store = useLayoutStore()
+      await expect(store.setCollapseMode('always-expanded')).rejects.toThrow('disk full')
+      expect(store.collapseMode).toBe('opens-on-hover')
+    })
+
+    it('reverts the dark-mode class too when the save fails', async () => {
+      writeMode.value = 'fail'
+      const store = useLayoutStore()
+      await expect(store.setDarkMode(true)).rejects.toThrow()
+      expect(store.isDark).toBe(false)
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
     })
   })
 })

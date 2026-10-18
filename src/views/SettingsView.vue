@@ -20,14 +20,12 @@ const {
   layoutStore,
   themePresetOptions,
   selectedPreset,
-  onPresetChange,
+  saveError,
   onDarkModeChange,
   navPositionOptions,
   selectedNavPosition,
-  onNavPositionChange,
   collapseModeOptions,
   selectedCollapseMode,
-  onCollapseModeChange,
   showCollapseMode,
 } = useSettingsOptions()
 
@@ -162,15 +160,14 @@ async function onValidateS3(): Promise<void> {
             v-model="selectedPreset"
             :options="themePresetOptions"
             optionLabel="name"
-            @change="onPresetChange"
           />
         </div>
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
           <label for="dark-mode">Dark mode</label>
           <ToggleSwitch
             id="dark-mode"
-            v-model="layoutStore.isDark"
-            @update:modelValue="onDarkModeChange"
+            :model-value="layoutStore.isDark"
+            @update:model-value="onDarkModeChange"
           />
         </div>
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
@@ -180,7 +177,6 @@ async function onValidateS3(): Promise<void> {
             v-model="selectedNavPosition"
             :options="navPositionOptions"
             optionLabel="name"
-            @change="onNavPositionChange"
           />
         </div>
         <div
@@ -193,9 +189,11 @@ async function onValidateS3(): Promise<void> {
             v-model="selectedCollapseMode"
             :options="collapseModeOptions"
             optionLabel="name"
-            @change="onCollapseModeChange"
           />
         </div>
+        <Message v-if="saveError" severity="error" :closable="false" class="text-sm">
+          {{ saveError }}
+        </Message>
       </div>
 
       <Divider align="left" type="solid">

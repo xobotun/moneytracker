@@ -2,20 +2,64 @@ import { type Ref, ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { getSettingsRepository } from '@/db/init'
 import type { SettingsKey } from '@/db/SettingsKey'
-import { LayoutKeys, type NavPosition, type CollapseMode, type ThemePreset } from './layout-types'
+import {
+  LayoutKeys,
+  isBoolean,
+  isCollapseMode,
+  isNavPosition,
+  isThemePreset,
+  type NavPosition,
+  type CollapseMode,
+  type ThemePreset,
+} from './layout-types'
 
 export { type NavPosition, type CollapseMode, type ThemePreset } from './layout-types'
 
-/** Load a persisted value into a ref. No-op if the key doesn't exist in the DB. */
-async function hydrateRef<T>(key: SettingsKey<T>, target: Ref<T>): Promise<void> {
-  const stored = await getSettingsRepository().get(key)
-  if (stored !== null) target.value = stored
+/**
+ * Load a persisted value into a ref. Keeps the default when the key doesn't
+ * exist or the stored value is not valid (stale or corrupt) — an unknown
+ * theme name, for instance, would otherwise break app startup.
+ */
+async function hydrateRef<T>(
+  key: SettingsKey<T>,
+  target: Ref<T>,
+  isValid: (value: unknown) => value is T,
+): Promise<void> {
+  const stored: unknown = await getSettingsRepository().get(key)
+  if (stored === null) return
+  if (isValid(stored)) target.value = stored
+  else console.warn(`Ignoring invalid stored setting ${key.key}:`, stored)
 }
 
-/** Persist a value, then update the ref (write-through). */
-async function persistRef<T>(key: SettingsKey<T>, target: Ref<T>, value: T): Promise<void> {
-  await getSettingsRepository().set(key, value)
+/**
+ * Optimistic save for visual settings: show the new value right away, then
+ * persist; if persisting fails, put the old value back and rethrow so the UI
+ * can say so. `apply` mirrors the value outside the store (e.g. a CSS class)
+ * and is re-run with the old value on revert.
+ *
+ * Deliberately NOT the pattern for financial data, which stays write-through
+ * (persist first, then update state).
+ */
+async function persistOptimistic<T>(
+  key: SettingsKey<T>,
+  target: Ref<T>,
+  value: T,
+  apply: (value: T) => void = () => {},
+): Promise<void> {
+  const previous = target.value
   target.value = value
+  apply(value)
+  try {
+    await getSettingsRepository().set(key, value)
+  } catch (e) {
+    target.value = previous
+    apply(previous)
+    throw e
+  }
+}
+
+function applyDarkClass(isDark: boolean): void {
+  document.documentElement.classList.toggle('dark', isDark)
 }
 
 const MOBILE_BREAKPOINT = 768
@@ -35,28 +79,27 @@ export const useLayoutStore = defineStore('layout', () => {
 
   async function hydrate(): Promise<void> {
     await Promise.all([
-      hydrateRef(LayoutKeys.navPosition, navPosition),
-      hydrateRef(LayoutKeys.collapseMode, collapseMode),
-      hydrateRef(LayoutKeys.isDark, isDark),
-      hydrateRef(LayoutKeys.themePreset, themePreset),
+      hydrateRef(LayoutKeys.navPosition, navPosition, isNavPosition),
+      hydrateRef(LayoutKeys.collapseMode, collapseMode, isCollapseMode),
+      hydrateRef(LayoutKeys.isDark, isDark, isBoolean),
+      hydrateRef(LayoutKeys.themePreset, themePreset, isThemePreset),
     ])
   }
 
   async function setNavPosition(value: NavPosition): Promise<void> {
-    await persistRef(LayoutKeys.navPosition, navPosition, value)
+    await persistOptimistic(LayoutKeys.navPosition, navPosition, value)
   }
 
   async function setCollapseMode(value: CollapseMode): Promise<void> {
-    await persistRef(LayoutKeys.collapseMode, collapseMode, value)
+    await persistOptimistic(LayoutKeys.collapseMode, collapseMode, value)
   }
 
   async function setDarkMode(value: boolean): Promise<void> {
-    await persistRef(LayoutKeys.isDark, isDark, value)
-    document.documentElement.classList.toggle('dark', value)
+    await persistOptimistic(LayoutKeys.isDark, isDark, value, applyDarkClass)
   }
 
   async function setThemePreset(value: ThemePreset): Promise<void> {
-    await persistRef(LayoutKeys.themePreset, themePreset, value)
+    await persistOptimistic(LayoutKeys.themePreset, themePreset, value)
   }
 
   function effectivePosition(windowWidth: number): Exclude<NavPosition, 'auto'> {

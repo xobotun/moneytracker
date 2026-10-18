@@ -21,21 +21,48 @@ function findOrFirst<T>(options: T[], predicate: (o: T) => boolean): T {
 export function useSettingsOptions() {
   const layoutStore = useLayoutStore()
 
+  // Visual settings save optimistically (the store applies the new value at
+  // once and reverts it if persisting fails). This shows why it reverted.
+  const saveError = ref<string | null>(null)
+
+  async function save(action: () => Promise<void>): Promise<void> {
+    try {
+      await action()
+      saveError.value = null
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
+      saveError.value = `Could not save the setting (${reason}); it was changed back.`
+    }
+  }
+
+  // The selects are computed views of the store, not copies of it: a get/set
+  // `computed` reads the store on every render, so a revert (or a change made
+  // elsewhere) shows up in the select automatically. Its setter is what
+  // v-model calls when the user picks an option.
+
   // --- Theme preset ---
   const themePresetOptions: PresetOption[] = (Object.keys(themePresets) as ThemePreset[]).map(
     (name) => ({ name, preset: themePresets[name] }),
   )
-  const selectedPreset = ref<PresetOption>(
-    findOrFirst(themePresetOptions, (p) => p.name === layoutStore.themePreset),
-  )
-  async function onPresetChange() {
-    usePreset(selectedPreset.value.preset)
-    await layoutStore.setThemePreset(selectedPreset.value.name)
-  }
+  const selectedPreset = computed<PresetOption>({
+    get: () => findOrFirst(themePresetOptions, (p) => p.name === layoutStore.themePreset),
+    set: (option) => {
+      const previous = themePresets[layoutStore.themePreset]
+      usePreset(option.preset)
+      void save(async () => {
+        try {
+          await layoutStore.setThemePreset(option.name)
+        } catch (e) {
+          usePreset(previous) // the store reverted its value; revert the applied theme too
+          throw e
+        }
+      })
+    },
+  })
 
   // --- Dark mode ---
   async function onDarkModeChange(value: boolean) {
-    await layoutStore.setDarkMode(value)
+    await save(() => layoutStore.setDarkMode(value))
   }
 
   // --- Nav position ---
@@ -46,12 +73,10 @@ export function useSettingsOptions() {
     { name: 'Left', value: 'left' },
     { name: 'Right', value: 'right' },
   ]
-  const selectedNavPosition = ref<SelectOption<NavPosition>>(
-    findOrFirst(navPositionOptions, (o) => o.value === layoutStore.navPosition),
-  )
-  async function onNavPositionChange() {
-    await layoutStore.setNavPosition(selectedNavPosition.value.value)
-  }
+  const selectedNavPosition = computed<SelectOption<NavPosition>>({
+    get: () => findOrFirst(navPositionOptions, (o) => o.value === layoutStore.navPosition),
+    set: (option) => void save(() => layoutStore.setNavPosition(option.value)),
+  })
 
   // --- Collapse mode ---
   const collapseModeOptions: SelectOption<CollapseMode>[] = [
@@ -59,12 +84,10 @@ export function useSettingsOptions() {
     { name: 'Opens on hover', value: 'opens-on-hover' },
     { name: 'Always expanded', value: 'always-expanded' },
   ]
-  const selectedCollapseMode = ref<SelectOption<CollapseMode>>(
-    findOrFirst(collapseModeOptions, (o) => o.value === layoutStore.collapseMode),
-  )
-  async function onCollapseModeChange() {
-    await layoutStore.setCollapseMode(selectedCollapseMode.value.value)
-  }
+  const selectedCollapseMode = computed<SelectOption<CollapseMode>>({
+    get: () => findOrFirst(collapseModeOptions, (o) => o.value === layoutStore.collapseMode),
+    set: (option) => void save(() => layoutStore.setCollapseMode(option.value)),
+  })
 
   const showCollapseMode = computed(() => {
     const pos = layoutStore.navPosition
@@ -73,16 +96,14 @@ export function useSettingsOptions() {
 
   return {
     layoutStore,
+    saveError,
     themePresetOptions,
     selectedPreset,
-    onPresetChange,
     onDarkModeChange,
     navPositionOptions,
     selectedNavPosition,
-    onNavPositionChange,
     collapseModeOptions,
     selectedCollapseMode,
-    onCollapseModeChange,
     showCollapseMode,
   }
 }
