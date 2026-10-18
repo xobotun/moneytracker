@@ -236,6 +236,28 @@ describe('runSync retry bound', () => {
     expect(uploads()).toBe(3)
   })
 
+  it('does not report a lost first upload as success', async () => {
+    local = await newMigratedDb()
+    let uploads = 0
+    const emptyRemoteLosingRace: SyncBackend = {
+      getMetadata: async () => null, // remote looks empty every time
+      downloadDatabase: async () => {
+        throw new Error('not used')
+      },
+      hashDatabase,
+      tryUpload: async () => {
+        uploads++
+        return false // another device's first upload got there first
+      },
+    }
+    const saved: unknown[] = []
+    const deps = { ...boundedDeps(emptyRemoteLosingRace, []), saveLastKnown: (s: unknown) => saved.push(s) }
+
+    await expect(runSync(local, deps)).rejects.toThrow(/gave up after 3 attempts/)
+    expect(uploads).toBe(3)
+    expect(saved).toEqual([]) // no baseline recorded for an upload that never happened
+  })
+
   it('backs off with growing delays between attempts', async () => {
     local = await newMigratedDb()
     const { backend } = alwaysLosingBackend('dev-B')

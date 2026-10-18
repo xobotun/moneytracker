@@ -268,6 +268,21 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
     expect(saved).toEqual(['github'])
   })
 
+  it('hands the rebuilt backend a snapshot, so later unsaved edits cannot reach it', () => {
+    let received: import('../../sync/localState').ProviderConfig | null = null
+    const s = useSyncSettings({
+      db: null,
+      backend: null,
+      onProviderConfigSaved: (cfg) => {
+        received = cfg
+      },
+    })
+    s.providerConfig.value.github.token = 'saved-token'
+    s.saveProviderConfig()
+    s.providerConfig.value.github.token = 'half-typ' // the user keeps typing, not saved yet
+    expect(received!.github.token).toBe('saved-token')
+  })
+
   it('shares the in-progress flag across instances, so a second page instance cannot start a parallel sync', async () => {
     const db = await migratedDb()
     let releaseMetadata!: () => void

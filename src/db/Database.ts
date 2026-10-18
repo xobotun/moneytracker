@@ -144,26 +144,38 @@ export class Database {
   async transaction<T>(fn: (tx: SqlExecutor) => Promise<T>): Promise<T> {
     return this.serialized(async () => {
       let finished = false
-      const guard = () => {
-        if (finished) throw new Error('Database.transaction: handle used after the transaction finished')
+      // The unit holds the connection lock, so tx calls bypass it — but they
+      // must still not overlap each other (Asyncify: one WASM call chain at a
+      // time). Queue them on a chain of their own, in call order, so
+      // Promise.all over tx calls, or a forgotten await, stays safe.
+      let txChain: Promise<unknown> = Promise.resolve()
+      const enqueue = <R>(op: () => Promise<R>): Promise<R> => {
+        if (finished) {
+          return Promise.reject(
+            new Error('Database.transaction: handle used after the transaction finished'),
+          )
+        }
+        const next = txChain.then(op, op)
+        txChain = next.then(
+          () => {},
+          () => {},
+        )
+        return next
       }
       const tx: SqlExecutor = {
-        exec: async <R extends Record<string, unknown>>(sql: string, params?: unknown[]) => {
-          guard()
-          return this.execUnsafe<R>(sql, params)
-        },
-        run: async (sql: string, params?: unknown[]) => {
-          guard()
-          return this.runUnsafe(sql, params)
-        },
+        exec: <R extends Record<string, unknown>>(sql: string, params?: unknown[]) =>
+          enqueue(() => this.execUnsafe<R>(sql, params)),
+        run: (sql: string, params?: unknown[]) => enqueue(() => this.runUnsafe(sql, params)),
       }
 
       await this.runUnsafe('BEGIN')
       try {
         const result = await fn(tx)
+        await txChain // let any still-running (un-awaited) tx calls finish first
         await this.runUnsafe('COMMIT')
         return result
       } catch (e) {
+        await txChain
         try {
           await this.runUnsafe('ROLLBACK')
         } catch {

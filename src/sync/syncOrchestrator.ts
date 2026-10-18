@@ -103,7 +103,10 @@ async function attemptSync(
   // First sync — the remote has no database yet. Nothing to merge; upload local.
   if (remoteMeta === null) {
     const meta = stamp(localHash)
-    await deps.backend.tryUpload(localDb, meta, null)
+    // Another device's first upload may win the race; then there is a remote
+    // to merge, and recording `meta` as the baseline would be a lie.
+    const ok = await deps.backend.tryUpload(localDb, meta, null)
+    if (!ok) return CAS_MISS
     deps.saveLastKnown(remoteStateOf(meta))
     return { decision: 'first-sync-upload', conflicts: [], uploaded: true }
   }

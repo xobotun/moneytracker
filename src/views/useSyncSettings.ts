@@ -103,7 +103,10 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
 
   function saveProviderConfigNow(): void {
     saveProviderConfig(providerConfig.value)
-    deps.onProviderConfigSaved?.(providerConfig.value)
+    // Pass a fresh copy of what was stored, never the form's reactive object:
+    // transports keep the config they are built with, so sharing it would let
+    // unsaved keystrokes (a half-typed token) reach a running sync.
+    deps.onProviderConfigSaved?.(loadProviderConfig())
   }
 
   function recordSyncError(message: string): void {

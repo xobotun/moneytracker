@@ -254,3 +254,25 @@ describe('Database.transaction', () => {
     await expect(leaked!.run("INSERT INTO t VALUES ('late')")).rejects.toThrow(/finished/)
   })
 })
+
+describe('Database.transaction — calls on the tx handle', () => {
+  let db: Database
+
+  afterEach(async () => {
+    if (db) await db.close()
+  })
+
+  it('serializes tx calls issued concurrently and finishes them before COMMIT', async () => {
+    db = new Database()
+    await db.init()
+    await db.run('CREATE TABLE t (n INTEGER NOT NULL)')
+    await db.transaction(async (tx) => {
+      // Concurrent (Promise.all) and even un-awaited calls on tx must still run
+      // one at a time, in call order, and complete before the unit commits.
+      await Promise.all([1, 2, 3].map((n) => tx.run('INSERT INTO t VALUES (?)', [n])))
+      void tx.run('INSERT INTO t VALUES (4)')
+    })
+    const rows = await db.exec<{ n: number }>('SELECT n FROM t ORDER BY rowid')
+    expect(rows.map((r) => r.n)).toEqual([1, 2, 3, 4])
+  })
+})

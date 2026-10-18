@@ -116,6 +116,9 @@ function selectExpressionFor(c: ColumnDescriptor): string {
  * (e.g. a transaction exported without the account it references).
  */
 export async function exportAllTables(db: Database): Promise<Map<string, string>> {
+  // Load the library BEFORE taking the database lock: a slow chunk download
+  // inside the transaction would freeze every other query of the app.
+  await loadPapa()
   return db.transaction(async (tx) => {
     const out = new Map<string, string>()
     for (const t of SYNC_TABLES) out.set(t.name, await exportTableToCsv(tx, t))
@@ -130,6 +133,7 @@ export async function exportAllTables(db: Database): Promise<Map<string, string>
  * cleanly rather than leaving a partially-populated DB.
  */
 export async function importAllTables(db: Database, bundle: Map<string, string>): Promise<void> {
+  await loadPapa() // before the lock — see exportAllTables
   await db.transaction(async (tx) => {
     for (const t of SYNC_TABLES) {
       const csv = bundle.get(t.name)
