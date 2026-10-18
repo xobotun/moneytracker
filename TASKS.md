@@ -276,11 +276,15 @@ Known sync defects, postponed (review 2026-10-18):
   probe per provider.
 - **GitHub REST path limits:** the contents API stops at 1 MB per file
   (~7k transactions); downloads are not pinned to one commit SHA;
-  empty-string text columns come back as NULL after the CSV round trip
-  (hash ping-pong); importing an older-schema remote breaks after the first
-  column-adding migration; `createRef` race throws instead of counting as a
-  CAS miss; branch/path `%2F` encoding and empty-repo bootstrap are
-  unverified. Long-term idea: sync over real git instead of the REST API.
+  importing an older-schema remote breaks after the first column-adding
+  migration; bootstrapping a repository with zero commits is unverified
+  (create it with a README). Verified live on 2026-10-18
+  (`npm run test:live`): `%2F` path encoding, creating a new branch in a
+  non-empty repo, merge, stale CAS. Fixed then: a concurrent first sync
+  (`createRef` 422) now counts as a CAS miss, and `''` in optional text
+  columns is stored as NULL so it survives the CSV round trip. Browser
+  CORS is still untested — needs one manual "Sync now" in the app.
+  Long-term idea: sync over real git instead of the REST API.
 - **Clock skew / ties:** the merge cutoff compares timestamps from
   different devices' clocks, and equal timestamps resolve to the local side
   (two devices can flip-flop). Accepted for now; concurrent edits expected

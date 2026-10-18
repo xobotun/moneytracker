@@ -107,7 +107,7 @@ async function rowCounts(db: Database): Promise<Record<string, number>> {
 
 /**
  * Data chosen to stress the CSV round trip: Unicode, characters CSV must
- * escape (quotes, commas, newlines), NULLs, negative and large amounts,
+ * escape (quotes, commas, newlines), NULLs and empty strings, negative and large amounts,
  * fractional coordinates, JSON columns, a non-Berlin zone and soft deletes.
  */
 async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: UUID }> {
@@ -131,9 +131,9 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
   const nowhere = await locations.create({
     name: 'Nowhere',
     description: null,
-    address: null,
+    address: '', // stored as NULL — '' cannot survive a CSV cell
     city: null,
-    country: null,
+    country: '',
     latitude: 0,
     longitude: -0.5,
     tags: [],
@@ -145,6 +145,7 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     colour: '#ff8800',
     icon: 'pi-shopping-cart',
     synonyms: ['еда', 'Essen'],
+    description: '',
   })
   await tags.create({
     tag: 'travel ✈️',

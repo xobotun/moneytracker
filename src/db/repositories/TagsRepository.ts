@@ -6,6 +6,7 @@ import {
   instantToColumn,
   jsonArrayFromColumn,
   jsonArrayToColumn,
+  optionalTextToColumn,
 } from '../columnMappers'
 
 type TagRow = {
@@ -48,7 +49,7 @@ export class TagsRepository {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         input.tag,
-        input.description ?? null,
+        optionalTextToColumn(input.description),
         jsonArrayToColumn(input.synonyms),
         input.colour,
         input.icon,
@@ -79,7 +80,7 @@ export class TagsRepository {
     const params: unknown[] = []
     if (patch.description !== undefined) {
       sets.push('description = ?')
-      params.push(patch.description)
+      params.push(optionalTextToColumn(patch.description))
     }
     if (patch.synonyms !== undefined) {
       sets.push('synonyms = ?')

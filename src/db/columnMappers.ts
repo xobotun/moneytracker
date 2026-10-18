@@ -97,6 +97,17 @@ export function instantFromNullableColumn(text: string | null): Date | null {
   return text === null ? null : new Date(text)
 }
 
+// ---------- optional free text → nullable TEXT column ----------
+//
+// An empty optional text field means "no value" and is stored as NULL. The
+// GitHub sync stores rows as CSV, where an empty cell cannot tell '' from
+// NULL; a stored '' would come back as NULL on every other device, and the
+// content hashes would never agree.
+
+export function optionalTextToColumn(text: string | null | undefined): string | null {
+  return text === '' || text === undefined ? null : text
+}
+
 // ---------- UUID ↔ TEXT column ----------
 //
 // SQLite stores UUIDv7 ids as plain TEXT. Domain entities expose them as the
