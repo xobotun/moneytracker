@@ -10,7 +10,7 @@ import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepos
 import { TransactionsRepository } from './repositories/TransactionsRepository'
 import type { SyncBackend } from '../sync/SyncBackend'
 import { buildBackend } from '../sync/backendFactory'
-import { loadProviderConfig, type ProviderConfig } from '../sync/localState'
+import { loadProviderConfig, saveSyncError, type ProviderConfig } from '../sync/localState'
 
 let database: Database | null = null
 // shallowRef, not a plain variable: Vue tracks reads of `.value`, so a computed
@@ -40,7 +40,7 @@ export async function initDatabase(): Promise<void> {
   // Build the sync backend from the stored provider config. null when the
   // user has not configured a provider; Settings.vue's "Sync now" button
   // disables itself in that case.
-  applyProviderConfig(loadProviderConfig())
+  applyStoredProviderConfig()
 }
 
 export function getDatabase(): Database {
@@ -64,6 +64,30 @@ export function getSyncBackend(): SyncBackend | null {
 /** Rebuilds and registers the backend for `cfg`. Call after the provider config changes. */
 export function applyProviderConfig(cfg: ProviderConfig): void {
   setSyncBackend(buildBackend(cfg))
+}
+
+/**
+ * Registers the backend from the stored provider config at app startup.
+ * Never throws: sync is optional, so unreadable storage or a malformed config
+ * turns sync off (and records why, if storage allows) instead of failing the
+ * whole app start.
+ */
+export function applyStoredProviderConfig(load: () => ProviderConfig = loadProviderConfig): void {
+  try {
+    applyProviderConfig(load())
+  } catch (e) {
+    setSyncBackend(null)
+    console.warn('Sync disabled: could not load the sync provider settings.', e)
+    const reason = e instanceof Error ? e.message : String(e)
+    try {
+      saveSyncError({
+        atUtc: new Date().toISOString(),
+        message: `Sync is off: the saved sync settings could not be loaded (${reason}). Re-enter them below.`,
+      })
+    } catch {
+      // Storage itself is unusable; the warning above is all we can do.
+    }
+  }
 }
 
 export function getSettingsRepository(): SettingsRepository {

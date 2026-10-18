@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { buildBackend } from '../backendFactory'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
 import { SqliteBlobBackend } from '../SqliteBlobBackend'
-import { EMPTY_PROVIDER_CONFIG } from '../localState/providerConfig'
+import { EMPTY_PROVIDER_CONFIG, type ProviderConfig } from '../localState/providerConfig'
 
 describe('buildBackend', () => {
   it('returns null when active is "none"', () => {
@@ -41,5 +41,10 @@ describe('buildBackend', () => {
       },
     }
     expect(buildBackend(cfg)).toBeInstanceOf(SqliteBlobBackend)
+  })
+
+  it('returns null for an unknown provider kind (e.g. a config written by a newer build)', () => {
+    const cfg = { ...EMPTY_PROVIDER_CONFIG, active: 'ftp' } as unknown as ProviderConfig
+    expect(buildBackend(cfg)).toBeNull()
   })
 })

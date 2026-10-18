@@ -54,8 +54,14 @@ export const EMPTY_PROVIDER_CONFIG: ProviderConfig = {
 
 const slot = jsonStore<ProviderConfig>('providerConfig', EMPTY_PROVIDER_CONFIG)
 
+const PROVIDER_KINDS: readonly SyncProviderKind[] = ['none', 'supabase', 's3', 'github']
+
 export function loadProviderConfig(): ProviderConfig {
-  return slot.load()
+  const cfg = slot.load()
+  // A value from a newer build, or a hand-edited one, must not select a
+  // provider this build doesn't know.
+  if (!PROVIDER_KINDS.includes(cfg.active)) cfg.active = 'none'
+  return cfg
 }
 
 export function saveProviderConfig(config: ProviderConfig): void {

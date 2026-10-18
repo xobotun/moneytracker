@@ -18,6 +18,43 @@ function fullKey(key: string): string {
   return PREFIX + key
 }
 
+/**
+ * localStorage.getItem, but storage that cannot be read (private mode,
+ * blocked site data: getItem throws a SecurityError) reads as "nothing
+ * stored". Sync state is optional; unreadable storage must not break the app.
+ */
+function readItem(k: string): string | null {
+  try {
+    return localStorage.getItem(k)
+  } catch {
+    return null
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Merge a parsed stored value over a fresh deep copy of `defaults`. Nested
+ * plain objects (e.g. the per-provider blocks of the provider config) are
+ * merged one level deep, and a stored nested value of the wrong shape (null,
+ * a string, ...) falls back to the default block instead of replacing it.
+ */
+function mergeOverDefault<T extends object>(defaults: T, stored: unknown): T {
+  const result = structuredClone(defaults) as Record<string, unknown>
+  if (!isPlainObject(stored)) return result as T
+  for (const [key, value] of Object.entries(stored)) {
+    const fallback = result[key]
+    if (isPlainObject(fallback)) {
+      result[key] = isPlainObject(value) ? { ...fallback, ...value } : fallback
+    } else {
+      result[key] = value
+    }
+  }
+  return result as T
+}
+
 /** Plain-string slot. No JSON envelope — what you save is what you read back. */
 export function stringStore(key: string): {
   load(): string | null
@@ -26,7 +63,7 @@ export function stringStore(key: string): {
 } {
   const k = fullKey(key)
   return {
-    load: () => localStorage.getItem(k),
+    load: () => readItem(k),
     save: (value) => {
       localStorage.setItem(k, value)
     },
@@ -48,7 +85,7 @@ export function nullableJsonStore<T>(key: string): {
   const k = fullKey(key)
   return {
     load: () => {
-      const raw = localStorage.getItem(k)
+      const raw = readItem(k)
       if (!raw) return null
       try {
         return JSON.parse(raw) as T
@@ -68,10 +105,10 @@ export function nullableJsonStore<T>(key: string): {
 
 /**
  * JSON slot that always resolves to a value of T, merging a stored partial
- * over the supplied `defaultValue`. The merge is shallow — sufficient for the
- * provider-config use case where missing top-level fields are the realistic
- * forward-compatibility concern. Each `load()` returns a fresh copy so that
- * mutating the result cannot leak into the default or into other readers.
+ * over the supplied `defaultValue` (see mergeOverDefault: nested objects are
+ * merged one level deep, so a block missing new fields still gets them).
+ * Each `load()` returns a fresh deep copy, so mutating the result (e.g.
+ * through a v-model on a nested field) cannot leak into the default.
  */
 export function jsonStore<T extends object>(
   key: string,
@@ -83,12 +120,12 @@ export function jsonStore<T extends object>(
   const k = fullKey(key)
   return {
     load: () => {
-      const raw = localStorage.getItem(k)
-      if (!raw) return { ...defaultValue }
+      const raw = readItem(k)
+      if (!raw) return mergeOverDefault(defaultValue, null)
       try {
-        return { ...defaultValue, ...(JSON.parse(raw) as Partial<T>) }
+        return mergeOverDefault(defaultValue, JSON.parse(raw))
       } catch {
-        return { ...defaultValue }
+        return mergeOverDefault(defaultValue, null)
       }
     },
     save: (value) => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   loadProviderConfig,
   saveProviderConfig,
@@ -54,5 +54,45 @@ describe('providerConfig', () => {
     // The unset blocks fall back to the empty defaults.
     expect(cfg.s3).toEqual(EMPTY_PROVIDER_CONFIG.s3)
     expect(cfg.github).toEqual(EMPTY_PROVIDER_CONFIG.github)
+  })
+
+  describe('robustness against bad or unavailable storage', () => {
+    it('does not let edits to a loaded config leak into the defaults', () => {
+      const cfg = loadProviderConfig()
+      cfg.github.repo = 'me/edited'
+      expect(EMPTY_PROVIDER_CONFIG.github.repo).toBe('')
+      expect(loadProviderConfig().github.repo).toBe('')
+    })
+
+    it('falls back to the default block when a stored provider block is not an object', () => {
+      localStorage.setItem('moneytracker.sync.providerConfig', JSON.stringify({ active: 's3', s3: null }))
+      expect(loadProviderConfig().s3).toEqual(EMPTY_PROVIDER_CONFIG.s3)
+    })
+
+    it('fills fields missing from a stored provider block from the defaults', () => {
+      localStorage.setItem(
+        'moneytracker.sync.providerConfig',
+        JSON.stringify({ active: 's3', s3: { endpoint: 'https://r2.example.com' } }),
+      )
+      const cfg = loadProviderConfig()
+      expect(cfg.s3.endpoint).toBe('https://r2.example.com')
+      expect(cfg.s3.region).toBe(EMPTY_PROVIDER_CONFIG.s3.region)
+    })
+
+    it('treats an unknown active provider as "none"', () => {
+      localStorage.setItem('moneytracker.sync.providerConfig', JSON.stringify({ active: 'ftp' }))
+      expect(loadProviderConfig().active).toBe('none')
+    })
+
+    it('returns the defaults when localStorage cannot be read (e.g. blocked storage)', () => {
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('denied', 'SecurityError')
+      })
+      try {
+        expect(loadProviderConfig()).toEqual(EMPTY_PROVIDER_CONFIG)
+      } finally {
+        spy.mockRestore()
+      }
+    })
   })
 })
