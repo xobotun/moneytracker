@@ -23,19 +23,19 @@ type AccountRow = {
   location_id: string | null
   colour: string
   icon: string
+  sort_order: number
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
 }
 
-type AccountCreateInput = Omit<
+// sort_order is excluded from both inputs: create() appends, reorder() moves.
+export type AccountCreateInput = Omit<
   Account,
-  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+  'id' | 'sort_order' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
 >
 
-type AccountUpdateInput = Partial<
-  Omit<Account, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
->
+export type AccountUpdateInput = Partial<AccountCreateInput>
 
 function rowToAccount(row: AccountRow): Account {
   return {
@@ -50,6 +50,7 @@ function rowToAccount(row: AccountRow): Account {
     location_id: uuidFromNullableColumn(row.location_id),
     colour: row.colour,
     icon: row.icon,
+    sort_order: row.sort_order,
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
@@ -65,9 +66,11 @@ export class AccountsRepository {
     const moneyColumns = moneyToColumns('balance', input.balance)
     const tagsJson = jsonArrayToColumn(input.tags)
 
+    // The position is computed inside the INSERT, so appending stays atomic
+    // without a transaction. Deleted rows count too: harmless, and simpler.
     await this.db.run(
-      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, tags, location_id, colour, icon, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, tags, location_id, colour, icon, sort_order, created_at_utc, updated_at_utc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts), ?, ?)`,
       [
         id,
         input.name,
@@ -96,9 +99,29 @@ export class AccountsRepository {
 
   async list(): Promise<Account[]> {
     const rows = await this.db.exec<AccountRow>(
-      'SELECT * FROM accounts WHERE deleted_at_utc IS NULL ORDER BY name',
+      // Ties are possible after a sync merge (two devices appending at once).
+      'SELECT * FROM accounts WHERE deleted_at_utc IS NULL ORDER BY sort_order, name, id',
     )
     return rows.map(rowToAccount)
+  }
+
+  /**
+   * Stores `ids` as the new list order (first = position 0). Only accounts
+   * whose position actually changes are written, so a move touches as few rows
+   * as possible — fewer rows for the sync merge to reconcile.
+   */
+  async reorder(ids: readonly UUID[]): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      await Promise.all(
+        ids.map((id, position) =>
+          tx.run(
+            'UPDATE accounts SET sort_order = ?, updated_at_utc = ? WHERE id = ? AND sort_order <> ?',
+            [position, now, id, position],
+          ),
+        ),
+      )
+    })
   }
 
   async update(id: UUID, patch: AccountUpdateInput): Promise<void> {

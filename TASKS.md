@@ -179,6 +179,25 @@ exercised end-to-end.
   `.oxlintrc.json`, CI type-check, a test that could never fail fixed,
   rollback / UUIDv7-ordering / constraint-specific tests added
 
+### Wallets UI (accounts list, edit, reorder)
+
+Accounts are called "wallets" in the UI.
+
+- `/wallets` page (nav item "Wallets"): list with colour + icon badge,
+  currency and tags; empty state
+- Create / edit dialog: name, currency (suggests codes in use, then ISO 4217;
+  custom codes like BTC allowed), icon (PrimeIcons subset), colour (presets +
+  custom), free-form tags. New wallets start at a zero balance (no
+  starting-balance field)
+- Delete with an inline confirmation; refused while live transactions use
+  the wallet (a soft delete skips the FK check)
+- Reorder mode: drag and drop with a mouse, up/down buttons for touch and
+  keyboard (focus follows the moved row, moves are announced)
+- `accounts.sort_order` (added to `002` in place; synced): new accounts
+  append, `AccountsRepository.reorder(ids)` writes only the rows whose
+  position changed, `list()` orders by `sort_order, name, id`
+- `useAccountsStore` (Pinia, write-through: persist, then re-read the list)
+
 ---
 
 ## To Do
@@ -195,16 +214,15 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Accounts, transactions, tags, locations, exchange rates, account groupings
+    - Transactions, tags, locations, exchange rates, account groupings (accounts: done, see Wallets UI)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
 ### CRUD UI
 
-- Accounts
-    - List, create, edit, soft-delete
-    - Currency, colour, icon, optional home location, tags
-    - No starting-balance field: a new account starts at 0 and its existing money is entered as an income transaction
+- Accounts (list, create, edit, delete, reorder: done, see Wallets UI)
+    - Optional home location picker (needs the Locations UI first; the dialog leaves `location_id` untouched)
+    - Show a balance once `accounts.balance_*` semantics are decided
 - Transactions
     - List with filters (by account, by date range, by tag)
     - Create — expense, income, transfer

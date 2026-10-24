@@ -175,6 +175,72 @@ describe('AccountsRepository', () => {
     expect(list).toHaveLength(0)
   })
 
+  describe('wallet order (sort_order)', () => {
+    function createNamed(name: string) {
+      return repo.create({
+        name,
+        balance: moneyAmount(0, 2, 'USD'),
+        tags: [],
+        location_id: null,
+        colour: '#000',
+        icon: 'wallet',
+      })
+    }
+
+    it('appends a new account after the existing ones', async () => {
+      const first = await createNamed('Zeta')
+      const second = await createNamed('Alpha')
+      expect(first.sort_order).toBe(0)
+      expect(second.sort_order).toBe(1)
+      // Creation order, not alphabetical.
+      expect((await repo.list()).map((a) => a.name)).toEqual(['Zeta', 'Alpha'])
+    })
+
+    it('appends after the highest position even when it belongs to a deleted account', async () => {
+      await createNamed('A')
+      const b = await createNamed('B')
+      await repo.softDelete(b.id)
+      const c = await createNamed('C')
+      expect(c.sort_order).toBe(2)
+    })
+
+    it('reorder() stores the given order', async () => {
+      const a = await createNamed('A')
+      const b = await createNamed('B')
+      const c = await createNamed('C')
+      await repo.reorder([c.id, a.id, b.id])
+      expect((await repo.list()).map((x) => x.name)).toEqual(['C', 'A', 'B'])
+    })
+
+    it('reorder() bumps updated_at_utc only on accounts whose position changed', async () => {
+      const a = await createNamed('A')
+      const b = await createNamed('B')
+      const c = await createNamed('C')
+      await new Promise((r) => setTimeout(r, 5))
+      await repo.reorder([a.id, c.id, b.id])
+      const after = new Map((await repo.list()).map((x) => [x.name, x]))
+      expect(after.get('A')!.updated_at_utc).toEqual(a.updated_at_utc)
+      expect(after.get('B')!.updated_at_utc > b.updated_at_utc).toBe(true)
+      expect(after.get('C')!.updated_at_utc > c.updated_at_utc).toBe(true)
+    })
+
+    it('list() breaks equal positions by name', async () => {
+      // Two devices can each append a wallet at the same position; the merge
+      // keeps both rows, so equal values must still list deterministically.
+      const b = await createNamed('B')
+      const a = await createNamed('A')
+      await db.run('UPDATE accounts SET sort_order = 0 WHERE id IN (?, ?)', [a.id, b.id])
+      expect((await repo.list()).map((x) => x.name)).toEqual(['A', 'B'])
+    })
+
+    it('update() leaves the position alone', async () => {
+      await createNamed('A')
+      const b = await createNamed('B')
+      await repo.update(b.id, { name: 'B2' })
+      expect((await repo.findById(b.id))!.sort_order).toBe(1)
+    })
+  })
+
   it('throws when creating with non-existent location_id (FK violation)', async () => {
     await expect(
       repo.create({

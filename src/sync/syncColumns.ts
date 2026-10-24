@@ -77,6 +77,7 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'location_id', sqlType: 'TEXT', nullable: true },
     { name: 'colour', sqlType: 'TEXT', nullable: false },
     { name: 'icon', sqlType: 'TEXT', nullable: false },
+    { name: 'sort_order', sqlType: 'INTEGER', nullable: false },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },

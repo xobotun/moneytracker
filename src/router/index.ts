@@ -10,6 +10,11 @@ const router = createRouter({
       component: HomeView,
     },
     {
+      path: '/wallets',
+      name: 'wallets',
+      component: () => import('../views/WalletsView.vue'),
+    },
+    {
       path: '/page-two',
       name: 'page-two',
       component: () => import('../views/PageTwo.vue'),

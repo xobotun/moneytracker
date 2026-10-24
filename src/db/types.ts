@@ -52,6 +52,7 @@ export interface Account {
   location_id: UUID | null
   colour: string
   icon: string
+  sort_order: number // position in the wallet list; set by create() and reorder() only
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null

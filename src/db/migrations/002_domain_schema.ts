@@ -43,6 +43,7 @@ export const migration: Migration = {
       location_id     TEXT REFERENCES locations(id) ON DELETE RESTRICT,  -- UUIDv7
       colour          TEXT NOT NULL,
       icon            TEXT NOT NULL,
+      sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position in the wallet list, ascending; ties by name
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
