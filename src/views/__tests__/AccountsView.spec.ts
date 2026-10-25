@@ -351,4 +351,95 @@ describe('AccountsView', () => {
       expect(layout(w)).toEqual({ 'Accounts in no group': ['Card'] })
     })
   })
+
+  describe('touch dragging from the grip', () => {
+    // jsdom has no layout: elementFromPoint is stubbed to "what is under the finger".
+    let under: Element | null = null
+    beforeEach(() => {
+      document.elementFromPoint = () => under
+    })
+
+    function pointer(
+      type: string,
+      target: EventTarget,
+      init: { pointerType?: string; y?: number },
+    ) {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: init.y ?? 10,
+      })
+      Object.defineProperties(event, {
+        pointerId: { value: 7 },
+        pointerType: { value: init.pointerType ?? 'touch' },
+      })
+      target.dispatchEvent(event)
+    }
+
+    const gripOf = (name: string) =>
+      [...document.querySelectorAll('main li, li')]
+        .find((li) => li.textContent?.includes(name))!
+        .querySelector('.touch-none')!
+    const rowOf = (name: string) =>
+      [...document.querySelectorAll('li')].find((li) => li.textContent?.includes(name))!
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+    async function reorderView() {
+      await seed('A')
+      await seed('B')
+      await seed('C')
+      const w = await mountView()
+      buttonByText('Reorder').click()
+      await settle()
+      return w
+    }
+
+    it('moves an account after the finger rests on the grip and slides', async () => {
+      const w = await reorderView()
+      pointer('pointerdown', gripOf('C'), { y: 100 })
+      await wait(150) // past the hold
+      under = rowOf('A')
+      pointer('pointermove', window, { y: 20 })
+      await settle()
+      expect(rowOf('A').querySelector('[data-drag-item]')!.className).toContain(
+        'border-(--p-primary-color)',
+      )
+      pointer('pointerup', window, { y: 20 })
+      await settle()
+      expect(listedNames(w)).toEqual(['C', 'A', 'B'])
+    })
+
+    it('ignores a quick tap on the grip', async () => {
+      const w = await reorderView()
+      under = rowOf('A')
+      pointer('pointerdown', gripOf('C'), { y: 100 })
+      pointer('pointerup', window, { y: 100 })
+      await wait(150)
+      await settle()
+      expect(listedNames(w)).toEqual(['A', 'B', 'C'])
+    })
+
+    it('ignores a finger that slides off before the hold is over', async () => {
+      const w = await reorderView()
+      pointer('pointerdown', gripOf('C'), { y: 100 })
+      under = rowOf('A')
+      pointer('pointermove', window, { y: 60 }) // a swipe, within the hold
+      await wait(150)
+      pointer('pointerup', window, { y: 20 })
+      await settle()
+      expect(listedNames(w)).toEqual(['A', 'B', 'C'])
+    })
+
+    it('leaves the mouse to native drag and drop', async () => {
+      const w = await reorderView()
+      pointer('pointerdown', gripOf('C'), { y: 100, pointerType: 'mouse' })
+      await wait(150)
+      under = rowOf('A')
+      pointer('pointermove', window, { y: 20, pointerType: 'mouse' })
+      pointer('pointerup', window, { y: 20, pointerType: 'mouse' })
+      await settle()
+      expect(listedNames(w)).toEqual(['A', 'B', 'C'])
+    })
+  })
 })

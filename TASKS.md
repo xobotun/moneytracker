@@ -198,8 +198,13 @@ exercised end-to-end.
 - Reorder mode (all grouping is behind it): add / edit / delete groups (name,
   icon, colour; deleting keeps its accounts, they move below the groups),
   reorder groups, reorder accounts and move them between groups. Drag and
-  drop with a mouse (onto an account, a group header or an empty group);
-  up/down buttons for touch and keyboard — an account's arrows run through
+  drop with a mouse (native, whole row) or a finger/pen (from the grip,
+  `usePointerDrag`: the grip has `touch-action: none` so it never scrolls,
+  the rest of the list still does; a 100 ms hold guards against brushes;
+  auto-scroll near the edges) — onto an account, a group header, an empty
+  group, or (a group) anywhere on another group's block. Native dragging is
+  off where no fine pointer exists, so it cannot fight the finger drag.
+  Up/down buttons for touch and keyboard — an account's arrows run through
   the whole page, crossing into the neighbouring group. Focus follows the
   moved row, moves are announced
 - Schema (`002` edited in place; synced): `account_groupings.sort_order`;

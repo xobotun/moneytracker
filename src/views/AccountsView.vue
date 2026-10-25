@@ -8,6 +8,7 @@ import AccountBadge from '@/components/accounts/AccountBadge.vue'
 import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
 import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
 import { groupTints } from '@/components/accounts/groupTint'
+import { usePointerDrag } from './usePointerDrag'
 import { useAccountsStore, type AccountSection } from '@/stores/accounts'
 import type { Account, AccountGrouping } from '@/db/types'
 import type { UUID } from '@/db/uuid'
@@ -132,6 +133,53 @@ const dragged = ref<Dragged | null>(null)
 // Key of the element a drop would land on, for highlighting.
 const dropKey = ref<string | null>(null)
 
+// Drop targets carry a `data-drop-key`, shared by mouse and touch dragging:
+//   account:<id>   an account takes that account's place
+//   header:<id>    an account goes to the top of the group; a group takes its place
+//   block:<id>     anywhere on a group's block: a group takes its place
+//   empty:<id>     an empty group, or `empty:ungrouped`: the account becomes its first
+function accepts(key: string): boolean {
+  const kind = dragged.value?.kind
+  if (!kind) return false
+  const type = key.split(':')[0]
+  if (type === 'header') return true
+  if (type === 'block') return kind === 'grouping'
+  return kind === 'account'
+}
+
+async function dropOn(key: string) {
+  const item = dragged.value
+  endDrag()
+  if (!item) return
+  const [type, id] = key.split(':') as [string, string]
+  if (item.kind === 'grouping') {
+    const index = store.groupings.findIndex((g) => g.id === id)
+    if (index === -1) return
+    await runMove(
+      () => store.moveGrouping(item.grouping.id, index),
+      () => `${item.grouping.name} moved to position ${index + 1} of ${store.groupings.length}.`,
+    )
+  } else if (type === 'account') {
+    const section = store.sections.find((s) => s.accounts.some((a) => a.id === id))
+    if (!section) return
+    const index = section.accounts.findIndex((a) => a.id === id)
+    await moveAccountTo(item.account, section.grouping?.id ?? null, index)
+  } else if (type === 'header') {
+    await moveAccountTo(item.account, id as UUID, 0)
+  } else if (type === 'empty') {
+    await moveAccountTo(item.account, id === 'ungrouped' ? null : (id as UUID), 0)
+  }
+}
+
+function endDrag() {
+  dragged.value = null
+  dropKey.value = null
+}
+
+// Mouse: native drag and drop of the whole row. Only where a mouse-like
+// pointer exists — on a phone, native dragging would fight the finger drag.
+const nativeDrag = window.matchMedia?.('(any-pointer: fine)').matches ?? true
+
 function onDragStart(event: DragEvent, item: Dragged) {
   dragged.value = item
   if (event.dataTransfer) {
@@ -142,45 +190,37 @@ function onDragStart(event: DragEvent, item: Dragged) {
   }
 }
 
-/** Accepts the drag over `key` only for what can land there (preventDefault allows the drop). */
-function onDragOver(event: DragEvent, key: string, accepts: Dragged['kind'][]) {
-  if (!dragged.value || !accepts.includes(dragged.value.kind)) return
+// Drag events bubble from a row to its group block: the innermost target that
+// accepts the drag handles it (preventDefault), outer ones see that and skip.
+function onDragOver(event: DragEvent, key: string) {
+  if (event.defaultPrevented || !accepts(key)) return
   event.preventDefault()
   dropKey.value = key
 }
 
-function endDrag() {
-  dragged.value = null
-  dropKey.value = null
+function onDrop(event: DragEvent, key: string) {
+  if (event.defaultPrevented || !accepts(key)) return
+  event.preventDefault()
+  void dropOn(key)
 }
 
-/** An account dropped on an account row takes that row's place. */
-async function dropOnAccount(section: AccountSection, index: number) {
-  const item = dragged.value
-  endDrag()
-  if (item?.kind === 'account')
-    await moveAccountTo(item.account, section.grouping?.id ?? null, index)
-}
+// Touch and pen: dragged by the grip, which does not scroll the page.
+const pointerDrag = usePointerDrag({
+  accepts,
+  onOver: (key) => {
+    dropKey.value = key
+  },
+  onEnd: (key) => {
+    if (key) void dropOn(key)
+    else endDrag()
+  },
+})
 
-/** On a group header: a group takes its place, an account goes to the group's top. */
-async function dropOnGroupingHeader(grouping: AccountGrouping, index: number) {
-  const item = dragged.value
-  endDrag()
-  if (item?.kind === 'grouping') {
-    await runMove(
-      () => store.moveGrouping(item.grouping.id, index),
-      () => `${item.grouping.name} moved to position ${index + 1} of ${store.groupings.length}.`,
-    )
-  } else if (item?.kind === 'account') {
-    await moveAccountTo(item.account, grouping.id, 0)
-  }
-}
-
-/** On a section's empty-slot placeholder: the account becomes its first. */
-async function dropOnEmptySection(section: AccountSection) {
-  const item = dragged.value
-  endDrag()
-  if (item?.kind === 'account') await moveAccountTo(item.account, section.grouping?.id ?? null, 0)
+// A mouse is ignored here (it drags natively); a finger has to rest on the
+// grip for a moment first, so a brush or a swipe does not move anything.
+function onGripDown(event: PointerEvent, item: Dragged) {
+  const element = (event.currentTarget as HTMLElement).closest<HTMLElement>('[data-drag-item]')
+  if (element) pointerDrag.start(event, element, () => (dragged.value = item))
 }
 
 const dropHighlight = (key: string) =>
@@ -258,12 +298,19 @@ function tintStyle(grouping: AccountGrouping) {
             v-show="section.grouping || section.accounts.length > 0 || reordering"
             :key="sectionKey(section)"
             :aria-label="section.grouping ? section.grouping.name : 'Accounts in no group'"
-            :class="
+            :class="[
               section.grouping
                 ? 'flex flex-col gap-2 rounded-xl bg-(--tint-light) p-2 dark:bg-(--tint-dark)'
-                : ''
-            "
+                : '',
+              section.grouping && dropKey === `block:${section.grouping.id}`
+                ? 'ring-2 ring-(--p-primary-color)'
+                : '',
+            ]"
             :style="section.grouping ? tintStyle(section.grouping) : undefined"
+            :data-drop-key="section.grouping ? `block:${section.grouping.id}` : undefined"
+            :data-drag-item="section.grouping ? '' : undefined"
+            @dragover="section.grouping && onDragOver($event, `block:${section.grouping.id}`)"
+            @drop="section.grouping && onDrop($event, `block:${section.grouping.id}`)"
           >
             <!-- Group header -->
             <div
@@ -271,25 +318,29 @@ function tintStyle(grouping: AccountGrouping) {
               class="flex items-center gap-2 rounded-lg border-2 px-1"
               :class="[
                 reordering
-                  ? ['border-dashed', dropHighlight(`grouping:${section.grouping.id}`)]
+                  ? ['border-dashed', dropHighlight(`header:${section.grouping.id}`)]
                   : 'border-transparent',
                 dragged?.kind === 'grouping' && dragged.grouping.id === section.grouping.id
                   ? 'opacity-50'
                   : '',
               ]"
-              :draggable="reordering"
+              :data-drop-key="`header:${section.grouping.id}`"
+              :draggable="reordering && nativeDrag"
               @dragstart="onDragStart($event, { kind: 'grouping', grouping: section.grouping })"
-              @dragover="
-                onDragOver($event, `grouping:${section.grouping.id}`, ['grouping', 'account'])
-              "
-              @drop.prevent="dropOnGroupingHeader(section.grouping, sectionIndex)"
+              @dragover="onDragOver($event, `header:${section.grouping.id}`)"
+              @drop="onDrop($event, `header:${section.grouping.id}`)"
               @dragend="endDrag"
             >
+              <!-- The grip drags with a finger too; touching it never scrolls. -->
               <span
                 v-if="reordering"
-                class="pi pi-bars cursor-grab text-gray-400"
+                class="-my-1 inline-flex size-8 shrink-0 cursor-grab touch-none items-center justify-center text-gray-400 select-none"
                 aria-hidden="true"
-              />
+                @pointerdown="onGripDown($event, { kind: 'grouping', grouping: section.grouping })"
+                @contextmenu.prevent
+              >
+                <span class="pi pi-bars" />
+              </span>
               <AccountBadge :icon="section.grouping.icon" :colour="section.grouping.colour" small />
               <h2 class="min-w-0 flex-1 truncate font-semibold">{{ section.grouping.name }}</h2>
               <template v-if="reordering">
@@ -332,15 +383,17 @@ function tintStyle(grouping: AccountGrouping) {
               :aria-label="section.grouping ? `Accounts in ${section.grouping.name}` : 'Accounts'"
             >
               <li
-                v-for="(account, index) in section.accounts"
+                v-for="account in section.accounts"
                 :key="account.id"
-                :draggable="reordering"
+                :data-drop-key="`account:${account.id}`"
+                :draggable="reordering && nativeDrag"
                 @dragstart="onDragStart($event, { kind: 'account', account })"
-                @dragover="onDragOver($event, `account:${account.id}`, ['account'])"
-                @drop.prevent="dropOnAccount(section, index)"
+                @dragover="onDragOver($event, `account:${account.id}`)"
+                @drop="onDrop($event, `account:${account.id}`)"
                 @dragend="endDrag"
               >
                 <div
+                  data-drag-item
                   class="flex items-center gap-3 rounded-lg border bg-(--p-card-background)"
                   :class="[
                     reordering ? 'p-2 pl-3' : 'p-3',
@@ -354,9 +407,13 @@ function tintStyle(grouping: AccountGrouping) {
                 >
                   <span
                     v-if="reordering"
-                    class="pi pi-bars cursor-grab text-gray-400"
+                    class="-my-1 -ml-1 inline-flex size-8 shrink-0 cursor-grab touch-none items-center justify-center text-gray-400 select-none"
                     aria-hidden="true"
-                  />
+                    @pointerdown="onGripDown($event, { kind: 'account', account })"
+                    @contextmenu.prevent
+                  >
+                    <span class="pi pi-bars" />
+                  </span>
                   <AccountBadge :icon="account.icon" :colour="account.colour" />
                   <span class="flex min-w-0 flex-1 flex-col gap-1">
                     <span class="truncate font-medium">{{ account.name }}</span>
@@ -414,8 +471,9 @@ function tintStyle(grouping: AccountGrouping) {
               "
               class="rounded-lg border-2 border-dashed px-3 py-3 text-center text-sm text-gray-500 dark:text-gray-400"
               :class="dropHighlight(`empty:${sectionKey(section)}`)"
-              @dragover="onDragOver($event, `empty:${sectionKey(section)}`, ['account'])"
-              @drop.prevent="dropOnEmptySection(section)"
+              :data-drop-key="`empty:${sectionKey(section)}`"
+              @dragover="onDragOver($event, `empty:${sectionKey(section)}`)"
+              @drop="onDrop($event, `empty:${sectionKey(section)}`)"
             >
               {{
                 section.grouping
