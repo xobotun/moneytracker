@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue'
 import Card from 'primevue/card'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
@@ -13,6 +13,8 @@ import { groupTints } from '@/components/accounts/groupTint'
 import { usePointerDrag } from './usePointerDrag'
 import { useAccountsStore, type AccountSection } from '@/stores/accounts'
 import { useMoneySettingsStore } from '@/stores/moneySettings'
+import { useRatesStore } from '@/stores/rates'
+import { formatDay } from '@/format/date'
 import { balanceView, totalView } from '@/money/totals'
 import type { Account, AccountGrouping } from '@/db/types'
 import type { UUID } from '@/db/uuid'
@@ -34,9 +36,46 @@ const isEmpty = computed(() => store.accounts.length === 0 && store.groupings.le
 
 const money = useMoneySettingsStore()
 const baseCurrency = computed(() => money.baseCurrency)
-const pageTotal = computed(() => totalView(store.accounts, baseCurrency.value, store.rates))
+const rates = useRatesStore()
+const pageTotal = computed(() => totalView(store.accounts, baseCurrency.value, rates.table))
 const groupTotal = (section: AccountSection) =>
-  totalView(section.accounts, baseCurrency.value, store.rates)
+  totalView(section.accounts, baseCurrency.value, rates.table)
+
+// Today's rate from each account currency to the base one. Resolved in the
+// background (fetching what is missing); until then the amount shows "no …
+// rate", and it updates when the rate arrives.
+const neededPairs = computed(() =>
+  [...new Set(store.accounts.map((a) => a.balance.currency))]
+    .filter((c) => c !== baseCurrency.value)
+    .sort()
+    .map((c) => [c, baseCurrency.value] as const),
+)
+watch(
+  () => neededPairs.value.map((pair) => pair.join('>')).join(','),
+  () => {
+    rates.ensure(neededPairs.value).catch((e) => {
+      console.warn('Could not resolve the exchange rates.', e)
+    })
+  },
+  { immediate: true },
+)
+
+const refreshingRates = ref(false)
+const refreshRatesResult = ref<string | null>(null)
+
+async function refreshRates() {
+  refreshingRates.value = true
+  try {
+    const newest = await rates.refresh()
+    refreshRatesResult.value = newest
+      ? `Rates refreshed: the newest are from ${formatDay(newest)}.`
+      : 'Rates refreshed, but there are none yet.'
+  } catch (e) {
+    refreshRatesResult.value = `Could not refresh the rates. ${(e as Error).message}`
+  } finally {
+    refreshingRates.value = false
+  }
+}
 
 const recalculating = ref(false)
 const recalculateResult = ref<string | null>(null)
@@ -476,7 +515,7 @@ function tintStyle(grouping: AccountGrouping) {
                   </span>
                   <BalanceDisplay
                     v-if="!reordering"
-                    :view="balanceView(account, baseCurrency, store.rates)"
+                    :view="balanceView(account, baseCurrency, rates.table)"
                     :base-currency="baseCurrency"
                   />
                   <Button
@@ -536,23 +575,41 @@ function tintStyle(grouping: AccountGrouping) {
         </TransitionGroup>
         <p class="sr-only" aria-live="polite">{{ announcement }}</p>
 
-        <!-- Balances are a cache of the transactions, kept on every write; this
-             rebuilds them all, should one ever be off. -->
+        <!-- Balances are a cache of the transactions, kept on every write;
+             "Recalculate" rebuilds them all, should one ever be off. "Refresh
+             rates" fetches the newest exchange rates now. -->
         <div v-if="!reordering" class="mt-6 flex flex-col items-center gap-2">
-          <Button
-            label="Recalculate balances"
-            icon="pi pi-refresh"
-            severity="warn"
-            :class="YELLOW_BUTTON"
-            :loading="recalculating"
-            @click="recalculateAll"
-          />
+          <div class="flex flex-wrap justify-center gap-2">
+            <Button
+              label="Recalculate balances"
+              icon="pi pi-refresh"
+              severity="warn"
+              :class="YELLOW_BUTTON"
+              :loading="recalculating"
+              @click="recalculateAll"
+            />
+            <Button
+              label="Refresh rates"
+              icon="pi pi-sync"
+              severity="secondary"
+              outlined
+              :loading="refreshingRates"
+              @click="refreshRates"
+            />
+          </div>
           <p
             v-if="recalculateResult"
             role="status"
             class="text-center text-sm text-gray-600 dark:text-gray-300"
           >
             {{ recalculateResult }}
+          </p>
+          <p
+            v-if="refreshRatesResult"
+            role="status"
+            class="text-center text-sm text-gray-600 dark:text-gray-300"
+          >
+            {{ refreshRatesResult }}
           </p>
         </div>
       </div>

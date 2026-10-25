@@ -32,9 +32,9 @@ type ExchangeRateUpdateInput = Partial<Pick<ExchangeRate, 'rates'>>
 
 /**
  * The id is derived from (date, base_currency, provider), so there is at most
- * one row per key on each device, and the same key gets the same id on every
- * device: sync then resolves two devices' fetches of the same rates as one row
- * (latest wins) rather than failing on a duplicate.
+ * one row per key: a fetch of a publication already held updates that row
+ * (`save`). The table is the device-local reference library and is not
+ * synced; the rates the app applies live in `applied_rates`.
  */
 export function exchangeRateId(date: string, baseCurrency: string, provider: string): UUID {
   return nameBasedId('exchange_rates', date, baseCurrency, provider)
@@ -133,17 +133,6 @@ export class ExchangeRatesRepository {
     const rows = await this.db.exec<ExchangeRateRow>(
       'SELECT * FROM exchange_rates WHERE date = ? AND base_currency = ? AND deleted_at_utc IS NULL ORDER BY provider',
       [date, base_currency],
-    )
-    return rows.map(rowToExchangeRate)
-  }
-
-  /** Every live row of the newest date that has any (all bases and providers). */
-  async latest(): Promise<ExchangeRate[]> {
-    const rows = await this.db.exec<ExchangeRateRow>(
-      `SELECT * FROM exchange_rates
-       WHERE deleted_at_utc IS NULL
-         AND date = (SELECT MAX(date) FROM exchange_rates WHERE deleted_at_utc IS NULL)
-       ORDER BY provider, base_currency`,
     )
     return rows.map(rowToExchangeRate)
   }

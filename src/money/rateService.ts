@@ -24,7 +24,7 @@ export interface RateServiceDeps {
  */
 export class RateService {
   /** Provider days asked for this session: `provider|date` → whether it answered. */
-  private fetches = new Map<string, Promise<boolean>>()
+  private fetches = new Map<string, { job: Promise<boolean>; done: boolean }>()
   /** Pairs being resolved: `date|a|b` → whether a row was written. */
   private ensuring = new Map<string, Promise<boolean>>()
 
@@ -47,7 +47,8 @@ export class RateService {
    */
   async refresh(): Promise<{ newest: string | null }> {
     const { providers, appliedRates, exchangeRates, today } = this.deps
-    this.fetches.clear()
+    // Forget the finished fetches; one still running is as fresh as a new one.
+    for (const [key, entry] of this.fetches) if (entry.done) this.fetches.delete(key)
     const answered = await Promise.all(providers.map((p) => this.fetchDay(p, today())))
     if (!answered.some(Boolean)) throw new Error('None of the rate sources answered.')
     const recent = await appliedRates.listAuto(addDays(today(), -(LOOKBACK_DAYS + 1)))
@@ -113,20 +114,22 @@ export class RateService {
   /** Fetches and stores one provider day, once per session; true when it answered. */
   private fetchDay(provider: RateProvider, date: string): Promise<boolean> {
     const key = `${provider.id}|${date}`
-    let job = this.fetches.get(key)
-    if (!job) {
-      job = (async () => {
-        try {
-          const rows = await provider.fetchDay(date, this.deps.today())
-          for (const row of rows) await this.deps.exchangeRates.save(row)
-          return true
-        } catch (e) {
-          console.warn(`Could not fetch the ${provider.id} rates for ${date}.`, e)
-          return false
-        }
-      })()
-      this.fetches.set(key, job)
-    }
-    return job
+    const known = this.fetches.get(key)
+    if (known) return known.job
+    const entry = { job: Promise.resolve(false), done: false }
+    entry.job = (async () => {
+      try {
+        const rows = await provider.fetchDay(date, this.deps.today())
+        for (const row of rows) await this.deps.exchangeRates.save(row)
+        return true
+      } catch (e) {
+        console.warn(`Could not fetch the ${provider.id} rates for ${date}.`, e)
+        return false
+      } finally {
+        entry.done = true
+      }
+    })()
+    this.fetches.set(key, entry)
+    return entry.job
   }
 }

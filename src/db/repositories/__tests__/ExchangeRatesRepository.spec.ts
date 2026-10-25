@@ -189,7 +189,7 @@ describe('ExchangeRatesRepository', () => {
       provider: 'openexchangerates',
     }
 
-    it('gives the same id on two independent databases (devices), so sync merges them as one row', async () => {
+    it('gives the same id for the same key on every database', async () => {
       const otherDb = new Database()
       await otherDb.init()
       try {

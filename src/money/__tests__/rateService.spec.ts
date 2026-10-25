@@ -152,6 +152,31 @@ describe('RateService', () => {
     await expect(service.refresh()).rejects.toThrow()
   })
 
+  it('refresh shares a fetch already in flight instead of asking again', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const slow = fake('slow', 10)
+    slow.fetchDay = async (date) => {
+      slow.calls.push(date)
+      await gate
+      return [eur('slow', TODAY, { USD: 2 })]
+    }
+    const svc = new RateService({
+      exchangeRates: library,
+      appliedRates: applied,
+      providers: [slow],
+      today: () => TODAY,
+    })
+
+    const ensuring = svc.ensure(TODAY, [['EUR', 'USD']])
+    await vi.waitFor(() => expect(slow.calls).toHaveLength(1))
+    const refreshing = svc.refresh()
+    release()
+    await Promise.all([ensuring, refreshing])
+
+    expect(slow.calls).toEqual([TODAY])
+  })
+
   it('is stale without rates newer than yesterday', async () => {
     expect(await service.isStale()).toBe(true)
     await library.save(eur('agg', '2026-10-23', { USD: 2 }))

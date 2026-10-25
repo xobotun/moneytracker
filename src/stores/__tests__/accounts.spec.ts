@@ -17,7 +17,6 @@ let groupingsRepo: AccountGroupingsRepository
 let transactionsRepo: TransactionsRepository
 vi.mock('@/db/init', () => ({
   getAccountsRepository: () => accountsRepo,
-  getExchangeRatesRepository: () => ({ latest: async () => [] }),
   getAccountGroupingsRepository: () => groupingsRepo,
   getTransactionsRepository: () => transactionsRepo,
 }))
