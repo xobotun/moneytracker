@@ -1,4 +1,5 @@
 import type { ExchangeRate } from '@/db/types'
+import { createFawazahmed0 } from './providers/fawazahmed0'
 
 /** The provider name of the user's own rates (overrides in `applied_rates`). */
 export const MANUAL_PROVIDER = 'manual'
@@ -36,6 +37,9 @@ export function levelOf(provider: string | null, providers: readonly RateProvide
   const first = provider.split('+')[0]
   return providers.find((p) => p.id === first)?.priority ?? Infinity
 }
+
+/** The providers the app asks, in any order (their priorities order them). */
+export const PROVIDERS: readonly RateProvider[] = [createFawazahmed0()]
 
 /** The best level the providers offer (manual aside). */
 export function topLevel(providers: readonly RateProvider[]): number {
