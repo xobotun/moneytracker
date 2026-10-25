@@ -52,6 +52,8 @@ export interface Account {
   location_id: UUID | null
   colour: string
   icon: string
+  grouping_id: UUID | null // the account's group; null = shown below all groups
+  sort_order: number // position within its group; set by create(), update() of grouping_id and arrange()
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null
@@ -73,7 +75,7 @@ export interface AccountGrouping {
   name: string
   colour: string
   icon: string
-  accounts_ids: UUID[]
+  sort_order: number // position among the groups; set by create() and reorder() only
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null

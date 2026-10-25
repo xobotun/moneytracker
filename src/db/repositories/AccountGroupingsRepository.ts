@@ -5,8 +5,6 @@ import {
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
-  jsonArrayFromColumn,
-  jsonArrayToColumn,
   uuidFromColumn,
 } from '../columnMappers'
 
@@ -15,20 +13,19 @@ type AccountGroupingRow = {
   name: string
   colour: string
   icon: string
-  accounts_ids: string
+  sort_order: number
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
 }
 
-type AccountGroupingCreateInput = Omit<
+// sort_order is excluded from both inputs: create() appends, reorder() moves.
+export type AccountGroupingCreateInput = Omit<
   AccountGrouping,
-  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+  'id' | 'sort_order' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
 >
 
-type AccountGroupingUpdateInput = Partial<
-  Omit<AccountGrouping, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
->
+export type AccountGroupingUpdateInput = Partial<AccountGroupingCreateInput>
 
 function rowToAccountGrouping(row: AccountGroupingRow): AccountGrouping {
   return {
@@ -36,23 +33,28 @@ function rowToAccountGrouping(row: AccountGroupingRow): AccountGrouping {
     name: row.name,
     colour: row.colour,
     icon: row.icon,
-    accounts_ids: jsonArrayFromColumn<UUID>(row.accounts_ids),
+    sort_order: row.sort_order,
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
 }
 
+/**
+ * Groups of accounts on the accounts page. Membership lives on the account
+ * (`accounts.grouping_id`), so an account is in at most one grouping.
+ */
 export class AccountGroupingsRepository {
   constructor(private db: Database) {}
 
   async create(input: AccountGroupingCreateInput): Promise<AccountGrouping> {
     const id = newId()
     const now = instantToColumn(new Date())
+    // The position is computed inside the INSERT, so appending stays atomic.
     await this.db.run(
-      `INSERT INTO account_groupings (id, name, colour, icon, accounts_ids, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, input.name, input.colour, input.icon, jsonArrayToColumn(input.accounts_ids), now, now],
+      `INSERT INTO account_groupings (id, name, colour, icon, sort_order, created_at_utc, updated_at_utc)
+       VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM account_groupings), ?, ?)`,
+      [id, input.name, input.colour, input.icon, now, now],
     )
     return (await this.findById(id))!
   }
@@ -67,7 +69,8 @@ export class AccountGroupingsRepository {
 
   async list(): Promise<AccountGrouping[]> {
     const rows = await this.db.exec<AccountGroupingRow>(
-      'SELECT * FROM account_groupings WHERE deleted_at_utc IS NULL ORDER BY name',
+      // Ties are possible after a sync merge (two devices appending at once).
+      'SELECT * FROM account_groupings WHERE deleted_at_utc IS NULL ORDER BY sort_order, name, id',
     )
     return rows.map(rowToAccountGrouping)
   }
@@ -88,10 +91,6 @@ export class AccountGroupingsRepository {
       sets.push('icon = ?')
       params.push(patch.icon)
     }
-    if (patch.accounts_ids !== undefined) {
-      sets.push('accounts_ids = ?')
-      params.push(jsonArrayToColumn(patch.accounts_ids))
-    }
 
     if (sets.length === 0) return
 
@@ -102,11 +101,53 @@ export class AccountGroupingsRepository {
     await this.db.run(`UPDATE account_groupings SET ${sets.join(', ')} WHERE id = ?`, params)
   }
 
+  /**
+   * Stores `ids` as the new order of the groupings (first = position 0),
+   * writing only the ones whose position changes.
+   */
+  async reorder(ids: readonly UUID[]): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      await Promise.all(
+        ids.map((id, position) =>
+          tx.run(
+            'UPDATE account_groupings SET sort_order = ?, updated_at_utc = ? WHERE id = ? AND sort_order <> ?',
+            [position, now, id, position],
+          ),
+        ),
+      )
+    })
+  }
+
+  /**
+   * Soft-deletes the grouping. Its live accounts leave it in the same
+   * transaction and go to the end of the ungrouped accounts, in their order;
+   * the accounts themselves are kept.
+   */
   async softDelete(id: UUID): Promise<void> {
     const now = instantToColumn(new Date())
-    await this.db.run(
-      'UPDATE account_groupings SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
-      [now, now, id],
-    )
+    await this.db.transaction(async (tx) => {
+      const members = await tx.exec<{ id: string }>(
+        `SELECT id FROM accounts WHERE grouping_id = ? AND deleted_at_utc IS NULL
+         ORDER BY sort_order, name, id`,
+        [id],
+      )
+      const end = await tx.exec<{ next: number }>(
+        'SELECT COALESCE(MAX(sort_order) + 1, 0) AS next FROM accounts WHERE grouping_id IS NULL',
+      )
+      const next = end[0]!.next
+      await Promise.all(
+        members.map((member, i) =>
+          tx.run(
+            'UPDATE accounts SET grouping_id = NULL, sort_order = ?, updated_at_utc = ? WHERE id = ?',
+            [next + i, now, member.id],
+          ),
+        ),
+      )
+      await tx.run(
+        'UPDATE account_groupings SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
+        [now, now, id],
+      )
+    })
   }
 }

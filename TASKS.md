@@ -61,7 +61,7 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
     - `tags` (natural string PK)
     - `accounts`
     - `exchange_rates` (per-provider rows; id is a UUIDv5 of (date, base currency, provider), so one row per key and two devices' copies merge as one row)
-    - `account_groupings` (members stored as JSON array of account UUIDs)
+    - `account_groupings` (membership: `accounts.grouping_id`, one group per account)
     - `transactions` — double-entry, nullable from/to legs for "Global Economy" income/spend
 - Sync columns on every domain table: `created_at_utc`, `updated_at_utc`, `deleted_at_utc`
 - Soft-delete pattern; repos filter out deleted rows by default
@@ -179,6 +179,45 @@ exercised end-to-end.
   `.oxlintrc.json`, CI type-check, a test that could never fail fixed,
   rollback / UUIDv7-ordering / constraint-specific tests added
 
+### Accounts UI (list, edit, groups, reorder)
+
+- `/accounts` page (nav item "Accounts"): groups as blocks holding their
+  accounts, accounts in no group below them; colour + icon badge, currency
+  and tags, an Edit button per row (label from `sm` up); empty state
+- A group block's background is derived from the group colour, not picked:
+  its hue at the neutral block's OKLCH lightness, one shade per theme
+  (`groupTint.ts`; chroma lowered to fit sRGB near white/black)
+- Create / edit dialog: name, currency (suggests codes in use, then ISO 4217,
+  each with its symbol and name; searchable by code or name; custom codes
+  like BTC allowed), icon (quick picks + a searchable popover with every
+  PrimeIcons icon), colour (presets + custom), free-form tags. New accounts
+  start at a zero balance (no starting-balance field)
+- `src/format/currency.ts`: `currencySymbol` / `currencyName` via `Intl`
+- Delete with an inline confirmation; refused while live transactions use
+  the account (a soft delete skips the FK check)
+- Reorder mode (all grouping is behind it): add / edit / delete groups (name,
+  icon, colour; deleting keeps its accounts, they move below the groups),
+  reorder groups, reorder accounts and move them between groups. Drag and
+  drop with a mouse (native, whole row) or a finger/pen (from the grip,
+  `usePointerDrag`: the grip has `touch-action: none` so it never scrolls,
+  the rest of the list still does; a 100 ms hold guards against brushes;
+  auto-scroll near the edges) — onto an account, a group header, an empty
+  group, or (a group) anywhere on another group's block. Native dragging is
+  off where no fine pointer exists, so it cannot fight the finger drag.
+  Up/down buttons for touch and keyboard — an account's arrows run through
+  the whole page, crossing into the neighbouring group. Focus follows the
+  moved row, moves are announced
+- Schema (`002` edited in place; synced): `account_groupings.sort_order`;
+  `accounts.grouping_id` (FK, NULL = no group) + `accounts.sort_order`
+  (position within its group). New accounts append to their group;
+  `AccountsRepository.arrange(groupingId, ids)` and a `grouping_id` change in
+  `update()` place accounts, writing only rows whose place changed;
+  `AccountGroupingsRepository.softDelete` re-homes the group's accounts in
+  the same transaction. An account pointing at a deleted group (sync race)
+  shows with the ungrouped ones
+- `useAccountsStore` (Pinia, write-through: persist, then re-read): accounts,
+  groups and the `sections` the page renders
+
 ---
 
 ## To Do
@@ -195,20 +234,20 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Accounts, transactions, tags, locations, exchange rates, account groupings
+    - Transactions, tags, locations, exchange rates (accounts and account groupings: done, one store — see Accounts UI)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
 ### CRUD UI
 
-- Accounts
-    - List, create, edit, soft-delete
-    - Currency, colour, icon, optional home location, tags
-    - No starting-balance field: a new account starts at 0 and its existing money is entered as an income transaction
+- Accounts (list, create, edit, delete, reorder: done, see Accounts UI)
+    - Optional home location picker (needs the Locations UI first; the dialog leaves `location_id` untouched)
+    - Show a balance once `accounts.balance_*` semantics are decided
 - Transactions
     - List with filters (by account, by date range, by tag)
     - Create — expense, income, transfer
     - Dual-currency input (account currency + purchase currency)
+    - Amounts show the currency symbol where one exists (`currencySymbol`: $, €, ₽), the code otherwise; lists of accounts keep the code
     - Tag picker with autocomplete (resolve synonyms)
     - Date/time + timezone picker; date-override field
     - Location picker (existing location, lat/lon pin, or free-form)
@@ -216,7 +255,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Edit, soft-delete
 - Tags — list, create, edit synonyms, soft-delete
 - Locations — list, create, edit, soft-delete
-- Account groupings — list, create, edit member accounts, soft-delete
 
 ### Exchange rates
 
