@@ -6,10 +6,14 @@ import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
 import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
+import BalanceDisplay from '@/components/accounts/BalanceDisplay.vue'
+import { YELLOW_BUTTON } from '@/components/accounts/yellowButton'
 import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
 import { groupTints } from '@/components/accounts/groupTint'
 import { usePointerDrag } from './usePointerDrag'
 import { useAccountsStore, type AccountSection } from '@/stores/accounts'
+import { useMoneySettingsStore } from '@/stores/moneySettings'
+import { balanceView, totalView } from '@/money/totals'
 import type { Account, AccountGrouping } from '@/db/types'
 import type { UUID } from '@/db/uuid'
 
@@ -25,6 +29,32 @@ onMounted(async () => {
 })
 
 const isEmpty = computed(() => store.accounts.length === 0 && store.groupings.length === 0)
+
+// --- Balances: native, plus ≈ the base currency (see money/totals) ---
+
+const money = useMoneySettingsStore()
+const baseCurrency = computed(() => money.baseCurrency)
+const pageTotal = computed(() => totalView(store.accounts, baseCurrency.value, store.rates))
+const groupTotal = (section: AccountSection) =>
+  totalView(section.accounts, baseCurrency.value, store.rates)
+
+const recalculating = ref(false)
+const recalculateResult = ref<string | null>(null)
+
+async function recalculateAll() {
+  recalculating.value = true
+  try {
+    const changed = await store.recalculateBalances()
+    recalculateResult.value =
+      changed === 0
+        ? 'Recalculated: every balance was already right.'
+        : `Recalculated: ${changed} balance${changed === 1 ? ' was' : 's were'} off and ${changed === 1 ? 'is' : 'are'} fixed now.`
+  } catch (e) {
+    recalculateResult.value = `Could not recalculate the balances. ${(e as Error).message}`
+  } finally {
+    recalculating.value = false
+  }
+}
 const sectionKey = (section: AccountSection) => section.grouping?.id ?? 'ungrouped'
 
 // --- Editing ---
@@ -288,6 +318,16 @@ function tintStyle(grouping: AccountGrouping) {
           {{ moveError }}
         </Message>
 
+        <div
+          v-if="!reordering && pageTotal"
+          class="mb-3 flex items-center justify-between gap-3 px-3"
+          aria-label="Total of all accounts"
+          role="group"
+        >
+          <span class="font-semibold">Total</span>
+          <BalanceDisplay :view="pageTotal" :base-currency="baseCurrency" />
+        </div>
+
         <TransitionGroup
           tag="div"
           move-class="transition-transform duration-200"
@@ -343,6 +383,12 @@ function tintStyle(grouping: AccountGrouping) {
               </span>
               <AccountBadge :icon="section.grouping.icon" :colour="section.grouping.colour" small />
               <h2 class="min-w-0 flex-1 truncate font-semibold">{{ section.grouping.name }}</h2>
+              <BalanceDisplay
+                v-if="!reordering && groupTotal(section)"
+                :view="groupTotal(section)!"
+                :base-currency="baseCurrency"
+                class="pr-2"
+              />
               <template v-if="reordering">
                 <Button
                   label="Edit"
@@ -428,6 +474,11 @@ function tintStyle(grouping: AccountGrouping) {
                       </span>
                     </span>
                   </span>
+                  <BalanceDisplay
+                    v-if="!reordering"
+                    :view="balanceView(account, baseCurrency, store.rates)"
+                    :base-currency="baseCurrency"
+                  />
                   <Button
                     v-if="!reordering"
                     label="Edit"
@@ -484,6 +535,26 @@ function tintStyle(grouping: AccountGrouping) {
           </section>
         </TransitionGroup>
         <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+
+        <!-- Balances are a cache of the transactions, kept on every write; this
+             rebuilds them all, should one ever be off. -->
+        <div v-if="!reordering" class="mt-6 flex flex-col items-center gap-2">
+          <Button
+            label="Recalculate balances"
+            icon="pi pi-refresh"
+            severity="warn"
+            :class="YELLOW_BUTTON"
+            :loading="recalculating"
+            @click="recalculateAll"
+          />
+          <p
+            v-if="recalculateResult"
+            role="status"
+            class="text-center text-sm text-gray-600 dark:text-gray-300"
+          >
+            {{ recalculateResult }}
+          </p>
+        </div>
       </div>
 
       <AccountEditDialog v-model:visible="accountDialogVisible" :account="editingAccount" />

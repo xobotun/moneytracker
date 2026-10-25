@@ -227,8 +227,8 @@ exercised end-to-end.
 - Shared `CurrencyInput` component and currency-code helpers
   (`currencyCodeError`, `normaliseCurrencyCode`, `currencySuggestions` in
   `src/format/currency.ts`), used by the account dialog too
-- Not yet used: account balances and group totals in the base currency are
-  next (where to keep a running balance is still open)
+- Used by the Accounts page: ≈ amounts and mixed-currency totals are shown
+  in it (see "Account balances")
 
 ### Account balances (cache)
 
@@ -244,6 +244,18 @@ exercised end-to-end.
   and the database hash skip the cache, and `mergeDatabases` rebuilds it in
   its transaction, so devices converge without false conflicts
 - An account that transactions use cannot change its currency
+- Accounts page: each account shows its balance in its own currency, plus
+  ≈ the base currency (smaller) when that is another. A group header shows
+  its accounts' sum: natively when they share one currency (+ ≈ base when
+  it is another), only ≈ base when mixed; the page total the same over all
+  accounts. A missing rate is named ("no BTC → EUR rate") instead of a sum
+- Yellow "Recalculate balances" button below the list (all accounts) and
+  "Recalculate" next to Delete in the account dialog (that account); both
+  say whether anything was off
+- Conversions use the PLACEHOLDER rate rules in `src/money/rates.ts` (see
+  Exchange rates under To Do); the `exchange_rates` table is empty until a
+  fetcher exists, so ≈ amounts show "no … rate" for now
+
 
 ---
 
@@ -269,7 +281,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 - Accounts (list, create, edit, delete, reorder: done, see Accounts UI)
     - Optional home location picker (needs the Locations UI first; the dialog leaves `location_id` untouched)
-    - Show a balance once `accounts.balance_*` semantics are decided
 - Transactions
     - List with filters (by account, by date range, by tag)
     - Create — expense, income, transfer

@@ -1,8 +1,9 @@
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import {
   getAccountGroupingsRepository,
   getAccountsRepository,
+  getExchangeRatesRepository,
   getTransactionsRepository,
 } from '@/db/init'
 import type { Account, AccountGrouping } from '@/db/types'
@@ -12,6 +13,7 @@ import type {
   AccountGroupingUpdateInput,
 } from '@/db/repositories/AccountGroupingsRepository'
 import type { UUID } from '@/db/uuid'
+import { RateTable } from '@/money/rates'
 
 /** One block of the accounts page: a group with its accounts, or (grouping null) the rest. */
 export interface AccountSection {
@@ -31,6 +33,8 @@ export const useAccountsStore = defineStore('accounts', () => {
   const accounts = ref<Account[]>([])
   const groupings = ref<AccountGrouping[]>([])
   const loaded = ref(false)
+  // Rates to show balances in the base currency (placeholder rules, see RateTable).
+  const rates = shallowRef(RateTable.empty)
 
   /**
    * Each live group with its accounts, in order, then a last section with the
@@ -51,12 +55,14 @@ export const useAccountsStore = defineStore('accounts', () => {
   })
 
   async function load(): Promise<void> {
-    const [accountList, groupingList] = await Promise.all([
+    const [accountList, groupingList, rateRows] = await Promise.all([
       getAccountsRepository().list(),
       getAccountGroupingsRepository().list(),
+      getExchangeRatesRepository().latest(),
     ])
     accounts.value = accountList
     groupings.value = groupingList
+    rates.value = RateTable.fromRows(rateRows)
     loaded.value = true
   }
 
@@ -191,6 +197,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     accounts,
     groupings,
     loaded,
+    rates,
     sections,
     load,
     create,

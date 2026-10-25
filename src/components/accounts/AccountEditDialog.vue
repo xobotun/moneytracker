@@ -8,9 +8,11 @@ import Message from 'primevue/message'
 import AccountBadge from './AccountBadge.vue'
 import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
+import { YELLOW_BUTTON } from './yellowButton'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
 import CurrencyInput from '@/components/CurrencyInput.vue'
+import { formatMoney } from '@/format/currency'
 import {
   createInputFromDraft,
   currenciesByUse,
@@ -34,6 +36,8 @@ const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
 const error = ref<string | null>(null)
+const recalculating = ref(false)
+const recalculated = ref<string | null>(null)
 
 // Start from a fresh draft each time the dialog opens.
 watch(
@@ -44,6 +48,7 @@ watch(
     submitted.value = false
     confirmingDelete.value = false
     error.value = null
+    recalculated.value = null
   },
   { immediate: true },
 )
@@ -70,6 +75,26 @@ async function save() {
     error.value = `Could not save the account. ${(e as Error).message}`
   } finally {
     saving.value = false
+  }
+}
+
+// The balance is a cache of the transactions; this rebuilds it for this account.
+async function recalculate() {
+  if (!props.account) return
+  const id = props.account.id
+  recalculating.value = true
+  error.value = null
+  try {
+    const changed = await store.recalculateBalance(id)
+    const balance = store.accounts.find((a) => a.id === id)?.balance
+    const shown = balance ? formatMoney(balance) : ''
+    recalculated.value = changed
+      ? `The balance was off; it is ${shown} now.`
+      : `The balance was already right: ${shown}.`
+  } catch (e) {
+    error.value = `Could not recalculate the balance. ${(e as Error).message}`
+  } finally {
+    recalculating.value = false
   }
 }
 
@@ -166,6 +191,7 @@ async function remove() {
       </div>
 
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+      <Message v-if="recalculated" severity="info" :closable="false">{{ recalculated }}</Message>
 
       <div
         v-if="confirmingDelete && account"
@@ -198,8 +224,23 @@ async function remove() {
           icon="pi pi-trash"
           severity="danger"
           text
+          aria-label="Delete account"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
           :disabled="saving"
           @click="confirmingDelete = true"
+        />
+        <Button
+          v-if="account"
+          type="button"
+          label="Recalculate"
+          icon="pi pi-refresh"
+          severity="warn"
+          :class="YELLOW_BUTTON"
+          aria-label="Recalculate balance"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :loading="recalculating"
+          :disabled="saving"
+          @click="recalculate"
         />
         <span class="flex-1" />
         <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />

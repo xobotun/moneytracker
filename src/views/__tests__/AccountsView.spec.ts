@@ -8,16 +8,22 @@ import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
-import { zeroMoney } from '@/db/MoneyAmount'
+import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
+import { localMoment } from '@/db/LocalMoment'
+import type { ExchangeRate } from '@/db/types'
+import type { UUID } from '@/db/uuid'
+import { formatApprox, formatMoney } from '@/format/currency'
 import AccountsView from '../AccountsView.vue'
 
 // Real store and repositories over an in-memory database; only the
 // module-level repository registry is replaced.
 let accountsRepo: AccountsRepository
 let groupingsRepo: AccountGroupingsRepository
+let rateRows: ExchangeRate[] = []
 let transactionsRepo: TransactionsRepository
 vi.mock('@/db/init', () => ({
   getAccountsRepository: () => accountsRepo,
+  getExchangeRatesRepository: () => ({ latest: async () => rateRows }),
   getAccountGroupingsRepository: () => groupingsRepo,
   getTransactionsRepository: () => transactionsRepo,
 }))
@@ -58,6 +64,7 @@ describe('AccountsView', () => {
   })
 
   beforeEach(async () => {
+    rateRows = []
     pinia = createPinia()
     setActivePinia(pinia)
     db = new Database()
@@ -440,6 +447,127 @@ describe('AccountsView', () => {
       pointer('pointerup', window, { y: 20, pointerType: 'mouse' })
       await settle()
       expect(listedNames(w)).toEqual(['A', 'B', 'C'])
+    })
+  })
+
+  describe('balances', () => {
+    function accountIn(name: string, currency: string, grouping_id: UUID | null = null) {
+      return accountsRepo.create({
+        name,
+        balance: zeroMoney(currency),
+        tags: [],
+        location_id: null,
+        grouping_id,
+        colour: '#3b82f6',
+        icon: 'wallet',
+      })
+    }
+
+    // Income: the transaction write refreshes the account's cached balance.
+    function income(to: UUID, value: number, currency: string) {
+      return transactionsRepo.create({
+        account_id__from: null,
+        account_id__to: to,
+        amount__from: moneyAmount(value, 2, currency),
+        amount__to: moneyAmount(value, 2, currency),
+        transaction_at: localMoment('2026-10-01T12:00:00.000+02:00', 'Europe/Berlin'),
+        date_override: null,
+        tags: [],
+        location_lat: null,
+        location_lon: null,
+        location_id: null,
+      })
+    }
+
+    function eurRates(rates: Record<string, number>) {
+      rateRows = [
+        {
+          id: 'r' as UUID,
+          date: '2026-10-24',
+          base_currency: 'EUR',
+          rates,
+          provider: 'test',
+          created_at_utc: new Date(),
+          updated_at_utc: new Date(),
+          deleted_at_utc: null,
+        },
+      ]
+    }
+
+    const rowText = (w: VueWrapper, name: string) =>
+      w
+        .findAll('li')
+        .find((li) => li.text().includes(name))!
+        .text()
+
+    it('shows each balance natively, and ≈ EUR for another currency', async () => {
+      eurRates({ USD: 2 })
+      const cash = await accountIn('Cash', 'EUR')
+      const card = await accountIn('Card', 'USD')
+      await income(cash.id, 1250, 'EUR')
+      await income(card.id, 1000, 'USD')
+      const w = await mountView()
+
+      expect(rowText(w, 'Cash')).toContain(formatMoney(moneyAmount(1250, 2, 'EUR')))
+      expect(rowText(w, 'Cash')).not.toContain('≈')
+      expect(rowText(w, 'Card')).toContain(formatMoney(moneyAmount(1000, 2, 'USD')))
+      expect(rowText(w, 'Card')).toContain(`≈ ${formatApprox({ value: 5, currency: 'EUR' })}`)
+    })
+
+    it('says when there is no rate to the base currency', async () => {
+      await accountIn('Card', 'USD')
+      const w = await mountView()
+      expect(rowText(w, 'Card')).toContain('no USD → EUR rate')
+    })
+
+    it('totals a one-currency group natively, a mixed page in EUR only', async () => {
+      eurRates({ USD: 2 })
+      const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      const a = await accountIn('Card A', 'USD', trip.id)
+      const b = await accountIn('Card B', 'USD', trip.id)
+      const cash = await accountIn('Cash', 'EUR')
+      await income(a.id, 300, 'USD')
+      await income(b.id, 100, 'USD')
+      await income(cash.id, 1000, 'EUR')
+      const w = await mountView()
+
+      const header = w.find('section[aria-label="Trip"] > div').text()
+      expect(header).toContain(formatMoney(moneyAmount(400, 2, 'USD')))
+      expect(header).toContain(`≈ ${formatApprox({ value: 2, currency: 'EUR' })}`)
+
+      const total = w.find('[aria-label="Total of all accounts"]').text()
+      expect(total).not.toContain('$')
+      expect(total).toContain(`≈ ${formatApprox({ value: 12, currency: 'EUR' })}`)
+    })
+
+    it('rebuilds stale balances with the page button and says so', async () => {
+      const cash = await accountIn('Cash', 'EUR')
+      await income(cash.id, 1250, 'EUR')
+      await db.run('UPDATE accounts SET balance_value = 1 WHERE id = ?', [cash.id])
+      const w = await mountView()
+      expect(rowText(w, 'Cash')).toContain(formatMoney(moneyAmount(1, 2, 'EUR')))
+
+      buttonByText('Recalculate balances').click()
+      await settle()
+
+      expect(rowText(w, 'Cash')).toContain(formatMoney(moneyAmount(1250, 2, 'EUR')))
+      expect(w.text()).toContain('1 balance was off and is fixed now.')
+    })
+
+    it('rebuilds one balance from the account dialog', async () => {
+      const cash = await accountIn('Cash', 'EUR')
+      await income(cash.id, 1250, 'EUR')
+      await db.run('UPDATE accounts SET balance_value = 1 WHERE id = ?', [cash.id])
+      const w = await mountView()
+      await w.find('button[aria-label="Edit Cash"]').trigger('click')
+      await settle()
+
+      document.querySelector<HTMLButtonElement>('button[aria-label="Recalculate balance"]')!.click()
+      await settle()
+
+      expect(document.body.textContent).toContain(
+        `The balance was off; it is ${formatMoney(moneyAmount(1250, 2, 'EUR'))} now.`,
+      )
     })
   })
 })
