@@ -7,6 +7,7 @@ import Tag from 'primevue/tag'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
 import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
 import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
+import { groupTints } from '@/components/accounts/groupTint'
 import { useAccountsStore, type AccountSection } from '@/stores/accounts'
 import type { Account, AccountGrouping } from '@/db/types'
 import type { UUID } from '@/db/uuid'
@@ -184,6 +185,12 @@ async function dropOnEmptySection(section: AccountSection) {
 
 const dropHighlight = (key: string) =>
   dropKey.value === key ? 'border-(--p-primary-color)' : 'border-gray-200 dark:border-gray-700'
+
+// A group block is tinted with the group's hue; the theme picks the shade.
+function tintStyle(grouping: AccountGrouping) {
+  const { light, dark } = groupTints(grouping.colour)
+  return { '--tint-light': light, '--tint-dark': dark }
+}
 </script>
 
 <template>
@@ -253,9 +260,10 @@ const dropHighlight = (key: string) =>
             :aria-label="section.grouping ? section.grouping.name : 'Accounts in no group'"
             :class="
               section.grouping
-                ? 'flex flex-col gap-2 rounded-xl bg-gray-100 p-2 dark:bg-white/5'
+                ? 'flex flex-col gap-2 rounded-xl bg-(--tint-light) p-2 dark:bg-(--tint-dark)'
                 : ''
             "
+            :style="section.grouping ? tintStyle(section.grouping) : undefined"
           >
             <!-- Group header -->
             <div

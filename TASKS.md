@@ -184,6 +184,9 @@ exercised end-to-end.
 - `/accounts` page (nav item "Accounts"): groups as blocks holding their
   accounts, accounts in no group below them; colour + icon badge, currency
   and tags, an Edit button per row (label from `sm` up); empty state
+- A group block's background is derived from the group colour, not picked:
+  its hue at the neutral block's OKLCH lightness, one shade per theme
+  (`groupTint.ts`; chroma lowered to fit sRGB near white/black)
 - Create / edit dialog: name, currency (suggests codes in use, then ISO 4217,
   each with its symbol and name; searchable by code or name; custom codes
   like BTC allowed), icon (quick picks + a searchable popover with every
