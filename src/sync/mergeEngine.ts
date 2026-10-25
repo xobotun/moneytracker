@@ -4,6 +4,8 @@ import type { SyncTable } from './syncTables'
 import { changedSince, readRows, rowsEqual, upsertRow } from './rows'
 import { resolveConflict } from './resolveConflict'
 import { SYNC_TABLES } from './syncTables'
+import { DERIVED_COLUMNS } from './syncColumns'
+import { recalculateBalances } from '../db/balances'
 
 /** Index a list of rows by the value of their primary key column. */
 function indexByPk(rows: SyncRow[], pk: string): Map<string, SyncRow> {
@@ -44,7 +46,7 @@ export async function mergeTable(
     }
 
     // Same row on both sides → nothing to do.
-    if (rowsEqual(localRow, remoteRow)) continue
+    if (rowsEqual(localRow, remoteRow, DERIVED_COLUMNS[table.name])) continue
 
     const localChanged = changedSince(localRow, cutoff)
     const remoteChanged = changedSince(remoteRow, cutoff)
@@ -96,6 +98,9 @@ export async function mergeDatabases(
     for (const table of SYNC_TABLES) {
       conflicts.push(...(await mergeTable(tx, remote, table, cutoff)))
     }
+    // The derived columns were not merged: rebuild them from the merged rows,
+    // so every device ends up with the same values (and the same hash).
+    await recalculateBalances(tx)
     return conflicts
   })
 }

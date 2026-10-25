@@ -230,6 +230,21 @@ exercised end-to-end.
 - Not yet used: account balances and group totals in the base currency are
   next (where to keep a running balance is still open)
 
+### Account balances (cache)
+
+- `accounts.balance_value` / `balance_scale` cache each account's balance
+  in its own currency, from its live transactions (incoming minus outgoing,
+  exact across scales; legs in another currency are not its money). Display
+  and totals only, never financial truth. `recalculateBalances`
+  (`src/db/balances.ts`) rebuilds it: on every transaction create / update /
+  delete (same database transaction, every account touched before and
+  after), after every sync merge, and on demand. It never bumps
+  `updated_at_utc`
+- Sync: `DERIVED_COLUMNS` (`src/sync/syncColumns.ts`) — the merge comparison
+  and the database hash skip the cache, and `mergeDatabases` rebuilds it in
+  its transaction, so devices converge without false conflicts
+- An account that transactions use cannot change its currency
+
 ---
 
 ## To Do
@@ -367,5 +382,5 @@ Known sync defects, postponed (review 2026-10-18):
 ### Known defects / open decisions
 
 - A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline
-- `accounts.balance_*` semantics are undecided (it is not a starting balance — see CRUD UI); the column is named `currency` rather than `balance_currency`
+- `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)

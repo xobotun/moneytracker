@@ -183,4 +183,25 @@ describe('mergeDatabases', () => {
 
     expect(await readRows(local, 'exchange_rates')).toHaveLength(1)
   })
+
+  it('rebuilds the cached balances from the merged transactions', async () => {
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    await seedAccount(local, { id: 'acc-9', name: 'Cash', created: CUTOFF, updated: CUTOFF })
+    await seedAccount(remote, { id: 'acc-9', name: 'Cash', created: CUTOFF, updated: CUTOFF })
+    // The remote spent 1.00 USD from it; the local cache has not seen that.
+    await seedTransaction(remote, {
+      id: 'txn-9',
+      accountFrom: 'acc-9',
+      created: CUTOFF,
+      updated: CUTOFF,
+    })
+    await remote.run("UPDATE accounts SET balance_value = -100 WHERE id = 'acc-9'")
+
+    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+    expect(conflicts).toHaveLength(0)
+    const [account] = await readRows(local, 'accounts')
+    expect(account).toMatchObject({ balance_value: -100, balance_scale: 2, updated_at_utc: CUTOFF })
+  })
 })

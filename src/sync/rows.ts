@@ -26,11 +26,11 @@ function valueEquals(a: unknown, b: unknown): boolean {
   return false
 }
 
-/** True when two rows have identical values for every column. */
-export function rowsEqual(a: SyncRow, b: SyncRow): boolean {
+/** True when two rows have identical values for every column except `ignore`. */
+export function rowsEqual(a: SyncRow, b: SyncRow, ignore: readonly string[] = []): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)])
   for (const key of keys) {
-    if (!valueEquals(a[key], b[key])) return false
+    if (!ignore.includes(key) && !valueEquals(a[key], b[key])) return false
   }
   return true
 }
