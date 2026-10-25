@@ -257,10 +257,42 @@ exercised end-to-end.
 - Yellow "Recalculate balances" button below the list (all accounts) and
   "Recalculate" next to Delete in the account dialog (that account); both
   say whether anything was off
-- Conversions use the PLACEHOLDER rate rules in `src/money/rates.ts` (see
-  Exchange rates under To Do; the replacement is decided); the
-  `exchange_rates` table is empty until a fetcher exists, so ≈ amounts show
-  "no … rate" for now
+- Conversions use today's applied exchange rates (see Exchange rates — phase 1)
+
+### Exchange rates — phase 1
+
+Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md):
+
+- Providers in code with a `priority` (`src/money/providers.ts`; equal = one
+  level): `manual` 0, central banks 10 (phase 2), fawazahmed0 20,
+  openexchangerates 30 (phase 3)
+- Pure resolution rules (`src/money/resolveRate.ts`): per level a direct rate
+  (either direction), else a cross through one currency (legs may come from
+  two providers of the level), else the next level; newest rate on or before
+  the day, up to 7 days back; `isFinal` / `isBetter` keep rows from
+  downgrading
+- fawazahmed0 provider: its EUR file only (the other bases are crosses), CDN
+  then the Pages mirror, `latest` for today and yesterday, nothing before
+  2024-03-02, junk codes dropped
+- `applied_rates` (synced): one row per (date, A < B), `rate` (NULL = none
+  found), `provider` (`manual` = override, `p1+p2` = cross over two),
+  `via`, `reference_date`; repository with `saveAuto` (never over a manual
+  row), `setManual`, `removeManual`. Sync: rows devices compute alike are no
+  conflict and no hash difference (`EQUALITY_IGNORED_COLUMNS`); a conflict
+  goes to the higher `ROW_RANK` — manual > direct > cross > none
+- `exchange_rates` is the device-local reference library (out of
+  `SYNC_TABLES`; rides along unmerged in a SQLite-blob upload), with `save`
+  (upsert), `listBetween`, `newestDate`
+- `RateService` (`src/money/rateService.ts`): `ensure` resolves a day's pairs,
+  fetching each provider day once per session (concurrent callers share the
+  request, failures logged as "nothing there"), NULL rows for pairs nothing
+  resolves; `refresh` fetches every provider's newest and re-resolves the last
+  8 days' non-final rows; `isStale`
+- `useRatesStore`: today's `RateTable`; the Accounts page asks for each
+  account currency → base pair in the background and updates when rates
+  arrive; "Refresh rates" button beside "Recalculate balances" with a status
+  line; the app refreshes at start when the newest rate is older than
+  yesterday
 
 
 ---
@@ -279,7 +311,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Transactions, tags, locations, exchange rates (accounts and account groupings: done, one store — see Accounts UI)
+    - Transactions, tags, locations (accounts and account groupings: done, one store — see Accounts UI; exchange rates: `useRatesStore` holds today's applied rates)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
@@ -303,21 +335,16 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Exchange rates
 
 Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md)
-(sources checked, priorities, resolution rules, tables, the rates-repo contract). Phases:
+(sources checked, priorities, resolution rules, tables, the rates-repo contract).
+Phase 1 is done (see Done above). Next:
 
-1. Rate resolution replacing the PLACEHOLDER rules in `src/money/rates.ts`:
-    - Providers in code with a `priority` (equal = one level): `manual` → central banks → fawazahmed0 → openexchangerates
-    - Per level: direct rate (either direction), else a cross through one currency (legs may come from two providers of the level), else the next level; newest rate on or before the date, up to 7 days back
-    - New synced `applied_rates` table — one row per (date, A < B), `rate` (NULL = none found), `provider` (`manual` = override), `via` (cross), `reference_date` (the day the data comes from); the rows with `via` or a NULL rate are the review list of pairs lacking a direct rate
-    - A `manual` row always wins a sync conflict against an auto one (a table-specific rule in `resolveConflict`, after "delete wins")
-    - `exchange_rates` stays the reference library (one row per date, base, provider) but becomes device-local: out of `SYNC_TABLES` / `SYNC_COLUMNS` (the SQLite-blob export still carries it; accepted for now)
-    - Fetcher: fawazahmed0; upsert into `exchange_rates` (`create` rejects an existing (date, base, provider) key, so a fetcher must update the existing row)
-    - Refresh on app start (newest rate older than yesterday, online), a "Refresh rates" button, lazy backfill on a miss; non-final applied rows resolved again when better data arrives
-2. Rates repo — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level
-3. openexchangerates (App ID per device)
-4. UI for manual overrides and the review list
+2. Rates repo — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export, CBR) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level (priority 10)
+    - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days; with fawazahmed0 alone nothing older could improve)
+3. openexchangerates (App ID per device; priority 30)
+4. UI for manual overrides (`setManual` / `removeManual` exist) and the review list (`applied_rates` rows with `via` set or a NULL rate)
 5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN); Russian central bank
-- Transaction form (with the Transactions UI): pre-fill the second amount from the applied rate of the transaction's date; the stored amounts stay the truth
+- Transaction form (with the Transactions UI): pre-fill the second amount from the applied rate of the transaction's date (`RateService.ensure(date, …)`); the stored amounts stay the truth
+- Reports: convert each transaction at its own date's applied rate (a leg already in the base currency needs no rate)
 
 ### Aggregation & reporting
 

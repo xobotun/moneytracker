@@ -1,8 +1,8 @@
 # Exchange Rates — Decisions
 
-**Status:** Decisions agreed 2026-10-25 in a brainstorming session. Not built
-yet; a design and an implementation plan follow. Replaces the PLACEHOLDER
-rules in `src/money/rates.ts`.
+**Status:** Decisions agreed 2026-10-25 in a brainstorming session. Phase 1
+(below) built 2026-10-25 on branch `exchange-rates`; it replaced the
+placeholder rules in `src/money/rates.ts`.
 
 **Goal:** Convert amounts between currencies for display, reports and the
 transaction form, using authoritative rates where they exist, working
@@ -125,6 +125,12 @@ For a currency pair on a date:
   table-specific rule in `resolveConflict`, applied after "delete wins".
   Without it, a device that auto-filled the same day after the override was
   set would win on the newer timestamp and silently drop the override.
+  Built as a rank (`ROW_RANK`): manual > direct > cross > none found, so a
+  found rate is not lost to an empty row from an offline device either.
+- **Rows two devices compute alike are no conflict.** Two devices resolving
+  the same rate write identical rows at different moments; the merge
+  comparison and the database hash skip `applied_rates` timestamps
+  (`EQUALITY_IGNORED_COLUMNS`).
   - Removing an override turns the row back into an auto row (resolved
     again, `rate` NULL until then).
   - An override edited on one device while removed on another (both before
