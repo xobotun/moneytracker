@@ -61,6 +61,8 @@ export const migration: Migration = {
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
     );
 
+    -- The reference library: rates as each provider publishes them. Device-local
+    -- (not synced): it can always be downloaded again.
     CREATE TABLE exchange_rates (
       id              TEXT PRIMARY KEY,                                  -- UUIDv5 of (date, base_currency, provider): one row per key
       date            TEXT NOT NULL,                                     -- 'YYYY-MM-DD' calendar date
@@ -72,6 +74,24 @@ export const migration: Migration = {
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
     );
     CREATE INDEX idx_exchange_rates_lookup ON exchange_rates(date, base_currency);
+
+    -- The rate the app uses for a day and a currency pair: resolved from the
+    -- library, or the user's override (provider 'manual'). Synced.
+    CREATE TABLE applied_rates (
+      id              TEXT PRIMARY KEY,                                  -- UUIDv5 of (date, currency_a, currency_b): one row per key
+      date            TEXT NOT NULL,                                     -- 'YYYY-MM-DD' the day the rate applies to
+      currency_a      TEXT NOT NULL,                                     -- the pair in alphabetical order
+      currency_b      TEXT NOT NULL,
+      rate            REAL,                                              -- units of currency_b per 1 currency_a; NULL = none found
+      provider        TEXT,                                              -- 'manual', a provider id, or 'p1+p2' for a cross over two; NULL = none found
+      via             TEXT,                                              -- intermediate currency of a cross rate; NULL = direct
+      reference_date  TEXT,                                              -- 'YYYY-MM-DD' the data comes from; NULL = none found
+      created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      deleted_at_utc  TEXT,                                              -- ISO 8601 UTC instant; NULL = live
+      CHECK (currency_a < currency_b)
+    );
+    CREATE INDEX idx_applied_rates_date ON applied_rates(date);
 
     CREATE TABLE transactions (
       id                       TEXT PRIMARY KEY,                         -- UUIDv7

@@ -6,6 +6,7 @@ import { TagsRepository } from './repositories/TagsRepository'
 import { LocationsRepository } from './repositories/LocationsRepository'
 import { AccountsRepository } from './repositories/AccountsRepository'
 import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
+import { AppliedRatesRepository } from './repositories/AppliedRatesRepository'
 import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from './repositories/TransactionsRepository'
 import type { SyncBackend } from '../sync/SyncBackend'
@@ -22,6 +23,7 @@ let tagsRepository: TagsRepository | null = null
 let locationsRepository: LocationsRepository | null = null
 let accountsRepository: AccountsRepository | null = null
 let exchangeRatesRepository: ExchangeRatesRepository | null = null
+let appliedRatesRepository: AppliedRatesRepository | null = null
 let accountGroupingsRepository: AccountGroupingsRepository | null = null
 let transactionsRepository: TransactionsRepository | null = null
 
@@ -34,6 +36,7 @@ export async function initDatabase(): Promise<void> {
   locationsRepository = new LocationsRepository(database)
   accountsRepository = new AccountsRepository(database)
   exchangeRatesRepository = new ExchangeRatesRepository(database)
+  appliedRatesRepository = new AppliedRatesRepository(database)
   accountGroupingsRepository = new AccountGroupingsRepository(database)
   transactionsRepository = new TransactionsRepository(database)
 
@@ -116,6 +119,12 @@ export function getExchangeRatesRepository(): ExchangeRatesRepository {
   return exchangeRatesRepository
 }
 
+export function getAppliedRatesRepository(): AppliedRatesRepository {
+  if (!appliedRatesRepository)
+    throw new Error('Database not initialized. Call initDatabase() first.')
+  return appliedRatesRepository
+}
+
 export function getAccountGroupingsRepository(): AccountGroupingsRepository {
   if (!accountGroupingsRepository)
     throw new Error('Database not initialized. Call initDatabase() first.')
@@ -140,6 +149,7 @@ export async function closeDatabase(): Promise<void> {
   locationsRepository = null
   accountsRepository = null
   exchangeRatesRepository = null
+  appliedRatesRepository = null
   accountGroupingsRepository = null
   transactionsRepository = null
 }

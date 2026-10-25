@@ -11,6 +11,7 @@ const EXPECTED_TABLES = [
   'tags',
   'locations',
   'account_groupings',
+  'applied_rates',
 ]
 
 describe('domain schema migration', () => {
@@ -26,7 +27,7 @@ describe('domain schema migration', () => {
     await db.close()
   })
 
-  it('creates all six domain tables', async () => {
+  it('creates all seven domain tables', async () => {
     const rows = await db.exec<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " +
         `(${EXPECTED_TABLES.map(() => '?').join(',')}) ORDER BY name`,
