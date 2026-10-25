@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { moneyAmount, type MoneyAmount } from '@/db/MoneyAmount'
 import { asUuid } from '@/db/uuid'
-import type { Account, ExchangeRate } from '@/db/types'
+import type { Account, AppliedRate } from '@/db/types'
 import { RateTable } from '../rates'
 import { balanceView, totalView } from '../totals'
 
@@ -24,18 +24,23 @@ function account(balance: MoneyAmount): Account {
   }
 }
 
-const rates = RateTable.fromRows([
-  {
-    id: asUuid('r'),
+function applied(currency_a: string, currency_b: string, rate: number): AppliedRate {
+  return {
+    id: asUuid(`${currency_a}-${currency_b}`),
     date: '2026-10-24',
-    base_currency: 'EUR',
-    rates: { USD: 2, RUB: 100 },
+    currency_a,
+    currency_b,
+    rate,
     provider: 'test',
+    via: null,
+    reference_date: '2026-10-24',
     created_at_utc: new Date(),
     updated_at_utc: new Date(),
     deleted_at_utc: null,
-  } satisfies ExchangeRate,
-])
+  }
+}
+
+const rates = RateTable.fromApplied([applied('EUR', 'USD', 2), applied('EUR', 'RUB', 100)])
 
 describe('balanceView (one account)', () => {
   it('shows only the native amount in the base currency', () => {
