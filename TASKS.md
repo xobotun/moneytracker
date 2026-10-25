@@ -258,8 +258,9 @@ exercised end-to-end.
   "Recalculate" next to Delete in the account dialog (that account); both
   say whether anything was off
 - Conversions use the PLACEHOLDER rate rules in `src/money/rates.ts` (see
-  Exchange rates under To Do); the `exchange_rates` table is empty until a
-  fetcher exists, so ≈ amounts show "no … rate" for now
+  Exchange rates under To Do; the replacement is decided); the
+  `exchange_rates` table is empty until a fetcher exists, so ≈ amounts show
+  "no … rate" for now
 
 
 ---
@@ -301,11 +302,21 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 ### Exchange rates
 
-- **Decide how rates are applied** (provider priority, which date, cross rates, a stale-rate cutoff) and replace the PLACEHOLDER rules in `src/money/rates.ts`: newest date only, providers by name ascending, convert through a row's base, no rate → shown as missing
-- Fetcher pulling from openexchangerates and fawazahmed0
-- Upsert into `exchange_rates` with the correct `provider` tag (`create` rejects an existing (date, base, provider) key, so the fetcher must update the existing row)
-- Refresh strategy — on app start, on demand, scheduled background
-- UI for browsing rates and overriding specific (date, base, target) entries
+Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md)
+(sources checked, priorities, resolution rules, tables, open points). Phases:
+
+1. Rate resolution replacing the PLACEHOLDER rules in `src/money/rates.ts`:
+    - Providers in code with a `priority` (equal = one level): `manual` → central banks → fawazahmed0 → openexchangerates
+    - Per level: direct rate (either direction), else a cross through one currency, else the next level; newest rate on or before the date, up to 7 days back
+    - New synced `applied_rates` table — one row per (date, A < B, manual or not), `rate` (NULL = none found), `provider`, `via` (cross); the rows with `via` or a NULL rate are the review list of pairs lacking a direct rate
+    - `exchange_rates` stays the reference library (one row per date, base, provider) but becomes device-local: out of `SYNC_TABLES` / `SYNC_COLUMNS` (the SQLite-blob export would still carry it — open point)
+    - Fetchers: ECB via Frankfurter, fawazahmed0; upsert into `exchange_rates` (`create` rejects an existing (date, base, provider) key, so a fetcher must update the existing row)
+    - Refresh on app start (newest rate older than yesterday, online), a "Refresh rates" button, lazy backfill on a miss; non-final applied rows resolved again when better data arrives
+2. Rates repo — a separate GitHub repo whose scheduled Action curls the central banks the browser cannot reach (NBK Excel export, CBA CSV export) and commits the data; the app reads it from `raw.githubusercontent.com`
+3. openexchangerates (App ID per device)
+4. UI for manual overrides and the review list
+5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN); Russian central bank
+- Transaction form (with the Transactions UI): pre-fill the second amount from the applied rate of the transaction's date; the stored amounts stay the truth
 
 ### Aggregation & reporting
 
