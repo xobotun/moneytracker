@@ -19,8 +19,10 @@ describe('SYNC_TABLES', () => {
 
   it('orders foreign-key parents before their children', () => {
     const order = SYNC_TABLES.map((t) => t.name)
-    // accounts reference locations; transactions reference accounts and locations.
+    // accounts reference locations and account_groupings; transactions
+    // reference accounts and locations.
     expect(order.indexOf('locations')).toBeLessThan(order.indexOf('accounts'))
+    expect(order.indexOf('account_groupings')).toBeLessThan(order.indexOf('accounts'))
     expect(order.indexOf('accounts')).toBeLessThan(order.indexOf('transactions'))
     expect(order.indexOf('locations')).toBeLessThan(order.indexOf('transactions'))
   })

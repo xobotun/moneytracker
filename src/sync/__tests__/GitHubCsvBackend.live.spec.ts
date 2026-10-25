@@ -174,6 +174,12 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     provider: 'ecb',
   })
 
+  const allMoney = await groupings.create({
+    name: 'All "money"',
+    colour: '#778899',
+    icon: 'pi-th-large',
+  })
+
   const eur = await accounts.create({
     name: 'Girokonto',
     balance: moneyAmount(-12_345, 2, 'EUR'),
@@ -181,6 +187,7 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     location_id: cafe.id,
     colour: '#112233',
     icon: 'pi-wallet',
+    grouping_id: allMoney.id,
   })
   const rub = await accounts.create({
     name: 'Наличные, рубли',
@@ -189,13 +196,7 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     location_id: null,
     colour: '#445566',
     icon: 'pi-money-bill',
-  })
-
-  await groupings.create({
-    name: 'All "money"',
-    colour: '#778899',
-    icon: 'pi-th-large',
-    accounts_ids: [eur.id, rub.id],
+    grouping_id: null,
   })
 
   // Expense.

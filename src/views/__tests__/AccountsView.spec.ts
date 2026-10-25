@@ -6,6 +6,7 @@ import Aura from '@primevue/themes/aura'
 import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
+import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { zeroMoney } from '@/db/MoneyAmount'
 import AccountsView from '../AccountsView.vue'
@@ -13,9 +14,11 @@ import AccountsView from '../AccountsView.vue'
 // Real store and repositories over an in-memory database; only the
 // module-level repository registry is replaced.
 let accountsRepo: AccountsRepository
+let groupingsRepo: AccountGroupingsRepository
 let transactionsRepo: TransactionsRepository
 vi.mock('@/db/init', () => ({
   getAccountsRepository: () => accountsRepo,
+  getAccountGroupingsRepository: () => groupingsRepo,
   getTransactionsRepository: () => transactionsRepo,
 }))
 
@@ -25,6 +28,7 @@ function seed(name: string) {
     balance: zeroMoney('EUR'),
     tags: [],
     location_id: null,
+    grouping_id: null,
     colour: '#3b82f6',
     icon: 'wallet',
   })
@@ -60,6 +64,7 @@ describe('AccountsView', () => {
     await db.init()
     await runMigrations(db, ALL_MIGRATIONS)
     accountsRepo = new AccountsRepository(db)
+    groupingsRepo = new AccountGroupingsRepository(db)
     transactionsRepo = new TransactionsRepository(db)
   })
 
@@ -232,5 +237,118 @@ describe('AccountsView', () => {
       (o) => [...o.querySelectorAll('span > span')].map((s) => s.textContent!.trim()),
     )
     expect(options[0]).toEqual(['RUB', '₽', 'Russian Ruble'])
+  })
+
+  describe('groups', () => {
+    // Section label → account names, as rendered.
+    const layout = (w: VueWrapper) =>
+      Object.fromEntries(
+        w
+          .findAll('section')
+          .map((s) => [
+            s.attributes('aria-label'),
+            s.findAll('li .font-medium').map((n) => n.text()),
+          ]),
+      )
+
+    async function addGroup(name: string) {
+      buttonByText('Add group').click()
+      await settle()
+      const input = document.getElementById('grouping-name') as HTMLInputElement
+      input.value = name
+      input.dispatchEvent(new Event('input'))
+      await settle()
+      const dialog = document.querySelector('.p-dialog')!
+      ;[...dialog.querySelectorAll('button')]
+        .find((b) => b.textContent?.trim() === 'Add group')!
+        .click()
+      await settle()
+    }
+
+    it('keeps group controls behind Reorder', async () => {
+      await seed('Cash')
+      const w = await mountView()
+      expect(w.text()).not.toContain('Add group')
+      buttonByText('Reorder').click()
+      await settle()
+      expect(buttonByText('Add group')).toBeTruthy()
+      expect(w.text()).not.toContain('Add account')
+    })
+
+    it('creates a group and moves an account into it with the arrows', async () => {
+      await seed('Cash')
+      await seed('Card')
+      const w = await mountView()
+      buttonByText('Reorder').click()
+      await settle()
+      await addGroup('Trip')
+      expect(layout(w)).toEqual({ Trip: [], 'Accounts in no group': ['Cash', 'Card'] })
+
+      // Up from the first ungrouped account crosses into the group above.
+      await w.find('[aria-label="Move Cash up"]').trigger('click')
+      await settle()
+      expect(layout(w)).toEqual({ Trip: ['Cash'], 'Accounts in no group': ['Card'] })
+      expect(w.find('[aria-label="Move Cash up"]').attributes('disabled')).toBeDefined()
+      // The row is a new element in the group; focus lands on its other arrow.
+      expect(document.activeElement?.getAttribute('aria-label')).toBe('Move Cash down')
+      const [cash] = await accountsRepo.list()
+      expect(cash!.grouping_id).toBe((await groupingsRepo.list())[0]!.id)
+    })
+
+    it('shows groups outside reorder mode, without their controls', async () => {
+      const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      await accountsRepo.create({
+        name: 'Card',
+        balance: zeroMoney('EUR'),
+        tags: [],
+        location_id: null,
+        grouping_id: trip.id,
+        colour: '#3b82f6',
+        icon: 'credit-card',
+      })
+      await seed('Cash')
+      const w = await mountView()
+      expect(layout(w)).toEqual({ Trip: ['Card'], 'Accounts in no group': ['Cash'] })
+      expect(w.find('[aria-label="Edit group Trip"]').exists()).toBe(false)
+      expect(w.find('[aria-label="Move group Trip up"]').exists()).toBe(false)
+    })
+
+    it('reorders groups with their arrows', async () => {
+      await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      await groupingsRepo.create({ name: 'Home', colour: '#000000', icon: 'home' })
+      const w = await mountView()
+      buttonByText('Reorder').click()
+      await settle()
+      await w.find('[aria-label="Move group Home up"]').trigger('click')
+      await settle()
+      expect((await groupingsRepo.list()).map((g) => g.name)).toEqual(['Home', 'Trip'])
+      expect(Object.keys(layout(w))).toEqual(['Home', 'Trip', 'Accounts in no group'])
+    })
+
+    it('deletes a group and keeps its accounts below the groups', async () => {
+      const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      await accountsRepo.create({
+        name: 'Card',
+        balance: zeroMoney('EUR'),
+        tags: [],
+        location_id: null,
+        grouping_id: trip.id,
+        colour: '#3b82f6',
+        icon: 'credit-card',
+      })
+      const w = await mountView()
+      buttonByText('Reorder').click()
+      await settle()
+      await w.find('[aria-label="Edit group Trip"]').trigger('click')
+      await settle()
+      buttonByText('Delete').click()
+      await settle()
+      expect(document.body.textContent).toContain('Its account stays and moves below the groups.')
+      buttonByText('Delete group').click()
+      await settle()
+
+      expect(await groupingsRepo.list()).toEqual([])
+      expect(layout(w)).toEqual({ 'Accounts in no group': ['Card'] })
+    })
   })
 })

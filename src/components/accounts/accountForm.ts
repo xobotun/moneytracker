@@ -156,7 +156,10 @@ export function normaliseDraft(draft: AccountDraft): AccountDraft {
   }
 }
 
-/** A new account starts at zero; money already on it is entered as income. */
+/**
+ * A new account starts at zero; money already on it is entered as income. It
+ * joins no group (it shows below them); groups are arranged in reorder mode.
+ */
 export function createInputFromDraft(draft: AccountDraft): AccountCreateInput {
   return {
     name: draft.name,
@@ -165,6 +168,7 @@ export function createInputFromDraft(draft: AccountDraft): AccountCreateInput {
     location_id: null,
     colour: draft.colour,
     icon: draft.icon,
+    grouping_id: null,
   }
 }
 

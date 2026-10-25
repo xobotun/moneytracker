@@ -33,6 +33,17 @@ export const migration: Migration = {
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
     );
 
+    CREATE TABLE account_groupings (
+      id              TEXT PRIMARY KEY,                                  -- UUIDv7
+      name            TEXT NOT NULL,
+      colour          TEXT NOT NULL,
+      icon            TEXT NOT NULL,
+      sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position among the groups, ascending; ties by name
+      created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
+    );
+
     CREATE TABLE accounts (
       id              TEXT PRIMARY KEY,                                  -- UUIDv7
       name            TEXT NOT NULL,
@@ -43,7 +54,8 @@ export const migration: Migration = {
       location_id     TEXT REFERENCES locations(id) ON DELETE RESTRICT,  -- UUIDv7
       colour          TEXT NOT NULL,
       icon            TEXT NOT NULL,
-      sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position in the account list, ascending; ties by name
+      grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- UUIDv7; NULL = not in a group
+      sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position within its group (or among ungrouped accounts), ascending; ties by name
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
@@ -60,17 +72,6 @@ export const migration: Migration = {
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
     );
     CREATE INDEX idx_exchange_rates_lookup ON exchange_rates(date, base_currency);
-
-    CREATE TABLE account_groupings (
-      id              TEXT PRIMARY KEY,                                  -- UUIDv7
-      name            TEXT NOT NULL,
-      colour          TEXT NOT NULL,
-      icon            TEXT NOT NULL,
-      accounts_ids    TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(accounts_ids)), -- JSON array of account UUIDs (no FK)
-      created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
-      updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
-      deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
-    );
 
     CREATE TABLE transactions (
       id                       TEXT PRIMARY KEY,                         -- UUIDv7

@@ -61,7 +61,7 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
     - `tags` (natural string PK)
     - `accounts`
     - `exchange_rates` (per-provider rows; id is a UUIDv5 of (date, base currency, provider), so one row per key and two devices' copies merge as one row)
-    - `account_groupings` (members stored as JSON array of account UUIDs)
+    - `account_groupings` (membership: `accounts.grouping_id`, one group per account)
     - `transactions` — double-entry, nullable from/to legs for "Global Economy" income/spend
 - Sync columns on every domain table: `created_at_utc`, `updated_at_utc`, `deleted_at_utc`
 - Soft-delete pattern; repos filter out deleted rows by default
@@ -179,10 +179,11 @@ exercised end-to-end.
   `.oxlintrc.json`, CI type-check, a test that could never fail fixed,
   rollback / UUIDv7-ordering / constraint-specific tests added
 
-### Accounts UI (list, edit, reorder)
+### Accounts UI (list, edit, groups, reorder)
 
-- `/accounts` page (nav item "Accounts"): list with colour + icon badge,
-  currency and tags, an Edit button per row (label from `sm` up); empty state
+- `/accounts` page (nav item "Accounts"): groups as blocks holding their
+  accounts, accounts in no group below them; colour + icon badge, currency
+  and tags, an Edit button per row (label from `sm` up); empty state
 - Create / edit dialog: name, currency (suggests codes in use, then ISO 4217,
   each with its symbol and name; searchable by code or name; custom codes
   like BTC allowed), icon (quick picks + a searchable popover with every
@@ -191,12 +192,23 @@ exercised end-to-end.
 - `src/format/currency.ts`: `currencySymbol` / `currencyName` via `Intl`
 - Delete with an inline confirmation; refused while live transactions use
   the account (a soft delete skips the FK check)
-- Reorder mode: drag and drop with a mouse, up/down buttons for touch and
-  keyboard (focus follows the moved row, moves are announced)
-- `accounts.sort_order` (added to `002` in place; synced): new accounts
-  append, `AccountsRepository.reorder(ids)` writes only the rows whose
-  position changed, `list()` orders by `sort_order, name, id`
-- `useAccountsStore` (Pinia, write-through: persist, then re-read the list)
+- Reorder mode (all grouping is behind it): add / edit / delete groups (name,
+  icon, colour; deleting keeps its accounts, they move below the groups),
+  reorder groups, reorder accounts and move them between groups. Drag and
+  drop with a mouse (onto an account, a group header or an empty group);
+  up/down buttons for touch and keyboard — an account's arrows run through
+  the whole page, crossing into the neighbouring group. Focus follows the
+  moved row, moves are announced
+- Schema (`002` edited in place; synced): `account_groupings.sort_order`;
+  `accounts.grouping_id` (FK, NULL = no group) + `accounts.sort_order`
+  (position within its group). New accounts append to their group;
+  `AccountsRepository.arrange(groupingId, ids)` and a `grouping_id` change in
+  `update()` place accounts, writing only rows whose place changed;
+  `AccountGroupingsRepository.softDelete` re-homes the group's accounts in
+  the same transaction. An account pointing at a deleted group (sync race)
+  shows with the ungrouped ones
+- `useAccountsStore` (Pinia, write-through: persist, then re-read): accounts,
+  groups and the `sections` the page renders
 
 ---
 
@@ -214,7 +226,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Transactions, tags, locations, exchange rates, account groupings (accounts: done, see Accounts UI)
+    - Transactions, tags, locations, exchange rates (accounts and account groupings: done, one store — see Accounts UI)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
@@ -235,7 +247,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Edit, soft-delete
 - Tags — list, create, edit synonyms, soft-delete
 - Locations — list, create, edit, soft-delete
-- Account groupings — list, create, edit member accounts, soft-delete
 
 ### Exchange rates
 

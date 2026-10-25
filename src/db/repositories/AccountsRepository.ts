@@ -23,13 +23,15 @@ type AccountRow = {
   location_id: string | null
   colour: string
   icon: string
+  grouping_id: string | null
   sort_order: number
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
 }
 
-// sort_order is excluded from both inputs: create() appends, reorder() moves.
+// sort_order is excluded from both inputs: create() and a grouping change in
+// update() append to the end of the group, arrange() moves.
 export type AccountCreateInput = Omit<
   Account,
   'id' | 'sort_order' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
@@ -50,6 +52,7 @@ function rowToAccount(row: AccountRow): Account {
     location_id: uuidFromNullableColumn(row.location_id),
     colour: row.colour,
     icon: row.icon,
+    grouping_id: uuidFromNullableColumn(row.grouping_id),
     sort_order: row.sort_order,
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
@@ -66,11 +69,12 @@ export class AccountsRepository {
     const moneyColumns = moneyToColumns('balance', input.balance)
     const tagsJson = jsonArrayToColumn(input.tags)
 
-    // The position is computed inside the INSERT, so appending stays atomic
-    // without a transaction. Deleted rows count too: harmless, and simpler.
+    // The position (end of its group) is computed inside the INSERT, so
+    // appending stays atomic without a transaction. Deleted rows count too:
+    // harmless, and simpler. `IS`, not `=`, so NULL (no group) matches NULL.
     await this.db.run(
-      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, tags, location_id, colour, icon, sort_order, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts), ?, ?)`,
+      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, tags, location_id, colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts WHERE grouping_id IS ?), ?, ?)`,
       [
         id,
         input.name,
@@ -81,6 +85,8 @@ export class AccountsRepository {
         input.location_id,
         input.colour,
         input.icon,
+        input.grouping_id,
+        input.grouping_id,
         now,
         now,
       ],
@@ -106,18 +112,21 @@ export class AccountsRepository {
   }
 
   /**
-   * Stores `ids` as the new list order (first = position 0). Only accounts
-   * whose position actually changes are written, so a move touches as few rows
-   * as possible — fewer rows for the sync merge to reconcile.
+   * Makes `ids` the accounts of grouping `groupingId` (null = no group), in
+   * this order (first = position 0) — reorders within a group and moves
+   * accounts between groups alike. Only accounts whose group or position
+   * actually changes are written, so a move touches as few rows as possible —
+   * fewer rows for the sync merge to reconcile.
    */
-  async reorder(ids: readonly UUID[]): Promise<void> {
+  async arrange(groupingId: UUID | null, ids: readonly UUID[]): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
       await Promise.all(
         ids.map((id, position) =>
           tx.run(
-            'UPDATE accounts SET sort_order = ?, updated_at_utc = ? WHERE id = ? AND sort_order <> ?',
-            [position, now, id, position],
+            `UPDATE accounts SET grouping_id = ?, sort_order = ?, updated_at_utc = ?
+             WHERE id = ? AND (grouping_id IS NOT ? OR sort_order <> ?)`,
+            [groupingId, position, now, id, groupingId, position],
           ),
         ),
       )
@@ -156,6 +165,17 @@ export class AccountsRepository {
     if (patch.icon !== undefined) {
       sets.push('icon = ?')
       params.push(patch.icon)
+    }
+    if (patch.grouping_id !== undefined) {
+      // A new group puts the account at its end. SQLite evaluates every SET
+      // expression against the row as it was, so the CASE sees the old group.
+      sets.push('grouping_id = ?')
+      params.push(patch.grouping_id)
+      sets.push(
+        `sort_order = CASE WHEN grouping_id IS ? THEN sort_order
+           ELSE (SELECT COALESCE(MAX(a.sort_order) + 1, 0) FROM accounts a WHERE a.grouping_id IS ?) END`,
+      )
+      params.push(patch.grouping_id, patch.grouping_id)
     }
 
     if (sets.length === 0) return

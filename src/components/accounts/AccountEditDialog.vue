@@ -6,13 +6,12 @@ import AutoComplete, { type AutoCompleteCompleteEvent } from 'primevue/autocompl
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from './AccountBadge.vue'
-import AccountIconPicker from './AccountIconPicker.vue'
+import ColourPicker from './ColourPicker.vue'
+import IconPicker from './IconPicker.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
 import { currencyName, currencySymbol } from '@/format/currency'
 import {
-  ACCOUNT_COLOURS,
-  ACCOUNT_COLOUR_NAMES,
   createInputFromDraft,
   currencySuggestions,
   draftFromAccount,
@@ -60,20 +59,6 @@ const currencyOptions = ref<string[]>([])
 function completeCurrency(event: AutoCompleteCompleteEvent) {
   currencyOptions.value = currencySuggestions(event.query, store.accounts)
 }
-
-// <input type="color"> only accepts #rrggbb; a short #rgb stored elsewhere shows as black.
-const pickerValue = computed(() =>
-  /^#[0-9a-f]{6}$/i.test(draft.value.colour) ? draft.value.colour : '#000000',
-)
-const isCustomColour = computed(
-  () => !(ACCOUNT_COLOURS as readonly string[]).includes(draft.value.colour.toLowerCase()),
-)
-
-// Selected swatches get the primary ring, the others a grey one on hover.
-const swatchRing = (selected: boolean) =>
-  selected
-    ? 'ring-2 ring-(--p-primary-color)'
-    : 'hover:ring-2 hover:ring-gray-300 dark:hover:ring-gray-600'
 
 async function save() {
   submitted.value = true
@@ -173,39 +158,12 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <AccountIconPicker v-model="draft.icon" />
+        <IconPicker v-model="draft.icon" />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Colour</legend>
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            v-for="colour in ACCOUNT_COLOURS"
-            :key="colour"
-            type="button"
-            class="size-8 rounded-full ring-offset-2 ring-offset-white transition-shadow dark:ring-offset-gray-900"
-            :class="swatchRing(draft.colour.toLowerCase() === colour)"
-            :style="{ backgroundColor: colour }"
-            :aria-label="ACCOUNT_COLOUR_NAMES[colour]"
-            :aria-pressed="draft.colour.toLowerCase() === colour"
-            @click="draft.colour = colour"
-          />
-          <label
-            class="relative flex size-8 cursor-pointer items-center justify-center rounded-full border border-dashed border-gray-400 ring-offset-2 ring-offset-white transition-shadow dark:ring-offset-gray-900"
-            :class="swatchRing(isCustomColour)"
-            :style="isCustomColour ? { backgroundColor: draft.colour } : undefined"
-            title="Custom colour"
-          >
-            <span v-if="!isCustomColour" class="pi pi-palette text-sm" aria-hidden="true" />
-            <input
-              type="color"
-              class="absolute inset-0 size-full cursor-pointer opacity-0"
-              aria-label="Custom colour"
-              :value="pickerValue"
-              @input="draft.colour = ($event.target as HTMLInputElement).value"
-            />
-          </label>
-        </div>
+        <ColourPicker v-model="draft.colour" />
       </fieldset>
 
       <div class="flex flex-col gap-1">

@@ -27,6 +27,7 @@ function account(over: Partial<Account> = {}): Account {
     location_id: null,
     colour: '#22c55e',
     icon: 'wallet',
+    grouping_id: null,
     sort_order: 0,
     created_at_utc: new Date('2026-10-01T00:00:00Z'),
     updated_at_utc: new Date('2026-10-01T00:00:00Z'),

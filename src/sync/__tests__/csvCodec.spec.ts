@@ -222,22 +222,23 @@ describe('csvCodec', () => {
          VALUES (?, NULL, '[]', '#00ff00', 'tag', ?, ?)`,
         ['food', CUTOFF, CUTOFF],
       )
+      const groupingId = newId()
+      await src.run(
+        `INSERT INTO account_groupings (id, name, colour, icon, sort_order, created_at_utc, updated_at_utc)
+         VALUES (?, 'Cash', '#ffffff', 'group', 3, ?, ?)`,
+        [groupingId, CUTOFF, CUTOFF],
+      )
       await src.run(
         `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
-                               colour, icon, created_at_utc, updated_at_utc)
-         VALUES (?, 'Checking', 'USD', 0, 2, ?, '#000000', 'wallet', ?, ?)`,
-        [accId, locId, CUTOFF, CUTOFF],
+                               colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
+         VALUES (?, 'Checking', 'USD', 0, 2, ?, '#000000', 'wallet', ?, 7, ?, ?)`,
+        [accId, locId, groupingId, CUTOFF, CUTOFF],
       )
       await src.run(
         `INSERT INTO exchange_rates (id, date, base_currency, rates, provider,
                                      created_at_utc, updated_at_utc)
          VALUES (?, ?, 'USD', '{"EUR":0.92}', 'oer', ?, ?)`,
         [newId(), CUTOFF, CUTOFF, CUTOFF],
-      )
-      await src.run(
-        `INSERT INTO account_groupings (id, name, colour, icon, accounts_ids, created_at_utc, updated_at_utc)
-         VALUES (?, 'Cash', '#ffffff', 'group', ?, ?, ?)`,
-        [newId(), JSON.stringify([accId]), CUTOFF, CUTOFF],
       )
       await src.run(
         `INSERT INTO transactions
