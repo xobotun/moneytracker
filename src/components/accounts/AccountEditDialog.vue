@@ -38,6 +38,8 @@ const confirmingDelete = ref(false)
 const error = ref<string | null>(null)
 const recalculating = ref(false)
 const recalculated = ref<string | null>(null)
+const currencyLocked = ref(false)
+const currencyLockReason = ref<string | null>(null)
 
 // Start from a fresh draft each time the dialog opens.
 watch(
@@ -49,9 +51,30 @@ watch(
     confirmingDelete.value = false
     error.value = null
     recalculated.value = null
+    void checkCurrencyLock()
   },
   { immediate: true },
 )
+
+// An account that transactions use keeps its currency: their amounts are in
+// it, and its balance counts only amounts in its own currency. Locked until
+// the count is known, so it cannot change in between.
+async function checkCurrencyLock() {
+  const account = props.account
+  currencyLocked.value = account !== null
+  currencyLockReason.value = null
+  if (!account) return
+  try {
+    const n = await store.transactionCount(account.id)
+    if (props.account?.id !== account.id) return // the dialog moved on meanwhile
+    currencyLocked.value = n > 0
+    if (n > 0) {
+      currencyLockReason.value = `Locked: ${n} transaction${n === 1 ? ' uses' : 's use'} this account in ${account.balance.currency}, and its balance counts only amounts in its own currency.`
+    }
+  } catch {
+    currencyLockReason.value = 'Locked: its transactions could not be checked.'
+  }
+}
 
 const errors = computed(() => validateDraft(draft.value))
 // Errors appear only after the first save attempt, not while typing.
@@ -150,15 +173,28 @@ async function remove() {
           :preferred="currenciesByUse(store.accounts)"
           input-id="account-currency"
           fluid
+          :disabled="currencyLocked"
           :invalid="!!shownErrors.currency"
-          :aria-describedby="
-            shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'
+          :describedby="
+            shownErrors.currency
+              ? 'account-currency-error'
+              : currencyLockReason
+                ? 'account-currency-locked'
+                : 'account-currency-hint'
           "
           @show="currencyListOpen = true"
           @hide="currencyListOpen = false"
         />
         <small v-if="shownErrors.currency" id="account-currency-error" class="text-red-600">
           {{ shownErrors.currency }}
+        </small>
+        <small
+          v-else-if="currencyLockReason"
+          id="account-currency-locked"
+          class="flex items-start gap-1.5 text-gray-500 dark:text-gray-400"
+        >
+          <span class="pi pi-lock mt-0.5 text-xs" aria-hidden="true" />
+          <span>{{ currencyLockReason }}</span>
         </small>
         <small v-else id="account-currency-hint" class="text-gray-500 dark:text-gray-400">
           ISO code like EUR, or your own like BTC.
@@ -183,7 +219,7 @@ async function remove() {
           multiple
           :typeahead="false"
           fluid
-          aria-describedby="account-tags-hint"
+          :pt="{ input: { 'aria-describedby': 'account-tags-hint' } }"
         />
         <small id="account-tags-hint" class="text-gray-500 dark:text-gray-400">
           Optional. Type a tag and press Enter.

@@ -561,6 +561,15 @@ describe('TransactionsRepository', () => {
       expect(await balance(accountId1)).toEqual({ v: 550, s: 2 })
     })
 
+    it('countByAccountId() counts live transactions on either leg', async () => {
+      await repo.create(input(accountId1, accountId2, 100, 90))
+      await repo.create(input(null, accountId2, 0, 50))
+      const gone = await repo.create(input(accountId1, null, 10, 0))
+      await repo.softDelete(gone.id)
+      expect(await repo.countByAccountId(accountId1)).toBe(1)
+      expect(await repo.countByAccountId(accountId2)).toBe(2)
+    })
+
     it('softDelete() takes the transaction out of the balance', async () => {
       const t = await repo.create(input(accountId1, null, 300, 0))
       expect((await balance(accountId1)).v).toBe(-300)

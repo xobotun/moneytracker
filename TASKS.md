@@ -243,7 +243,9 @@ exercised end-to-end.
 - Sync: `DERIVED_COLUMNS` (`src/sync/syncColumns.ts`) — the merge comparison
   and the database hash skip the cache, and `mergeDatabases` rebuilds it in
   its transaction, so devices converge without false conflicts
-- An account that transactions use cannot change its currency
+- An account that transactions use cannot change its currency: the dialog
+  greys the field out (list closed, lock icon) and says why; the store
+  refuses it too
 - Accounts page: each account shows its balance in its own currency, plus
   ≈ the base currency (smaller) when that is another. A group header shows
   its accounts' sum: natively when they share one currency (+ ≈ base when

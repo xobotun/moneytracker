@@ -53,7 +53,7 @@ function onListHidden() {
         :preferred="[store.baseCurrency]"
         input-id="base-currency"
         :invalid="!!error"
-        :aria-describedby="error ? 'base-currency-error' : 'base-currency-hint'"
+        :describedby="error ? 'base-currency-error' : 'base-currency-hint'"
         @option-select="save($event.value)"
         @blur="onBlur"
         @before-show="listOpen = true"

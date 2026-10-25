@@ -82,7 +82,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   async function update(id: UUID, patch: AccountUpdateInput): Promise<void> {
     const current = accounts.value.find((a) => a.id === id)
     if (patch.balance && current && patch.balance.currency !== current.balance.currency) {
-      const used = (await getTransactionsRepository().listByAccountId(id)).length
+      const used = await getTransactionsRepository().countByAccountId(id)
       if (used > 0) {
         throw new Error(
           `Its currency cannot change: ${used} transaction${used === 1 ? ' uses' : 's use'} it in ${current.balance.currency}.`,
@@ -100,6 +100,11 @@ export const useAccountsStore = defineStore('accounts', () => {
     return changed
   }
 
+  /** How many live transactions use account `id`. */
+  function transactionCount(id: UUID): Promise<number> {
+    return getTransactionsRepository().countByAccountId(id)
+  }
+
   /** Rebuilds one account's cached balance; returns whether it changed. */
   async function recalculateBalance(id: UUID): Promise<boolean> {
     const changed = await getAccountsRepository().recalculateBalances([id])
@@ -113,7 +118,7 @@ export const useAccountsStore = defineStore('accounts', () => {
    * deleted account.
    */
   async function remove(id: UUID): Promise<void> {
-    const used = (await getTransactionsRepository().listByAccountId(id)).length
+    const used = await getTransactionsRepository().countByAccountId(id)
     if (used > 0) {
       throw new Error(`It is still used by ${used} transaction${used === 1 ? '' : 's'}.`)
     }
@@ -204,6 +209,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     update,
     recalculateBalances,
     recalculateBalance,
+    transactionCount,
     remove,
     moveAccount,
     moveAccountBy,

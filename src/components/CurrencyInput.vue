@@ -9,9 +9,14 @@ import { currencyName, currencySuggestions, currencySymbol } from '@/format/curr
  * listeners (input-id, invalid, @show, @blur, …) go to the AutoComplete.
  */
 const code = defineModel<string>({ required: true })
-const props = withDefaults(defineProps<{ preferred?: readonly string[] }>(), {
-  preferred: () => [],
-})
+const props = withDefaults(
+  defineProps<{
+    preferred?: readonly string[]
+    /** Id of the hint or error describing the field. */
+    describedby?: string
+  }>(),
+  { preferred: () => [], describedby: undefined },
+)
 
 const options = ref<string[]>([])
 function complete(event: AutoCompleteCompleteEvent) {
@@ -20,7 +25,18 @@ function complete(event: AutoCompleteCompleteEvent) {
 </script>
 
 <template>
-  <AutoComplete v-model="code" :suggestions="options" dropdown @complete="complete">
+  <!-- aria-describedby must sit on the input itself; on the AutoComplete it
+       would land on the wrapper, where screen readers ignore it. When
+       disabled, PrimeVue greys the input but leaves the dropdown button
+       looking clickable; dim it too. -->
+  <AutoComplete
+    v-model="code"
+    :suggestions="options"
+    dropdown
+    class="[&_.p-autocomplete-dropdown:disabled]:cursor-not-allowed! [&_.p-autocomplete-dropdown:disabled]:opacity-50 [&_input:disabled]:cursor-not-allowed"
+    :pt="{ pcInputText: { root: { 'aria-describedby': describedby } } }"
+    @complete="complete"
+  >
     <template #option="{ option }">
       <span class="flex w-full min-w-0 items-center gap-3">
         <span class="w-12 shrink-0 font-medium">{{ option }}</span>

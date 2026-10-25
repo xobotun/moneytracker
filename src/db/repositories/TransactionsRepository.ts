@@ -191,6 +191,16 @@ export class TransactionsRepository {
     return rows.map(rowToTransaction)
   }
 
+  /** How many live transactions have a leg on `accountId`. */
+  async countByAccountId(accountId: UUID): Promise<number> {
+    const rows = await this.db.exec<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM transactions
+       WHERE deleted_at_utc IS NULL AND (account_id__from = ? OR account_id__to = ?)`,
+      [accountId, accountId],
+    )
+    return rows[0]!.n
+  }
+
   async listByAccountId(
     accountId: UUID,
     sortBy: TransactionSortMode = 'transaction_at',

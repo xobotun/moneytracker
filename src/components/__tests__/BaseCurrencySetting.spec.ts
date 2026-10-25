@@ -89,6 +89,7 @@ describe('BaseCurrencySetting', () => {
   it('shows EUR by default, with no Save button', async () => {
     const w = await mountSetting()
     expect(input().value).toBe('EUR')
+    expect(input().getAttribute('aria-describedby')).toBe('base-currency-hint')
     expect(w.find('button[aria-label="Save"], button.p-button').exists()).toBe(false)
   })
 
@@ -129,6 +130,7 @@ describe('BaseCurrencySetting', () => {
     blur()
     await flushPromises()
     expect(w.text()).toContain('A currency code has no spaces.')
+    expect(input().getAttribute('aria-describedby')).toBe('base-currency-error')
     expect(writes).toEqual([])
   })
 })
