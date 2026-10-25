@@ -6,14 +6,16 @@ const TODAY = '2026-10-25'
 /** A fetch stub answering each URL in turn from `answers`, recording the URLs. */
 function stubFetch(...answers: (Response | Error)[]) {
   const urls: string[] = []
-  const fetchFn = async (input: RequestInfo | URL) => {
+  const inits: (RequestInit | undefined)[] = []
+  const fetchFn = async (input: RequestInfo | URL, init?: RequestInit) => {
     urls.push(String(input))
+    inits.push(init)
     const answer = answers.shift()
     if (!answer) throw new Error(`unexpected request ${String(input)}`)
     if (answer instanceof Error) throw answer
     return answer
   }
-  return { urls, fetchFn: fetchFn as typeof fetch }
+  return { urls, inits, fetchFn: fetchFn as typeof fetch }
 }
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 })
@@ -102,5 +104,25 @@ describe('fawazahmed0 provider', () => {
     )
     const [row] = await createFawazahmed0(fetchFn).fetchDay('2025-06-10', TODAY)
     expect(row!.rates).toEqual({ '1INCH': 12.3, AED: 4.1 })
+  })
+})
+
+describe('fawazahmed0 requests', () => {
+  it('bypass the browser cache for latest, which jsDelivr marks cacheable for a week', async () => {
+    const { inits, fetchFn } = stubFetch(json({ date: '2026-10-25', eur: { usd: 1.12 } }))
+    await createFawazahmed0(fetchFn).fetchDay(TODAY, TODAY)
+    expect(inits[0]?.cache).toBe('no-store')
+  })
+
+  it('let a dated file come from the cache, as it never changes', async () => {
+    const { inits, fetchFn } = stubFetch(json({ date: '2025-06-10', eur: { usd: 1.14 } }))
+    await createFawazahmed0(fetchFn).fetchDay('2025-06-10', TODAY)
+    expect(inits[0]?.cache).not.toBe('no-store')
+  })
+
+  it('give up on a stalled connection instead of hanging', async () => {
+    const { inits, fetchFn } = stubFetch(status(503), json({ date: '2025-06-10', eur: {} }))
+    await createFawazahmed0(fetchFn).fetchDay('2025-06-10', TODAY)
+    for (const init of inits) expect(init?.signal).toBeInstanceOf(AbortSignal)
   })
 })

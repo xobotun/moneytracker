@@ -17,16 +17,26 @@ const urls = (tag: string) => [
 const CODE = /^[a-z0-9]+$/
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 
+/** Upper bound for one request; a stalled connection otherwise never settles. */
+export const RATE_FETCH_TIMEOUT_MS = 30_000
+
 /**
  * The file for `tag` from the first source that has it; null when every source
  * says 404; rejects when none answered and not all said 404.
+ *
+ * A dated file never changes, so the browser cache may serve it. `latest`
+ * must bypass it: jsDelivr marks it cacheable for a week (`max-age=604800`),
+ * and a cached copy would freeze the rates at the first day's.
  */
 async function download(fetchFn: typeof fetch, tag: string): Promise<unknown> {
   let lastError: unknown = null
   let allMissing = true
   for (const url of urls(tag)) {
     try {
-      const response = await fetchFn(url)
+      const response = await fetchFn(url, {
+        cache: tag === 'latest' ? 'no-store' : 'default',
+        signal: AbortSignal.timeout(RATE_FETCH_TIMEOUT_MS),
+      })
       if (response.ok) return await response.json()
       if (response.status !== 404) allMissing = false
       lastError = new Error(`${url} answered ${response.status}`)

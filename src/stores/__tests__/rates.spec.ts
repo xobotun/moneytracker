@@ -64,6 +64,37 @@ describe('rates store', () => {
     expect(await useRatesStore().refresh()).toBe(today)
   })
 
+  it('keeps showing the pairs it was asked for when a refresh crosses midnight', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date(2026, 9, 25, 23, 50))
+      const source: RateProvider = {
+        id: 'src',
+        priority: 20,
+        fetchDay: async (date) => [
+          { date, base_currency: 'EUR', provider: 'src', rates: { USD: 2 } },
+        ],
+      }
+      service = new RateService({
+        exchangeRates: library,
+        appliedRates: applied,
+        providers: [source],
+        today: () => todayLocal(),
+      })
+      const store = useRatesStore()
+      await store.ensure([['USD', 'EUR']])
+      expect(store.table.convert(10, 'USD', 'EUR')).toBe(5)
+
+      vi.setSystemTime(new Date(2026, 9, 26, 0, 10))
+      await store.refresh()
+
+      expect(store.table.convert(10, 'USD', 'EUR')).toBe(5)
+      expect(await applied.find('2026-10-26', 'EUR', 'USD')).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refreshes at startup only when the rates are stale', async () => {
     const store = useRatesStore()
     const refresh = vi.spyOn(service, 'refresh')

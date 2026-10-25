@@ -12,21 +12,28 @@ import { RateTable } from '@/money/rates'
  */
 export const useRatesStore = defineStore('rates', () => {
   const table = shallowRef(RateTable.empty)
+  // The pairs last asked for, so a refresh can resolve them for a new day.
+  let pairs: readonly (readonly [string, string])[] = []
 
   async function load(): Promise<void> {
     table.value = RateTable.fromApplied(await getAppliedRatesRepository().listForDate(todayLocal()))
   }
 
   /** Resolves today's rate for each pair (fetching what is missing), then reloads. */
-  async function ensure(pairs: readonly (readonly [string, string])[]): Promise<void> {
-    await getRateService().ensure(todayLocal(), pairs)
+  async function ensure(wanted: readonly (readonly [string, string])[]): Promise<void> {
+    pairs = wanted
+    await getRateService().ensure(todayLocal(), wanted)
     await load()
   }
 
-  /** Fetches the newest rates; returns the newest date held. Rejects when no source answered. */
+  /**
+   * Fetches the newest rates, then resolves the pairs in use for today — which
+   * may be a new day since they were asked for. Returns the newest date held.
+   * Rejects when no source answered.
+   */
   async function refresh(): Promise<string | null> {
     const { newest } = await getRateService().refresh()
-    await load()
+    await ensure(pairs)
     return newest
   }
 
