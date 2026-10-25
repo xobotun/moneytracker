@@ -28,3 +28,28 @@ export function moneyAmount(value: number, scale: number, currency: string): Mon
 export function zeroMoney(currency: string, scale = 2): MoneyAmount {
   return moneyAmount(0, scale, currency)
 }
+
+/**
+ * The exact sum of amounts in one currency, at the largest scale among them
+ * (1.5 + 0.25 = 1.75). Throws on mixed currencies, or when the sum leaves the
+ * safe-integer range.
+ */
+export function sumMoney(amounts: readonly MoneyAmount[], currency: string): MoneyAmount {
+  if (amounts.some((a) => a.currency !== currency)) {
+    throw new Error(`sumMoney: every amount must be in ${currency}`)
+  }
+  const scale = Math.max(0, ...amounts.map((a) => a.scale))
+  const total = amounts.reduce(
+    (sum, a) => sum + BigInt(a.value) * 10n ** BigInt(scale - a.scale),
+    0n,
+  )
+  if (total > BigInt(Number.MAX_SAFE_INTEGER) || total < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new Error('sumMoney: the sum is beyond the safe-integer range')
+  }
+  return moneyAmount(Number(total), amounts.length === 0 ? 2 : scale, currency)
+}
+
+/** The amount as a plain number (1234 at scale 2 → 12.34), for display and conversion only. */
+export function moneyToNumber(amount: MoneyAmount): number {
+  return amount.value / 10 ** amount.scale
+}

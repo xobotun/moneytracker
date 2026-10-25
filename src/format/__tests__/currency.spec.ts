@@ -4,8 +4,14 @@ import {
   currencyName,
   currencySuggestions,
   currencySymbol,
+  formatApprox,
+  formatMoney,
   normaliseCurrencyCode,
 } from '../currency'
+import { moneyAmount } from '@/db/MoneyAmount'
+
+// Intl separates a code from the number with a no-break space; compare plainly.
+const plain = (s: string) => s.replace(/\u00a0/g, ' ')
 
 describe('currencySymbol', () => {
   it('returns the narrow symbol of an ISO currency', () => {
@@ -60,5 +66,32 @@ describe('currencySuggestions', () => {
     const result = currencySuggestions('ru')
     expect(result[0]!.startsWith('RU')).toBe(true)
     expect(currencySuggestions('ruble')).toEqual(expect.arrayContaining(['RUB', 'BYN']))
+  })
+})
+
+describe('formatMoney', () => {
+  it('uses the symbol and the currency’s usual decimals', () => {
+    expect(plain(formatMoney(moneyAmount(123456, 2, 'EUR'), 'en-US'))).toBe('€1,234.56')
+    expect(plain(formatMoney(moneyAmount(-2550, 2, 'USD'), 'en-US'))).toBe('-$25.50')
+    expect(plain(formatMoney(moneyAmount(500, 0, 'RUB'), 'en-US'))).toBe('₽500.00')
+  })
+
+  it('keeps every stored decimal, but drops none the currency has none of', () => {
+    expect(plain(formatMoney(moneyAmount(1000, 2, 'JPY'), 'en-US'))).toBe('¥10')
+    expect(plain(formatMoney(moneyAmount(1050, 2, 'JPY'), 'en-US'))).toBe('¥10.5')
+    expect(plain(formatMoney(moneyAmount(150000001, 8, 'BTC'), 'en-US'))).toBe('BTC 1.50000001')
+  })
+
+  it('shows the code for a currency without a symbol, after the number for a custom one', () => {
+    expect(plain(formatMoney(moneyAmount(1000, 2, 'CHF'), 'en-US'))).toBe('CHF 10.00')
+    expect(plain(formatMoney(moneyAmount(5, 1, 'USDT'), 'en-US'))).toBe('0.50 USDT')
+  })
+})
+
+describe('formatApprox', () => {
+  it('rounds to the currency’s usual decimals', () => {
+    expect(plain(formatApprox({ value: 1234.5678, currency: 'EUR' }, 'en-US'))).toBe('€1,234.57')
+    expect(plain(formatApprox({ value: 1234.5678, currency: 'JPY' }, 'en-US'))).toBe('¥1,235')
+    expect(plain(formatApprox({ value: 0.123, currency: 'USDT' }, 'en-US'))).toBe('0.12 USDT')
   })
 })

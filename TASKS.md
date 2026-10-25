@@ -285,6 +285,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 ### Exchange rates
 
+- **Decide how rates are applied** (provider priority, which date, cross rates, a stale-rate cutoff) and replace the PLACEHOLDER rules in `src/money/rates.ts`: newest date only, providers by name ascending, convert through a row's base, no rate → shown as missing
 - Fetcher pulling from openexchangerates and fawazahmed0
 - Upsert into `exchange_rates` with the correct `provider` tag (`create` rejects an existing (date, base, provider) key, so the fetcher must update the existing row)
 - Refresh strategy — on app start, on demand, scheduled background
