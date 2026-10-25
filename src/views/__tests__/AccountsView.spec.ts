@@ -540,6 +540,19 @@ describe('AccountsView', () => {
       expect(total).toContain(`≈ ${formatApprox({ value: 12, currency: 'EUR' })}`)
     })
 
+    it('shows a partial total as a bound, naming the currencies without a rate', async () => {
+      eurRates({ USD: 2 })
+      const cash = await accountIn('Cash', 'EUR')
+      const dubai = await accountIn('Dubai', 'AED')
+      await income(cash.id, 1000, 'EUR')
+      await income(dubai.id, 500, 'AED')
+      const w = await mountView()
+
+      const total = w.find('[aria-label="Total of all accounts"]').text()
+      expect(total).toContain(`≥ ${formatApprox({ value: 10, currency: 'EUR' })}`)
+      expect(total).toContain('no AED → EUR rate')
+    })
+
     it('rebuilds stale balances with the page button and says so', async () => {
       const cash = await accountIn('Cash', 'EUR')
       await income(cash.id, 1250, 'EUR')

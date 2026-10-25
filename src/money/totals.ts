@@ -8,22 +8,32 @@ export interface Converted {
   currency: string
 }
 
+/**
+ * How a base-currency amount relates to the true total: equal but for the
+ * rates (≈), or a bound when some balances could not be converted and were
+ * left out — all of them ≥ 0 make the rest a lower bound (≥), all ≤ 0 an
+ * upper one (≤).
+ */
+export type Relation = '≈' | '≥' | '≤'
+
 /** What to show for a balance: the native amount and/or the base-currency one. */
 export interface BalanceView {
   /** The exact amount in its own currency; null for a total over mixed currencies. */
   native: MoneyAmount | null
-  /** ≈ in the base currency; null when `native` already is in it, or a rate is missing. */
+  /** In the base currency; null when `native` already is in it, or nothing can be said. */
   base: Converted | null
-  /** Currencies that could not be converted to the base one (then `base` is null). */
+  relation: Relation
+  /** Currencies that could not be converted to the base one. */
   missingRates: string[]
 }
 
 function inBase(amount: MoneyAmount, baseCurrency: string, rates: RateTable): BalanceView {
-  if (amount.currency === baseCurrency) return { native: amount, base: null, missingRates: [] }
+  const view = { native: amount, base: null, relation: '≈' as const, missingRates: [] }
+  if (amount.currency === baseCurrency) return view
   const value = rates.convert(moneyToNumber(amount), amount.currency, baseCurrency)
   return value === null
-    ? { native: amount, base: null, missingRates: [amount.currency] }
-    : { native: amount, base: { value, currency: baseCurrency }, missingRates: [] }
+    ? { ...view, missingRates: [amount.currency] }
+    : { ...view, base: { value, currency: baseCurrency } }
 }
 
 /** An account: its balance, plus ≈ the base currency when it is in another. */
@@ -34,8 +44,10 @@ export function balanceView(account: Account, baseCurrency: string, rates: RateT
 /**
  * Accounts together (a group, or the whole page). All in one currency: their
  * exact sum, plus ≈ the base currency when it is another. Mixed currencies:
- * only ≈ the base currency — or nothing, naming the currencies without a
- * rate. No accounts: null.
+ * only the base currency — ≈ the total, or, when some currencies have no
+ * rate, the rest as a bound (≥ / ≤, see Relation) naming those currencies;
+ * no amount at all when the left-out balances have both signs. No accounts:
+ * null.
  */
 export function totalView(
   accounts: readonly Account[],
@@ -56,12 +68,22 @@ export function totalView(
   }
   let total = 0
   const missing = new Set<string>()
+  let leftOutPositive = false
+  let leftOutNegative = false
   for (const a of accounts) {
     const value = rates.convert(moneyToNumber(a.balance), a.balance.currency, baseCurrency)
-    if (value === null) missing.add(a.balance.currency)
-    else total += value
+    if (value !== null) {
+      total += value
+      continue
+    }
+    missing.add(a.balance.currency)
+    if (a.balance.value > 0) leftOutPositive = true
+    if (a.balance.value < 0) leftOutNegative = true
   }
-  return missing.size > 0
-    ? { native: null, base: null, missingRates: [...missing] }
-    : { native: null, base: { value: total, currency: baseCurrency }, missingRates: [] }
+  const missingRates = [...missing]
+  if (leftOutPositive && leftOutNegative) {
+    return { native: null, base: null, relation: '≈', missingRates }
+  }
+  const relation: Relation = leftOutPositive ? '≥' : leftOutNegative ? '≤' : '≈'
+  return { native: null, base: { value: total, currency: baseCurrency }, relation, missingRates }
 }

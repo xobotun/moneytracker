@@ -250,7 +250,10 @@ exercised end-to-end.
   ≈ the base currency (smaller) when that is another. A group header shows
   its accounts' sum: natively when they share one currency (+ ≈ base when
   it is another), only ≈ base when mixed; the page total the same over all
-  accounts. A missing rate is named ("no BTC → EUR rate") instead of a sum
+  accounts. Currencies without a rate are named ("no AED, BTC → EUR rate",
+  beside the amount or below it); a mixed total then sums the rest as a bound:
+  "≥ €3,491" when every left-out balance is ≥ 0, "≤" when ≤ 0, no amount
+  when they have both signs
 - Yellow "Recalculate balances" button below the list (all accounts) and
   "Recalculate" next to Delete in the account dialog (that account); both
   say whether anything was off

@@ -42,6 +42,7 @@ describe('balanceView (one account)', () => {
     expect(balanceView(account(moneyAmount(1250, 2, 'EUR')), 'EUR', rates)).toEqual({
       native: moneyAmount(1250, 2, 'EUR'),
       base: null,
+      relation: '≈',
       missingRates: [],
     })
   })
@@ -58,6 +59,7 @@ describe('balanceView (one account)', () => {
     expect(balanceView(account(moneyAmount(1, 8, 'BTC')), 'EUR', rates)).toEqual({
       native: moneyAmount(1, 8, 'BTC'),
       base: null,
+      relation: '≈',
       missingRates: ['BTC'],
     })
   })
@@ -74,7 +76,12 @@ describe('totalView (a group, or the whole page)', () => {
       'EUR',
       rates,
     )!
-    expect(view).toEqual({ native: moneyAmount(175, 2, 'EUR'), base: null, missingRates: [] })
+    expect(view).toEqual({
+      native: moneyAmount(175, 2, 'EUR'),
+      base: null,
+      relation: '≈',
+      missingRates: [],
+    })
   })
 
   it('adds the base amount when the one currency is another', () => {
@@ -98,16 +105,36 @@ describe('totalView (a group, or the whole page)', () => {
     expect(view.base!.value).toBeCloseTo(15)
   })
 
-  it('has no base amount when a currency lacks a rate, and names it', () => {
-    const view = totalView(
-      [
-        account(moneyAmount(1000, 2, 'EUR')),
-        account(moneyAmount(1, 8, 'BTC')),
-        account(moneyAmount(2, 8, 'BTC')),
-      ],
-      'EUR',
-      rates,
-    )!
-    expect(view).toEqual({ native: null, base: null, missingRates: ['BTC'] })
+  describe('mixed currencies with a missing rate', () => {
+    const eur = (cents: number) => account(moneyAmount(cents, 2, 'EUR'))
+    const btc = (sats: number) => account(moneyAmount(sats, 8, 'BTC'))
+    const aed = (fils: number) => account(moneyAmount(fils, 2, 'AED'))
+
+    it('gives a lower bound (≥) when the left-out balances are positive', () => {
+      const view = totalView([eur(1000), btc(1), aed(500)], 'EUR', rates)!
+      expect(view.native).toBeNull()
+      expect(view.base).toEqual({ value: 10, currency: 'EUR' })
+      expect(view.relation).toBe('≥')
+      expect(view.missingRates).toEqual(['BTC', 'AED'])
+    })
+
+    it('gives an upper bound (≤) when the left-out balances are negative', () => {
+      const view = totalView([eur(1000), aed(-500)], 'EUR', rates)!
+      expect(view.base).toEqual({ value: 10, currency: 'EUR' })
+      expect(view.relation).toBe('≤')
+    })
+
+    it('gives no amount when the left-out balances have both signs', () => {
+      const view = totalView([eur(1000), aed(-500), btc(1)], 'EUR', rates)!
+      expect(view.base).toBeNull()
+      expect(view.missingRates).toEqual(['AED', 'BTC'])
+    })
+
+    it('stays ≈ when every left-out balance is zero', () => {
+      const view = totalView([eur(1000), aed(0)], 'EUR', rates)!
+      expect(view.base).toEqual({ value: 10, currency: 'EUR' })
+      expect(view.relation).toBe('≈')
+      expect(view.missingRates).toEqual(['AED'])
+    })
   })
 })
