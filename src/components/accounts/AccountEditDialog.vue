@@ -12,7 +12,7 @@ import { YELLOW_BUTTON } from './yellowButton'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
 import CurrencyInput from '@/components/CurrencyInput.vue'
-import { formatMoney } from '@/format/currency'
+import { currencyName, currencySymbol, formatMoney } from '@/format/currency'
 import {
   createInputFromDraft,
   currenciesByUse,
@@ -39,7 +39,8 @@ const error = ref<string | null>(null)
 const recalculating = ref(false)
 const recalculated = ref<string | null>(null)
 const currencyLocked = ref(false)
-const currencyLockReason = ref<string | null>(null)
+// Transactions on the account being edited; null while counting (or for a new one).
+const transactionCount = ref<number | null>(null)
 
 // Start from a fresh draft each time the dialog opens.
 watch(
@@ -56,23 +57,22 @@ watch(
   { immediate: true },
 )
 
-// An account that transactions use keeps its currency: their amounts are in
-// it, and its balance counts only amounts in its own currency. Locked until
-// the count is known, so it cannot change in between.
+// An account that transactions use keeps its currency (their amounts are in
+// it, and its balance counts only amounts in its own currency): the dialog
+// shows it read-only instead of the picker. Read-only until the count is
+// known, so it cannot change in between.
 async function checkCurrencyLock() {
   const account = props.account
   currencyLocked.value = account !== null
-  currencyLockReason.value = null
+  transactionCount.value = null
   if (!account) return
   try {
     const n = await store.transactionCount(account.id)
     if (props.account?.id !== account.id) return // the dialog moved on meanwhile
+    transactionCount.value = n
     currencyLocked.value = n > 0
-    if (n > 0) {
-      currencyLockReason.value = `Locked: ${n} transaction${n === 1 ? ' uses' : 's use'} this account in ${account.balance.currency}, and its balance counts only amounts in its own currency.`
-    }
-  } catch {
-    currencyLockReason.value = 'Locked: its transactions could not be checked.'
+  } catch (e) {
+    error.value = `Could not check the account's transactions, so its currency stays as it is. ${(e as Error).message}`
   }
 }
 
@@ -166,35 +166,39 @@ async function remove() {
         </div>
       </div>
 
-      <div class="flex flex-col gap-1">
+      <!-- Read-only once transactions use the account (see checkCurrencyLock). -->
+      <div v-if="currencyLocked && account" class="flex flex-col gap-1">
+        <span class="text-sm font-medium">Currency</span>
+        <p
+          id="account-currency-value"
+          class="flex min-h-10 items-center gap-3 rounded-md bg-gray-100 px-3 dark:bg-white/5"
+        >
+          <span class="font-medium">{{ account.balance.currency }}</span>
+          <span v-if="currencySymbol(account.balance.currency)">
+            {{ currencySymbol(account.balance.currency) }}
+          </span>
+          <span class="text-sm text-gray-500 dark:text-gray-400">
+            {{ currencyName(account.balance.currency) }}
+          </span>
+          <span v-if="transactionCount" class="text-xs text-gray-500 dark:text-gray-400">
+            ({{ transactionCount }} transaction{{ transactionCount === 1 ? '' : 's' }})
+          </span>
+        </p>
+      </div>
+      <div v-else class="flex flex-col gap-1">
         <label for="account-currency" class="text-sm font-medium">Currency</label>
         <CurrencyInput
           v-model="draft.currency"
           :preferred="currenciesByUse(store.accounts)"
           input-id="account-currency"
           fluid
-          :disabled="currencyLocked"
           :invalid="!!shownErrors.currency"
-          :describedby="
-            shownErrors.currency
-              ? 'account-currency-error'
-              : currencyLockReason
-                ? 'account-currency-locked'
-                : 'account-currency-hint'
-          "
+          :describedby="shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'"
           @show="currencyListOpen = true"
           @hide="currencyListOpen = false"
         />
         <small v-if="shownErrors.currency" id="account-currency-error" class="text-red-600">
           {{ shownErrors.currency }}
-        </small>
-        <small
-          v-else-if="currencyLockReason"
-          id="account-currency-locked"
-          class="flex items-start gap-1.5 text-gray-500 dark:text-gray-400"
-        >
-          <span class="pi pi-lock mt-0.5 text-xs" aria-hidden="true" />
-          <span>{{ currencyLockReason }}</span>
         </small>
         <small v-else id="account-currency-hint" class="text-gray-500 dark:text-gray-400">
           ISO code like EUR, or your own like BTC.

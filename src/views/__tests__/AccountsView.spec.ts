@@ -554,29 +554,32 @@ describe('AccountsView', () => {
       expect(w.text()).toContain('1 balance was off and is fixed now.')
     })
 
-    it('locks the currency of an account that transactions use, and says why', async () => {
+    it('shows the currency read-only, with the transaction count, once transactions use it', async () => {
       const cash = await accountIn('Cash', 'EUR')
       await income(cash.id, 1250, 'EUR')
+      await income(cash.id, 500, 'EUR')
       const w = await mountView()
       await w.find('button[aria-label="Edit Cash"]').trigger('click')
       await settle()
 
-      const currency = document.getElementById('account-currency') as HTMLInputElement
-      expect(currency.disabled).toBe(true)
-      expect(document.getElementById('account-currency-locked')!.textContent).toContain(
-        'Locked: 1 transaction uses this account in EUR',
-      )
-      expect(currency.getAttribute('aria-describedby')).toBe('account-currency-locked')
+      expect(document.getElementById('account-currency')).toBeNull() // no picker
+      const shown = document.getElementById('account-currency-value')!.textContent!
+      expect(shown).toContain('EUR')
+      expect(shown).toContain('Euro')
+      expect(shown).toContain('(2 transactions)')
+      expect(document.body.textContent).not.toContain('Locked')
     })
 
-    it('leaves the currency free on an account without transactions', async () => {
+    it('offers the currency picker on an account without transactions', async () => {
       await accountIn('Cash', 'EUR')
       const w = await mountView()
       await w.find('button[aria-label="Edit Cash"]').trigger('click')
       await settle()
 
-      expect((document.getElementById('account-currency') as HTMLInputElement).disabled).toBe(false)
-      expect(document.getElementById('account-currency-locked')).toBeNull()
+      const currency = document.getElementById('account-currency') as HTMLInputElement
+      expect(currency.disabled).toBe(false)
+      expect(currency.value).toBe('EUR')
+      expect(document.getElementById('account-currency-value')).toBeNull()
     })
 
     it('rebuilds one balance from the account dialog', async () => {

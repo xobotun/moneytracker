@@ -244,8 +244,8 @@ exercised end-to-end.
   and the database hash skip the cache, and `mergeDatabases` rebuilds it in
   its transaction, so devices converge without false conflicts
 - An account that transactions use cannot change its currency: the dialog
-  greys the field out (list closed, lock icon) and says why; the store
-  refuses it too
+  shows it read-only (code, symbol, name, transaction count) instead of the
+  picker; the store refuses it too
 - Accounts page: each account shows its balance in its own currency, plus
   ≈ the base currency (smaller) when that is another. A group header shows
   its accounts' sum: natively when they share one currency (+ ≈ base when
