@@ -12,6 +12,8 @@
 // The match against PRAGMA table_info is enforced by syncColumns.spec.ts —
 // changing the schema and forgetting to update this file fails CI.
 
+import type { SyncRow } from './types'
+
 export interface ColumnDescriptor {
   name: string
   sqlType: 'TEXT' | 'INTEGER' | 'REAL'
@@ -29,6 +31,31 @@ export interface ColumnDescriptor {
  */
 export const DERIVED_COLUMNS: Record<string, readonly string[]> = {
   accounts: ['balance_value', 'balance_scale'],
+}
+
+/**
+ * Columns the merge comparison and the database hash skip: the derived ones,
+ * plus the timestamps of rows each device computes on its own. Two devices
+ * that resolve the same applied rate write the same row at different moments;
+ * that is neither a conflict nor a difference. A real change still counts —
+ * the merge reads the timestamps to see which side moved.
+ */
+export const EQUALITY_IGNORED_COLUMNS: Record<string, readonly string[]> = {
+  ...DERIVED_COLUMNS,
+  applied_rates: ['created_at_utc', 'updated_at_utc'],
+}
+
+/**
+ * How firmly a row holds in a sync conflict, for tables where some rows must
+ * win whatever the timestamps. After "delete wins", the higher rank wins;
+ * equal ranks fall back to the newest. Applied rates: the user's override (3)
+ * over a direct rate (2) over a cross (1) over none found (0), so an override
+ * is never lost to a device that resolved the same day, and a found rate never
+ * to an empty row from a device that was offline.
+ */
+export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
+  applied_rates: (row) =>
+    row.provider === 'manual' ? 3 : row.rate === null ? 0 : row.via === null ? 2 : 1,
 }
 
 export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
@@ -58,12 +85,15 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
   ],
 
-  exchange_rates: [
+  applied_rates: [
     { name: 'id', sqlType: 'TEXT', nullable: true },
     { name: 'date', sqlType: 'TEXT', nullable: false },
-    { name: 'base_currency', sqlType: 'TEXT', nullable: false },
-    { name: 'rates', sqlType: 'TEXT', nullable: false },
-    { name: 'provider', sqlType: 'TEXT', nullable: false },
+    { name: 'currency_a', sqlType: 'TEXT', nullable: false },
+    { name: 'currency_b', sqlType: 'TEXT', nullable: false },
+    { name: 'rate', sqlType: 'REAL', nullable: true },
+    { name: 'provider', sqlType: 'TEXT', nullable: true },
+    { name: 'via', sqlType: 'TEXT', nullable: true },
+    { name: 'reference_date', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },

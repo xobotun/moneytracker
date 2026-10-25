@@ -17,6 +17,43 @@ describe('resolveConflict', () => {
     expect(resolveConflict(local, remote)).toEqual({ winner: 'remote', resolution: 'delete-wins' })
   })
 
+  describe('with a rank', () => {
+    const rank = (row: Record<string, unknown>) => (row.provider === 'manual' ? 3 : 2)
+    const manual = (updated: string) => ({ ...alive(updated), provider: 'manual' })
+    const auto = (updated: string) => ({ ...alive(updated), provider: 'fawazahmed0' })
+
+    it('lets the higher rank win whatever the timestamps', () => {
+      const older = '2026-05-01T00:00:00.000Z'
+      const newer = '2026-05-09T00:00:00.000Z'
+      expect(resolveConflict(manual(older), auto(newer), rank)).toEqual({
+        winner: 'local',
+        resolution: 'rank-wins',
+      })
+      expect(resolveConflict(auto(newer), manual(older), rank)).toEqual({
+        winner: 'remote',
+        resolution: 'rank-wins',
+      })
+    })
+
+    it('falls back to the latest update on equal ranks', () => {
+      expect(
+        resolveConflict(
+          manual('2026-05-01T00:00:00.000Z'),
+          manual('2026-05-02T00:00:00.000Z'),
+          rank,
+        ),
+      ).toEqual({ winner: 'remote', resolution: 'latest-update-wins' })
+    })
+
+    it('still lets a delete win over a higher rank', () => {
+      const gone = { ...deleted('2026-05-01T00:00:00.000Z'), provider: 'fawazahmed0' }
+      expect(resolveConflict(manual('2026-05-09T00:00:00.000Z'), gone, rank)).toEqual({
+        winner: 'remote',
+        resolution: 'delete-wins',
+      })
+    })
+  })
+
   it('picks the latest update when neither side is deleted', () => {
     const local = alive('2026-05-01T00:00:00.000Z')
     const remote = alive('2026-05-02T00:00:00.000Z')

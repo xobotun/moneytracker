@@ -3,6 +3,8 @@ import type { Database } from '../../db/Database'
 import { mergeDatabases } from '../mergeEngine'
 import { readRows } from '../rows'
 import { ExchangeRatesRepository } from '../../db/repositories/ExchangeRatesRepository'
+import { AppliedRatesRepository } from '../../db/repositories/AppliedRatesRepository'
+import { hashDatabase } from '../hashDatabase'
 import { newMigratedDb, seedLocation, seedAccount, seedTransaction } from './helpers'
 
 const CUTOFF = '2026-05-01T00:00:00.000Z'
@@ -172,16 +174,111 @@ describe('mergeDatabases', () => {
     expect(ids).toEqual(['user-edit'])
   })
 
-  it('merges the same exchange rate fetched on two devices into one row', async () => {
+  describe('applied rates', () => {
+    const D = '2026-10-20'
+    const DIRECT = { rate: 1.1, provider: 'fawazahmed0', via: null, referenceDate: D }
+    const later = () => new Promise((r) => setTimeout(r, 5))
+
+    it('merges the same rate resolved on two devices into one row, without a conflict', async () => {
+      local = await newMigratedDb()
+      remote = await newMigratedDb()
+      await new AppliedRatesRepository(local).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: DIRECT,
+      })
+      await later()
+      await new AppliedRatesRepository(remote).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: DIRECT,
+      })
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      expect(await readRows(local, 'applied_rates')).toHaveLength(1)
+      expect(await hashDatabase(local)).toBe(await hashDatabase(remote))
+    })
+
+    it('keeps an override over a newer resolved rate from the other device', async () => {
+      local = await newMigratedDb()
+      remote = await newMigratedDb()
+      await new AppliedRatesRepository(local).setManual(D, 'EUR', 'USD', 1.5)
+      await later()
+      await new AppliedRatesRepository(remote).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: DIRECT,
+      })
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts.map((c) => c.resolution)).toEqual(['rank-wins'])
+      expect(await new AppliedRatesRepository(local).find(D, 'EUR', 'USD')).toMatchObject({
+        rate: 1.5,
+        provider: 'manual',
+      })
+    })
+
+    it('takes the other device’s override over a newer local resolved rate', async () => {
+      local = await newMigratedDb()
+      remote = await newMigratedDb()
+      await new AppliedRatesRepository(remote).setManual(D, 'EUR', 'USD', 1.5)
+      await later()
+      await new AppliedRatesRepository(local).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: DIRECT,
+      })
+
+      await mergeDatabases(local, remote, CUTOFF)
+
+      expect(await new AppliedRatesRepository(local).find(D, 'EUR', 'USD')).toMatchObject({
+        provider: 'manual',
+      })
+    })
+
+    it('keeps a found rate over a newer empty row', async () => {
+      local = await newMigratedDb()
+      remote = await newMigratedDb()
+      await new AppliedRatesRepository(local).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: DIRECT,
+      })
+      await later()
+      await new AppliedRatesRepository(remote).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: null,
+      })
+
+      await mergeDatabases(local, remote, CUTOFF)
+
+      expect((await new AppliedRatesRepository(local).find(D, 'EUR', 'USD'))!.rate).toBe(1.1)
+    })
+  })
+
+  it('leaves the device-local exchange_rates library alone', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()
-    const key = { date: '2026-05-20', base_currency: 'USD', provider: 'openexchangerates' }
-    await new ExchangeRatesRepository(local).create({ ...key, rates: { EUR: 0.92 } })
-    await new ExchangeRatesRepository(remote).create({ ...key, rates: { EUR: 0.93 } })
+    await new ExchangeRatesRepository(remote).save({
+      date: '2026-10-20',
+      base_currency: 'EUR',
+      provider: 'fawazahmed0',
+      rates: { USD: 1.1 },
+    })
 
     await mergeDatabases(local, remote, CUTOFF)
 
-    expect(await readRows(local, 'exchange_rates')).toHaveLength(1)
+    expect(await readRows(local, 'exchange_rates')).toHaveLength(0)
   })
 
   it('rebuilds the cached balances from the merged transactions', async () => {

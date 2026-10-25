@@ -30,11 +30,10 @@ async function loadPapa() {
 /**
  * Data rows per CSV file. Why 1000: files are read through the blobs API, so
  * GitHub's 1 MB contents limit does not bind; ~1000 rows keep transaction
- * files to a few hundred KB, readable and diffable on github.com. Tables
- * with large JSON cells (exchange_rates.rates) can be bigger; only GitHub's
- * 100 MB blob limit binds. For tables with time-ordered UUIDv7 keys, new
+ * files to a few hundred KB, readable and diffable on github.com; only
+ * GitHub's 100 MB blob limit binds. For tables with time-ordered UUIDv7 keys, new
  * rows land in the last file and earlier files stay byte-identical (git
- * stores them once); not so for tags (natural key) or exchange_rates (UUIDv5).
+ * stores them once); not so for tags (natural key) or applied_rates (UUIDv5).
  *
  * This is a fixed format constant: NEVER change it. Uploads never delete
  * files, so a LARGER value leaves stale trailing files whose rows are also in

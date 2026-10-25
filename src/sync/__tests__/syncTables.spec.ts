@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { SYNC_TABLES } from '../syncTables'
 
 describe('SYNC_TABLES', () => {
-  it('lists every domain table exactly once', () => {
+  it('lists every synced domain table exactly once (exchange_rates stays on the device)', () => {
     const names = SYNC_TABLES.map((t) => t.name)
     expect(new Set(names)).toEqual(
       new Set([
         'locations',
         'tags',
-        'exchange_rates',
+        'applied_rates',
         'account_groupings',
         'accounts',
         'transactions',

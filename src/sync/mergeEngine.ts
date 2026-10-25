@@ -4,7 +4,7 @@ import type { SyncTable } from './syncTables'
 import { changedSince, readRows, rowsEqual, upsertRow } from './rows'
 import { resolveConflict } from './resolveConflict'
 import { SYNC_TABLES } from './syncTables'
-import { DERIVED_COLUMNS } from './syncColumns'
+import { EQUALITY_IGNORED_COLUMNS, ROW_RANK } from './syncColumns'
 import { recalculateBalances } from '../db/balances'
 
 /** Index a list of rows by the value of their primary key column. */
@@ -46,7 +46,7 @@ export async function mergeTable(
     }
 
     // Same row on both sides → nothing to do.
-    if (rowsEqual(localRow, remoteRow, DERIVED_COLUMNS[table.name])) continue
+    if (rowsEqual(localRow, remoteRow, EQUALITY_IGNORED_COLUMNS[table.name])) continue
 
     const localChanged = changedSince(localRow, cutoff)
     const remoteChanged = changedSince(remoteRow, cutoff)
@@ -61,7 +61,7 @@ export async function mergeTable(
     if (localChanged && !remoteChanged) continue
 
     // Both moved (or neither did but the rows differ) → conflict.
-    const { winner, resolution } = resolveConflict(localRow, remoteRow)
+    const { winner, resolution } = resolveConflict(localRow, remoteRow, ROW_RANK[table.name])
     if (winner === 'remote') {
       await upsertRow(local, table.name, table.pk, remoteRow)
     }
