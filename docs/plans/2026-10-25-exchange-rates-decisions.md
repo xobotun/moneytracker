@@ -155,7 +155,10 @@ For a currency pair on a date:
   lags a day; the ECB publishes in the afternoon).
 - A new resolution only replaces a row with a better one (higher level,
   direct over cross); it never downgrades, and never touches a manual row.
-  This also keeps devices from ping-ponging a row through sync.
+  This also keeps devices from ping-ponging a row through sync — within one
+  level. Across two levels the sync rank (`ROW_RANK`) does not follow the
+  level yet; that is to be fixed before phase 2 adds the bank level (see
+  TASKS.md).
 - Review-list rows are re-checked about once a day.
 
 ### Refresh

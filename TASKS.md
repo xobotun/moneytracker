@@ -272,8 +272,9 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
   the day, up to 7 days back; `isFinal` / `isBetter` keep rows from
   downgrading
 - fawazahmed0 provider: its EUR file only (the other bases are crosses), CDN
-  then the Pages mirror, `latest` for today and yesterday, nothing before
-  2024-03-02, junk codes dropped
+  then the Pages mirror, `latest` for today and yesterday (fetched past the
+  browser cache: jsDelivr marks it cacheable for a week), a 30 s timeout per
+  request, nothing before 2024-03-02, junk codes dropped
 - `applied_rates` (synced): one row per (date, A < B), `rate` (NULL = none
   found), `provider` (`manual` = override, `p1+p2` = cross over two),
   `via`, `reference_date`; repository with `saveAuto` (never over a manual
@@ -291,7 +292,8 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - `useRatesStore`: today's `RateTable`; the Accounts page asks for each
   account currency → base pair in the background and updates when rates
   arrive; "Refresh rates" button beside "Recalculate balances" with a status
-  line; the app refreshes at start when the newest rate is older than
+  line (a refresh also resolves the pairs in use for the current day, so it
+  works across midnight); the app refreshes at start when the newest rate is older than
   yesterday
 
 
@@ -339,12 +341,21 @@ Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](d
 Phase 1 is done (see Done above). Next:
 
 2. Rates repo — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export, CBR) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level (priority 10)
-    - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days; with fawazahmed0 alone nothing older could improve)
+    - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days)
+    - **First:** make the sync rank agree with the levels. `ROW_RANK` ranks direct over cross whatever the level, while resolution puts the level first: a central-bank cross meeting a fawazahmed0 direct rate would lose the conflict, be re-resolved and conflict again on every sync. The sync layer must not import the providers, so the level has to reach the rank another way (stored in the row, or a rank function the money layer registers)
 3. openexchangerates (App ID per device; priority 30)
 4. UI for manual overrides (`setManual` / `removeManual` exist) and the review list (`applied_rates` rows with `via` set or a NULL rate)
 5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN); Russian central bank
 - Transaction form (with the Transactions UI): pre-fill the second amount from the applied rate of the transaction's date (`RateService.ensure(date, …)`); the stored amounts stay the truth
 - Reports: convert each transaction at its own date's applied rate (a leg already in the base currency needs no rate)
+- Follow-ups from the phase-1 review (minor):
+    - `isFinal` freezes a fallback row (resolved from the previous day's data) once its date is before yesterday, even when that date's own publication was never fetched — freeze only once the library holds a top-level row dated on or after it (ECB / CBA weekend rows still need a freeze)
+    - The rates store loads the table only after the service's `ensure` (which may wait on the network), and one pair's failure skips the reload (`Promise.all`); load first, or in `finally`
+    - Settings' conflict text ("deletions win, otherwise the latest edit wins") omits `rank-wins`; applied rates two devices resolved at different times of day (different `reference_date`) count as conflicts — don't count machine-written rows, or break ties by the fresher `reference_date`
+    - A failed fetch is remembered as "nothing there" until Refresh or a reload; no `online` listener. `refreshIfStale` does not check `navigator.onLine`
+    - `refresh` can fetch `latest` twice (keyed under today and yesterday) and re-fetch up to 8 dated files to re-check NULL rows; `resolveRate()` is used only by tests (the service has its own level loop)
+    - `MANUAL_PROVIDER` lives in `src/money/` but the db layer imports it; `ROW_RANK` repeats the `'manual'` string
+    - `CHECK (currency_a < currency_b)` uses SQLite's UTF-8 byte order, the code JS's UTF-16 order: they differ for some pairs of exotic non-ASCII custom codes (an emoji and a U+E000–U+FFFF character)
 
 ### Aggregation & reporting
 
