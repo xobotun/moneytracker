@@ -20,10 +20,12 @@ export interface ColumnDescriptor {
 
 /**
  * Columns that cache something computed from other rows on each device (the
- * account balance, from the transactions). They travel with their row, but
- * the merge and the database hash ignore them — two devices may hold
- * different values mid-flight, and that must not count as a conflict or a
- * difference — and the merge rebuilds them afterwards (`recalculateBalances`).
+ * account balance, from the transactions). The merge and the database hash
+ * ignore them — two devices may hold different values mid-flight, and that
+ * must not count as a conflict or a difference — and the merge rebuilds them
+ * afterwards (`recalculateBalances`). They still travel in the CSV / blob,
+ * possibly stale, which is safe: any reader merges, and the merge overwrites
+ * whatever value arrived.
  */
 export const DERIVED_COLUMNS: Record<string, readonly string[]> = {
   accounts: ['balance_value', 'balance_scale'],
