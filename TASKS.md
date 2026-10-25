@@ -303,17 +303,17 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Exchange rates
 
 Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md)
-(sources checked, priorities, resolution rules, tables, open points). Phases:
+(sources checked, priorities, resolution rules, tables, the rates-repo contract). Phases:
 
 1. Rate resolution replacing the PLACEHOLDER rules in `src/money/rates.ts`:
     - Providers in code with a `priority` (equal = one level): `manual` → central banks → fawazahmed0 → openexchangerates
-    - Per level: direct rate (either direction), else a cross through one currency, else the next level; newest rate on or before the date, up to 7 days back
-    - New synced `applied_rates` table — one row per (date, A < B), `rate` (NULL = none found), `provider` (`manual` = override), `via` (cross); the rows with `via` or a NULL rate are the review list of pairs lacking a direct rate
+    - Per level: direct rate (either direction), else a cross through one currency (legs may come from two providers of the level), else the next level; newest rate on or before the date, up to 7 days back
+    - New synced `applied_rates` table — one row per (date, A < B), `rate` (NULL = none found), `provider` (`manual` = override), `via` (cross), `reference_date` (the day the data comes from); the rows with `via` or a NULL rate are the review list of pairs lacking a direct rate
     - A `manual` row always wins a sync conflict against an auto one (a table-specific rule in `resolveConflict`, after "delete wins")
-    - `exchange_rates` stays the reference library (one row per date, base, provider) but becomes device-local: out of `SYNC_TABLES` / `SYNC_COLUMNS` (the SQLite-blob export would still carry it — open point)
-    - Fetchers: ECB via Frankfurter, fawazahmed0; upsert into `exchange_rates` (`create` rejects an existing (date, base, provider) key, so a fetcher must update the existing row)
+    - `exchange_rates` stays the reference library (one row per date, base, provider) but becomes device-local: out of `SYNC_TABLES` / `SYNC_COLUMNS` (the SQLite-blob export still carries it; accepted for now)
+    - Fetcher: fawazahmed0; upsert into `exchange_rates` (`create` rejects an existing (date, base, provider) key, so a fetcher must update the existing row)
     - Refresh on app start (newest rate older than yesterday, online), a "Refresh rates" button, lazy backfill on a miss; non-final applied rows resolved again when better data arrives
-2. Rates repo — a separate GitHub repo whose scheduled Action curls the central banks the browser cannot reach (NBK Excel export, CBA CSV export) and commits the data; the app reads it from `raw.githubusercontent.com`
+2. Rates repo — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level
 3. openexchangerates (App ID per device)
 4. UI for manual overrides and the review list
 5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN); Russian central bank

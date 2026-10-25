@@ -58,12 +58,12 @@ direct CZK ↔ PLN rate. Their feeds have not been checked.
   2. **Central banks** — ECB, NBG, NBK, CBA (and any added later), one level.
   3. **fawazahmed0**.
   4. **openexchangerates**.
-- **Central banks come from a separate git repo** (the "rates repo"): a
+- **All central banks come from a separate git repo** (the "rates repo"): a
   scheduled GitHub Action curls each bank and commits the data. The app reads
   its files from `raw.githubusercontent.com` (CORS `*`, checked). This is the
-  only way to reach NBK and CBA from a browser.
-- **ECB comes through Frankfurter directly** from the browser (it already
-  works); it still belongs to the central-bank level.
+  only way to reach NBK and CBA from a browser; ECB and NBG, though
+  reachable directly, go through the repo too, so the repo is one convenient
+  public source for everyone. Its contract is below.
 
 ### Resolving a rate
 
@@ -77,7 +77,8 @@ For a currency pair on a date:
       one currency of the pair and that lists the other. Either direction
       counts: NBK's "KZT per EUR" serves EUR → KZT and KZT → EUR;
    2. else a **cross** rate through **one** intermediate currency, from that
-      level's data;
+      level's data. The two legs may come from different providers of the
+      level (e.g. ECB's EUR/CZK with NBK's KZT/EUR);
    3. else the next level.
 3. The **first level that answers wins**, even if a lower level has a direct
    rate. Example: CZK → PLN uses the ECB cross through EUR, not fawazahmed0's
@@ -106,6 +107,9 @@ For a currency pair on a date:
 - Its job is offline availability. Everything in it can be downloaded again
   from the rates repo and fawazahmed0, so it leaves `SYNC_TABLES` /
   `SYNC_COLUMNS` and the sync volume stays small.
+- The SQLite-blob backends upload the whole database file, so there the
+  library still rides along (never merged). Accepted for now; revisit if it
+  slows sync down.
 
 **`applied_rates` — the rate the app uses for a day and a pair. Syncs.**
 
@@ -127,9 +131,13 @@ For a currency pair on a date:
     syncing) keeps the edit — both are deliberate.
 - Columns (beyond the key and the sync columns):
   - `rate` — REAL; NULL = nothing found;
-  - `provider` — `manual` or the provider the rate came from;
-  - `via` — the intermediate currency of a cross rate; NULL = direct.
-- Example: `2026-10-20 | AMD | KZT | 1.256 | cba | via NULL`.
+  - `provider` — `manual` or the provider the rate came from (both legs'
+    providers for a cross from two banks); NULL = nothing found;
+  - `via` — the intermediate currency of a cross rate; NULL = direct;
+  - `reference_date` — the day the data actually comes from (Friday's ECB
+    rate used on a Sunday; the older leg of a cross); NULL = nothing found.
+    Tells a fallback from an exact hit when deciding whether a row is final.
+- Example: `2026-10-20 | AMD | KZT | 1.256 | cba | via NULL | 2026-10-20`.
 - Review list = `via IS NOT NULL OR rate IS NULL`.
 
 ### Keeping applied rates current
@@ -162,30 +170,58 @@ For a currency pair on a date:
   ("+1.8% over market"). The transactions UI is its own task; this work only
   provides the lookup it uses.
 
+## Rates repo contract (v1)
+
+The repo is built later; this is what the app will read. It mirrors
+fawazahmed0's layout and file shape, so one parser serves both.
+
+- **Public GitHub repo**, read by the app at
+  `https://raw.githubusercontent.com/<owner>/<repo>/main/` (CORS `*`, a
+  5-minute cache). Everything below lives under `v1/`; a breaking change
+  goes to `v2/`.
+- **One provider per bank**, named by a short id: `ecb`, `nbg`, `nbk`, `cba`
+  (later `cnb`, `nbp`, `cbr`). Each publishes in its **home currency** as the
+  base: `ecb` → `eur`, `nbg` → `gel`, `nbk` → `kzt`, `cba` → `amd`.
+- **Day files**, exactly fawazahmed0's
+  `currency-api@{date}/v1/currencies/{code}.json`:
+  - `v1/<provider>/<YYYY-MM-DD>/currencies/<home>.json`
+  - `v1/<provider>/latest/currencies/<home>.json`
+  - Body: `{"date": "YYYY-MM-DD", "<home>": {"<code>": <number>, …}}` —
+    lowercase codes; the number is how many units of `<code>` **one** unit
+    of `<home>` buys. Banks that quote per 10 / 100 / 1000 units are divided
+    down; banks that quote "home per foreign" (NBK, CBA, NBG) are inverted
+    (`1 / quote`, full double precision, no rounding).
+  - `date` in the body is the **publication** the rates come from. There is
+    a file for **every calendar day**: on a day the bank does not publish
+    (weekends, holidays) it repeats the newest earlier publication with that
+    publication's `date`. One request per day always answers, and the app
+    stores the body's `date` as the `reference_date`.
+- **Year files** for backfill in one request:
+  `v1/<provider>/years/<YYYY>/currencies/<home>.json` →
+  `{"year": "2025", "<home>": {"2025-01-02": {"<code>": <number>, …}, …}}`,
+  publication days only.
+- **Metadata:**
+  - `v1/providers.json` — `["ecb", "nbg", "nbk", "cba"]`;
+  - `v1/<provider>/meta.json` — `{"provider": "nbk", "name": "National Bank
+    of Kazakhstan", "home": "kzt", "source": "<url>", "first_date":
+    "2020-01-01", "last_date": "2026-10-25", "publishes": "daily" |
+    "working-days"}`. The app skips dates before `first_date`.
+- **Raw downloads** are kept for auditing under `raw/<provider>/<YYYY>/…`, as
+  the bank served them. The app never reads them.
+- **Updates:** a nightly scheduled GitHub Action, after the banks publish
+  (the ECB publishes around 16:00 CET), plus a manual backfill workflow. A
+  failed fetch leaves the files untouched: never partial or empty files.
+  Commits only when data changed.
+- **Only real codes:** ISO 4217 and the metals or crypto a bank actually
+  quotes; nothing invented.
+
 ## Phases
 
-1. Rate resolution and `applied_rates`; `exchange_rates` becomes device-local;
-   providers with priorities; Frankfurter (ECB) and fawazahmed0 fetchers;
-   refresh. Replaces the placeholder `RateTable`.
-2. The rates repo (separate GitHub repo + scheduled Action) for the central
-   banks the browser cannot reach (NBK, CBA), and the app's provider reading
-   it.
+1. Rate resolution and `applied_rates` (with the manual-wins sync rule);
+   `exchange_rates` becomes device-local; providers with priorities; the
+   fawazahmed0 fetcher; refresh. Replaces the placeholder `RateTable`.
+2. The rates repo (above) with ECB, NBG, NBK and CBA, and the app's provider
+   reading it (one provider per bank, all on the central-bank level).
 3. openexchangerates (App ID stored per device, like sync credentials).
 4. UI for overrides and the review list.
 5. Optional: Google Sheet provider; CNB / NBP; CBR.
-
-## Still open
-
-- `applied_rates.reference_date` (the day the rate actually comes from, e.g.
-  Friday's ECB rate on a Sunday). Proposed, to tell a fallback from an exact
-  hit when deciding whether a row is final; not agreed yet.
-- The rates repo: public or private, file layout, schedule, which banks.
-  Proposed: public (the data is public and the app then needs no token), raw
-  downloads kept next to a cleaned file per bank per year, nightly.
-- NBG: fetch it directly from the browser (it works) or through the rates
-  repo like the other banks.
-- Whether the two legs of a cross rate may come from different providers of
-  the same level (e.g. ECB's EUR/CZK with NBK's KZT/EUR).
-- The SQLite-blob sync backends upload the whole database (`VACUUM INTO`), so
-  a device-local `exchange_rates` would still ride along in the blob unless
-  the export leaves it out.
