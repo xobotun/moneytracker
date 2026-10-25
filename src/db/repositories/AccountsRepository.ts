@@ -1,4 +1,5 @@
 import type { Database } from '../Database'
+import { recalculateBalances } from '../balances'
 import type { Account } from '../types'
 import {
   instantFromColumn,
@@ -185,6 +186,14 @@ export class AccountsRepository {
     params.push(id)
 
     await this.db.run(`UPDATE accounts SET ${sets.join(', ')} WHERE id = ?`, params)
+  }
+
+  /**
+   * Rebuilds the cached balance of `ids` (all accounts when omitted) from the
+   * transactions; returns how many changed. See `recalculateBalances`.
+   */
+  async recalculateBalances(ids?: readonly UUID[]): Promise<number> {
+    return this.db.transaction((tx) => recalculateBalances(tx, ids))
   }
 
   async softDelete(id: UUID): Promise<void> {

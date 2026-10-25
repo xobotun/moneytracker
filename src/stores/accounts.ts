@@ -68,9 +68,37 @@ export const useAccountsStore = defineStore('accounts', () => {
     return account
   }
 
+  /**
+   * Updates the account. A currency change is refused while live
+   * transactions use it: their amounts are in the old currency, and the
+   * balance would silently stop counting them.
+   */
   async function update(id: UUID, patch: AccountUpdateInput): Promise<void> {
+    const current = accounts.value.find((a) => a.id === id)
+    if (patch.balance && current && patch.balance.currency !== current.balance.currency) {
+      const used = (await getTransactionsRepository().listByAccountId(id)).length
+      if (used > 0) {
+        throw new Error(
+          `Its currency cannot change: ${used} transaction${used === 1 ? ' uses' : 's use'} it in ${current.balance.currency}.`,
+        )
+      }
+    }
     await getAccountsRepository().update(id, patch)
     await load()
+  }
+
+  /** Rebuilds every cached balance from the transactions; returns how many changed. */
+  async function recalculateBalances(): Promise<number> {
+    const changed = await getAccountsRepository().recalculateBalances()
+    await load()
+    return changed
+  }
+
+  /** Rebuilds one account's cached balance; returns whether it changed. */
+  async function recalculateBalance(id: UUID): Promise<boolean> {
+    const changed = await getAccountsRepository().recalculateBalances([id])
+    await load()
+    return changed > 0
   }
 
   /**
@@ -167,6 +195,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     load,
     create,
     update,
+    recalculateBalances,
+    recalculateBalance,
     remove,
     moveAccount,
     moveAccountBy,

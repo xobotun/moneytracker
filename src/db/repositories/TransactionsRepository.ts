@@ -1,4 +1,5 @@
-import type { Database } from '../Database'
+import type { Database, SqlExecutor } from '../Database'
+import { recalculateBalances } from '../balances'
 import type { Transaction } from '../types'
 import {
   instantFromColumn,
@@ -111,8 +112,9 @@ export class TransactionsRepository {
     const dateOverrideColumns = localMomentToColumns('date_override', input.date_override)
     const tagsJson = jsonArrayToColumn(input.tags)
 
-    await this.db.run(
-      `INSERT INTO transactions (
+    await this.writeRefreshingBalances(id, (tx) =>
+      tx.run(
+        `INSERT INTO transactions (
         id,
         account_id__from, account_id__to,
         amount_value__from, amount_scale__from, amount_currency__from,
@@ -123,30 +125,55 @@ export class TransactionsRepository {
         location_lat, location_lon, location_id,
         created_at_utc, updated_at_utc
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        input.account_id__from,
-        input.account_id__to,
-        amountFromColumns.amount_value__from,
-        amountFromColumns.amount_scale__from,
-        amountFromColumns.amount_currency__from,
-        amountToColumns.amount_value__to,
-        amountToColumns.amount_scale__to,
-        amountToColumns.amount_currency__to,
-        transactionAtColumns.transaction_at_local,
-        transactionAtColumns.transaction_at_zone,
-        dateOverrideColumns.date_override_local,
-        dateOverrideColumns.date_override_zone,
-        tagsJson,
-        input.location_lat,
-        input.location_lon,
-        input.location_id,
-        now,
-        now,
-      ],
+        [
+          id,
+          input.account_id__from,
+          input.account_id__to,
+          amountFromColumns.amount_value__from,
+          amountFromColumns.amount_scale__from,
+          amountFromColumns.amount_currency__from,
+          amountToColumns.amount_value__to,
+          amountToColumns.amount_scale__to,
+          amountToColumns.amount_currency__to,
+          transactionAtColumns.transaction_at_local,
+          transactionAtColumns.transaction_at_zone,
+          dateOverrideColumns.date_override_local,
+          dateOverrideColumns.date_override_zone,
+          tagsJson,
+          input.location_lat,
+          input.location_lon,
+          input.location_id,
+          now,
+          now,
+        ],
+      ),
     )
 
     return (await this.findById(id))!
+  }
+
+  /**
+   * Runs `write` on transaction `id` and refreshes the cached balance of every
+   * account it touches before or after (a moved leg changes both), in one
+   * database transaction — the cache never lags behind a committed write.
+   */
+  private async writeRefreshingBalances(
+    id: UUID,
+    write: (tx: SqlExecutor) => Promise<unknown>,
+  ): Promise<void> {
+    const accountsOf = async (tx: SqlExecutor) =>
+      (
+        await tx.exec<{ a: string | null; b: string | null }>(
+          'SELECT account_id__from AS a, account_id__to AS b FROM transactions WHERE id = ?',
+          [id],
+        )
+      ).flatMap((r) => [r.a, r.b].filter((v): v is string => v !== null).map(uuidFromColumn))
+    await this.db.transaction(async (tx) => {
+      const before = await accountsOf(tx)
+      await write(tx)
+      const after = await accountsOf(tx)
+      await recalculateBalances(tx, [...new Set([...before, ...after])])
+    })
   }
 
   async findById(id: UUID): Promise<Transaction | null> {
@@ -254,14 +281,19 @@ export class TransactionsRepository {
     params.push(instantToColumn(new Date()))
     params.push(id)
 
-    await this.db.run(`UPDATE transactions SET ${sets.join(', ')} WHERE id = ?`, params)
+    await this.writeRefreshingBalances(id, (tx) =>
+      tx.run(`UPDATE transactions SET ${sets.join(', ')} WHERE id = ?`, params),
+    )
   }
 
   async softDelete(id: UUID): Promise<void> {
     const now = instantToColumn(new Date())
-    await this.db.run(
-      'UPDATE transactions SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
-      [now, now, id],
+    await this.writeRefreshingBalances(id, (tx) =>
+      tx.run('UPDATE transactions SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
+        now,
+        now,
+        id,
+      ]),
     )
   }
 }

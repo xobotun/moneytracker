@@ -7,6 +7,7 @@ import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRe
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
+import type { UUID } from '@/db/uuid'
 import { useAccountsStore } from '../accounts'
 
 // Real repositories over an in-memory database, so the store is tested
@@ -212,6 +213,57 @@ describe('useAccountsStore', () => {
     await expect(store.remove(cash.id)).rejects.toThrow(/1 transaction/)
     expect(names()).toEqual(['Cash'])
     expect(await accountsRepo.findById(cash.id)).not.toBeNull()
+  })
+
+  describe('balances', () => {
+    const income = (to: UUID, cents: number) =>
+      transactionsRepo.create({
+        account_id__from: null,
+        account_id__to: to,
+        amount__from: moneyAmount(cents, 2, 'EUR'),
+        amount__to: moneyAmount(cents, 2, 'EUR'),
+        transaction_at: localMoment('2026-10-01T12:00:00.000+02:00', 'Europe/Berlin'),
+        date_override: null,
+        tags: [],
+        location_lat: null,
+        location_lon: null,
+        location_id: null,
+      })
+
+    it('shows the cached balance kept by transaction writes', async () => {
+      const store = useAccountsStore()
+      const cash = await store.create(input('Cash'))
+      await income(cash.id, 1250)
+      await store.load()
+      expect(store.accounts[0]!.balance).toEqual(moneyAmount(1250, 2, 'EUR'))
+    })
+
+    it('recalculateBalances() repairs a stale cache and reports it', async () => {
+      const store = useAccountsStore()
+      const cash = await store.create(input('Cash'))
+      await income(cash.id, 1250)
+      await db.run('UPDATE accounts SET balance_value = 1 WHERE id = ?', [cash.id])
+      expect(await store.recalculateBalances()).toBe(1)
+      expect(store.accounts[0]!.balance.value).toBe(1250)
+      expect(await store.recalculateBalance(cash.id)).toBe(false) // already right
+    })
+
+    it('refuses a currency change while transactions use the account', async () => {
+      const store = useAccountsStore()
+      const cash = await store.create(input('Cash'))
+      await income(cash.id, 1250)
+      await expect(store.update(cash.id, { balance: moneyAmount(1250, 2, 'USD') })).rejects.toThrow(
+        /currency cannot change: 1 transaction uses it in EUR/,
+      )
+      expect((await accountsRepo.findById(cash.id))!.balance.currency).toBe('EUR')
+    })
+
+    it('allows a currency change on an account without transactions', async () => {
+      const store = useAccountsStore()
+      const cash = await store.create(input('Cash'))
+      await store.update(cash.id, { balance: moneyAmount(0, 2, 'USD') })
+      expect(store.accounts[0]!.balance.currency).toBe('USD')
+    })
   })
 
   it('a failed write leaves the state as it was and rethrows', async () => {
