@@ -7,11 +7,14 @@ import BaseCurrencySetting from '../BaseCurrencySetting.vue'
 import { useMoneySettingsStore } from '@/stores/moneySettings'
 
 const stored = new Map<string, unknown>()
+// Every value written, in order: shows a half-typed value was never saved.
+const writes: unknown[] = []
 vi.mock('@/db/init', () => ({
   getSettingsRepository: () => ({
     get: async (key: { key: string }) => stored.get(key.key) ?? null,
     set: async (key: { key: string }, value: unknown) => {
       stored.set(key.key, value)
+      writes.push(value)
     },
   }),
 }))
@@ -40,6 +43,7 @@ describe('BaseCurrencySetting', () => {
 
   beforeEach(() => {
     stored.clear()
+    writes.length = 0
     pinia = createPinia()
     setActivePinia(pinia)
   })
@@ -68,46 +72,63 @@ describe('BaseCurrencySetting', () => {
     await flushPromises()
   }
 
-  const saveButton = (w: VueWrapper) => w.findAll('button').find((b) => b.text() === 'Save')
+  const blur = () => input().dispatchEvent(new FocusEvent('blur'))
 
-  it('shows EUR by default, with nothing to save', async () => {
+  async function openSuggestions(query: string) {
+    await type(query)
+    // AutoComplete waits 300 ms after typing before it searches.
+    await new Promise((r) => setTimeout(r, 400))
+    await flushPromises()
+  }
+
+  const option = (code: string) =>
+    [...document.querySelectorAll<HTMLElement>('.p-autocomplete-overlay [role=option]')].find(
+      (o) => o.getAttribute('aria-label') === code,
+    )!
+
+  it('shows EUR by default, with no Save button', async () => {
     const w = await mountSetting()
     expect(input().value).toBe('EUR')
-    expect(saveButton(w)).toBeUndefined()
+    expect(w.find('button[aria-label="Save"], button.p-button').exists()).toBe(false)
   })
 
   it('saves a picked suggestion at once', async () => {
     await mountSetting()
-    await type('rub')
-    // AutoComplete waits 300 ms after typing before it searches.
-    await new Promise((r) => setTimeout(r, 400))
-    await flushPromises()
-    const option = [
-      ...document.querySelectorAll<HTMLElement>('.p-autocomplete-overlay [role=option]'),
-    ].find((o) => o.textContent?.includes('RUB'))!
-    option.click()
+    await openSuggestions('rub')
+    option('RUB').click()
     await flushPromises()
     expect(useMoneySettingsStore().baseCurrency).toBe('RUB')
-    expect(stored.get('money.baseCurrency')).toBe('RUB')
+    expect(writes).toEqual(['RUB'])
   })
 
-  it('saves a typed custom code with Save', async () => {
-    const w = await mountSetting()
+  it('saves a typed code when the field loses focus', async () => {
+    await mountSetting()
     await type('btc')
-    expect(stored.has('money.baseCurrency')).toBe(false) // typing alone saves nothing
-    await saveButton(w)!.trigger('click')
+    expect(writes).toEqual([]) // typing alone saves nothing
+    blur()
     await flushPromises()
-    expect(stored.get('money.baseCurrency')).toBe('BTC')
+    expect(writes).toEqual(['BTC'])
     expect(input().value).toBe('BTC')
-    expect(saveButton(w)).toBeUndefined()
   })
 
-  it('refuses a code with spaces and says why', async () => {
+  it('never saves the half-typed value when a suggestion is clicked', async () => {
+    await mountSetting()
+    await openSuggestions('ru')
+    // Pressing on a suggestion blurs the field first, while the list is open.
+    blur()
+    await flushPromises()
+    option('RUB').click()
+    await new Promise((r) => setTimeout(r, 300)) // the list's closing transition
+    await flushPromises()
+    expect(writes).toEqual(['RUB'])
+  })
+
+  it('refuses a code with spaces on blur and says why', async () => {
     const w = await mountSetting()
     await type('b t c')
-    await saveButton(w)!.trigger('click')
+    blur()
     await flushPromises()
     expect(w.text()).toContain('A currency code has no spaces.')
-    expect(stored.has('money.baseCurrency')).toBe(false)
+    expect(writes).toEqual([])
   })
 })
