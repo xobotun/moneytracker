@@ -6,12 +6,13 @@ import AutoComplete, { type AutoCompleteCompleteEvent } from 'primevue/autocompl
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from './AccountBadge.vue'
+import AccountIconPicker from './AccountIconPicker.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
+import { currencyName, currencySymbol } from '@/format/currency'
 import {
   ACCOUNT_COLOURS,
   ACCOUNT_COLOUR_NAMES,
-  ACCOUNT_ICONS,
   createInputFromDraft,
   currencySuggestions,
   draftFromAccount,
@@ -52,6 +53,9 @@ const errors = computed(() => validateDraft(draft.value))
 // Errors appear only after the first save attempt, not while typing.
 const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors.value : {}))
 
+// While the suggestions are open, Escape closes only them, not the dialog
+// (both listen for it; the dialog reads this flag when the key is pressed).
+const currencyListOpen = ref(false)
 const currencyOptions = ref<string[]>([])
 function completeCurrency(event: AutoCompleteCompleteEvent) {
   currencyOptions.value = currencySuggestions(event.query, store.accounts)
@@ -65,9 +69,11 @@ const isCustomColour = computed(
   () => !(ACCOUNT_COLOURS as readonly string[]).includes(draft.value.colour.toLowerCase()),
 )
 
-function iconLabel(icon: string): string {
-  return icon === 'building-columns' ? 'bank' : icon.replace(/-/g, ' ')
-}
+// Selected swatches get the primary ring, the others a grey one on hover.
+const swatchRing = (selected: boolean) =>
+  selected
+    ? 'ring-2 ring-(--p-primary-color)'
+    : 'hover:ring-2 hover:ring-gray-300 dark:hover:ring-gray-600'
 
 async function save() {
   submitted.value = true
@@ -108,6 +114,7 @@ async function remove() {
     modal
     :header="account ? 'Edit account' : 'New account'"
     :draggable="false"
+    :close-on-escape="!currencyListOpen"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
@@ -143,7 +150,19 @@ async function remove() {
             shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'
           "
           @complete="completeCurrency"
-        />
+          @show="currencyListOpen = true"
+          @hide="currencyListOpen = false"
+        >
+          <template #option="{ option }">
+            <span class="flex w-full min-w-0 items-center gap-3">
+              <span class="w-12 shrink-0 font-medium">{{ option }}</span>
+              <span class="w-6 shrink-0 text-center">{{ currencySymbol(option) }}</span>
+              <span class="truncate text-sm text-gray-500 dark:text-gray-400">
+                {{ currencyName(option) }}
+              </span>
+            </span>
+          </template>
+        </AutoComplete>
         <small v-if="shownErrors.currency" id="account-currency-error" class="text-red-600">
           {{ shownErrors.currency }}
         </small>
@@ -154,25 +173,7 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <div class="flex flex-wrap gap-1">
-          <button
-            v-for="icon in ACCOUNT_ICONS"
-            :key="icon"
-            type="button"
-            class="flex size-10 items-center justify-center rounded-md border-2 transition-colors"
-            :class="
-              draft.icon === icon
-                ? 'border-(--p-primary-color) text-(--p-primary-color)'
-                : 'border-transparent hover:bg-gray-100 dark:hover:bg-gray-800'
-            "
-            :aria-label="iconLabel(icon)"
-            :aria-pressed="draft.icon === icon"
-            :title="iconLabel(icon)"
-            @click="draft.icon = icon"
-          >
-            <span :class="`pi pi-${icon}`" aria-hidden="true" />
-          </button>
-        </div>
+        <AccountIconPicker v-model="draft.icon" />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">
@@ -182,16 +183,16 @@ async function remove() {
             v-for="colour in ACCOUNT_COLOURS"
             :key="colour"
             type="button"
-            class="size-8 rounded-full ring-offset-2 ring-offset-white dark:ring-offset-gray-900"
-            :class="draft.colour.toLowerCase() === colour ? 'ring-2 ring-(--p-primary-color)' : ''"
+            class="size-8 rounded-full ring-offset-2 ring-offset-white transition-shadow dark:ring-offset-gray-900"
+            :class="swatchRing(draft.colour.toLowerCase() === colour)"
             :style="{ backgroundColor: colour }"
             :aria-label="ACCOUNT_COLOUR_NAMES[colour]"
             :aria-pressed="draft.colour.toLowerCase() === colour"
             @click="draft.colour = colour"
           />
           <label
-            class="relative flex size-8 cursor-pointer items-center justify-center rounded-full border border-dashed border-gray-400 ring-offset-2 ring-offset-white dark:ring-offset-gray-900"
-            :class="isCustomColour ? 'ring-2 ring-(--p-primary-color)' : ''"
+            class="relative flex size-8 cursor-pointer items-center justify-center rounded-full border border-dashed border-gray-400 ring-offset-2 ring-offset-white transition-shadow dark:ring-offset-gray-900"
+            :class="swatchRing(isCustomColour)"
             :style="isCustomColour ? { backgroundColor: draft.colour } : undefined"
             title="Custom colour"
           >

@@ -13,7 +13,10 @@ import {
   patchFromDraft,
   validateDraft,
   accountIconClass,
+  iconLabel,
+  QUICK_ICONS,
 } from '../accountForm'
+import { PRIME_ICONS } from '../primeIcons'
 
 function account(over: Partial<Account> = {}): Account {
   return {
@@ -135,15 +138,48 @@ describe('currencySuggestions', () => {
     const result = currencySuggestions('b', existing)
     expect(result[0]).toBe('BTC')
     expect(result).toContain('BRL')
-    expect(result.every((c) => c.startsWith('B'))).toBe(true)
     expect(new Set(result).size).toBe(result.length)
+  })
+
+  it('lists code matches before name matches', () => {
+    const result = currencySuggestions('ru', [])
+    const codeMatches = result.filter((c) => c.startsWith('RU')).length
+    expect(result.slice(0, codeMatches).every((c) => c.startsWith('RU'))).toBe(true)
+    expect(result.slice(codeMatches)).not.toHaveLength(0)
+  })
+
+  it('finds a currency by its name', () => {
+    expect(currencySuggestions('ruble', [])).toContain('RUB')
+    expect(currencySuggestions('Euro', [])).toContain('EUR')
+  })
+
+  it('lists every code for an empty query', () => {
+    expect(currencySuggestions('', []).length).toBeGreaterThan(100)
   })
 })
 
-describe('accountIconClass', () => {
-  it('renders a known icon and falls back to the wallet icon', () => {
+describe('icons', () => {
+  it('renders any PrimeIcons icon and falls back to the wallet icon', () => {
     expect(accountIconClass('credit-card')).toBe('pi pi-credit-card')
+    expect(accountIconClass('euro')).toBe('pi pi-euro')
     expect(accountIconClass('no-such-icon')).toBe('pi pi-wallet')
+  })
+
+  it('keeps currency signs out of the quick icons', () => {
+    expect(QUICK_ICONS).not.toContain('dollar')
+    expect(QUICK_ICONS).not.toContain('euro')
+    expect(QUICK_ICONS).not.toContain('pound')
+  })
+
+  it('lists every PrimeIcons icon alphabetically', () => {
+    expect(PRIME_ICONS).toEqual([...PRIME_ICONS].sort())
+    expect(PRIME_ICONS).toContain('euro')
+    expect(PRIME_ICONS).toContain('wallet')
+  })
+
+  it('names icons readably', () => {
+    expect(iconLabel('credit-card')).toBe('credit card')
+    expect(iconLabel('building-columns')).toBe('bank')
   })
 })
 

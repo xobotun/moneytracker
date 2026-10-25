@@ -167,7 +167,7 @@ describe('AccountsView', () => {
   it('opens the editor with the account filled in and saves changes', async () => {
     await seed('Cash')
     const w = await mountView()
-    await w.find('button[title="Edit Cash"]').trigger('click')
+    await w.find('button[aria-label="Edit Cash"]').trigger('click')
     await settle()
 
     const name = document.getElementById('account-name') as HTMLInputElement
@@ -179,5 +179,58 @@ describe('AccountsView', () => {
     await settle()
 
     expect(listedNames(w)).toEqual(['Pocket money'])
+  })
+
+  it('has a real Edit button whose text hides on narrow screens', async () => {
+    await seed('Cash')
+    const w = await mountView()
+    const edit = w.find('button[aria-label="Edit Cash"]')
+    expect(edit.text()).toBe('Edit')
+    expect(edit.find('.p-button-label').classes()).toEqual(
+      expect.arrayContaining(['hidden', 'sm:inline']),
+    )
+  })
+
+  it('picks an icon from the full list by searching', async () => {
+    await seed('Cash')
+    const w = await mountView()
+    await w.find('button[aria-label="Edit Cash"]').trigger('click')
+    await settle()
+
+    document.querySelector<HTMLButtonElement>('button[aria-label="All icons"]')!.click()
+    await settle()
+    const search = document.querySelector<HTMLInputElement>('input[aria-label="Search icons"]')!
+    search.value = 'eur'
+    search.dispatchEvent(new Event('input'))
+    await settle()
+    const results = [...document.querySelectorAll('[role=dialog][aria-label="All icons"] button')]
+    expect(results.map((b) => b.getAttribute('aria-label'))).toEqual(['euro'])
+    ;(results[0] as HTMLButtonElement).click()
+    await settle()
+
+    // The trigger now shows the picked icon, since it is not a quick one.
+    expect(document.querySelector('button[aria-label="All icons, selected: euro"]')).not.toBeNull()
+    buttonByText('Save').click()
+    await settle()
+    expect((await accountsRepo.list())[0]!.icon).toBe('euro')
+  })
+
+  it('shows the symbol and name of each currency in the suggestions', async () => {
+    await mountView()
+    buttonByText('Add your first account').click()
+    await settle()
+
+    const currency = document.getElementById('account-currency') as HTMLInputElement
+    currency.value = 'rub'
+    currency.dispatchEvent(new Event('input'))
+    // AutoComplete waits 300 ms after typing before it searches.
+    await new Promise((r) => setTimeout(r, 400))
+    await settle()
+
+    // Scoped to the overlay: the tags input sits in a role=option item too.
+    const options = [...document.querySelectorAll('.p-autocomplete-overlay [role=option]')].map(
+      (o) => [...o.querySelectorAll('span > span')].map((s) => s.textContent!.trim()),
+    )
+    expect(options[0]).toEqual(['RUB', '₽', 'Russian Ruble'])
   })
 })

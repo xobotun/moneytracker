@@ -170,12 +170,9 @@ function endDrag() {
               @drop.prevent="onDrop(index)"
               @dragend="endDrag"
             >
-              <button
+              <div
                 v-if="!reordering"
-                type="button"
-                class="flex w-full items-center gap-3 rounded-lg border border-gray-200 p-3 text-left transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-                :title="`Edit ${account.name}`"
-                @click="openEdit(account)"
+                class="flex items-center gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700"
               >
                 <AccountBadge :icon="account.icon" :colour="account.colour" />
                 <span class="flex min-w-0 flex-1 flex-col gap-1">
@@ -191,8 +188,16 @@ function endDrag() {
                     </span>
                   </span>
                 </span>
-                <span class="pi pi-pencil text-gray-400" aria-hidden="true" />
-              </button>
+                <Button
+                  label="Edit"
+                  icon="pi pi-pencil"
+                  severity="secondary"
+                  text
+                  :aria-label="`Edit ${account.name}`"
+                  :pt="{ label: { class: 'hidden sm:inline' } }"
+                  @click="openEdit(account)"
+                />
+              </div>
 
               <div
                 v-else

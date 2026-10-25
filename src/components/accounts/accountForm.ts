@@ -1,19 +1,21 @@
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import type { Account } from '@/db/types'
 import type { AccountCreateInput, AccountUpdateInput } from '@/db/repositories/AccountsRepository'
+import { currencyName } from '@/format/currency'
+import { PRIME_ICONS } from './primeIcons'
 
 // Form logic of the account editor, kept out of the component so it can be
 // tested without mounting PrimeVue.
 
-/** PrimeIcons names (stored without the `pi-` prefix) offered for an account. */
-export const ACCOUNT_ICONS = [
+/**
+ * Icons shown right in the editor; any other PrimeIcons name can be picked
+ * from the full list. Stored without the `pi-` prefix.
+ */
+export const QUICK_ICONS = [
   'wallet',
   'credit-card',
   'building-columns',
   'money-bill',
-  'dollar',
-  'euro',
-  'pound',
   'bitcoin',
   'ethereum',
   'paypal',
@@ -73,10 +75,16 @@ export interface AccountDraftErrors {
   currency?: string
 }
 
+const KNOWN_ICONS = new Set(PRIME_ICONS)
+
 /** CSS class for a stored icon name. Unknown names fall back to the wallet icon. */
 export function accountIconClass(icon: string): string {
-  const known = (ACCOUNT_ICONS as readonly string[]).includes(icon)
-  return `pi pi-${known ? icon : DEFAULT_ACCOUNT_ICON}`
+  return `pi pi-${KNOWN_ICONS.has(icon) ? icon : DEFAULT_ACCOUNT_ICON}`
+}
+
+/** Readable name of an icon, for labels and tooltips: 'credit-card' → 'credit card'. */
+export function iconLabel(icon: string): string {
+  return icon === 'building-columns' ? 'bank' : icon.replace(/-/g, ' ')
 }
 
 function relativeLuminance(hex: string): number | null {
@@ -178,9 +186,17 @@ export function patchFromDraft(account: Account, draft: AccountDraft): AccountUp
 const intl = Intl as typeof Intl & { supportedValuesOf?: (key: 'currency') => string[] }
 const ISO_CURRENCIES: readonly string[] = intl.supportedValuesOf?.('currency') ?? []
 
-/** Currency codes starting with `query`: those already in use first, then ISO 4217. */
+/**
+ * Currency codes for `query`: codes starting with it (those already in use
+ * first, then ISO 4217), then codes whose name contains it ('ruble' → RUB).
+ */
 export function currencySuggestions(query: string, accounts: readonly Account[]): string[] {
-  const prefix = query.trim().toUpperCase()
-  const used = currenciesByUse(accounts)
-  return [...new Set([...used, ...ISO_CURRENCIES])].filter((c) => c.startsWith(prefix))
+  const q = query.trim()
+  const all = [...new Set([...currenciesByUse(accounts), ...ISO_CURRENCIES])]
+  const byCode = all.filter((c) => c.startsWith(q.toUpperCase()))
+  if (q === '') return byCode
+  const byName = all.filter(
+    (c) => !byCode.includes(c) && currencyName(c)?.toLowerCase().includes(q.toLowerCase()),
+  )
+  return [...byCode, ...byName]
 }

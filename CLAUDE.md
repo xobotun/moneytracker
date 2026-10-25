@@ -19,6 +19,10 @@ Personal money tracker application. Must work as a standalone app on PCs and mob
 - **Radix Vue** for custom headless components when PrimeVue is too opinionated *(planned — not installed yet)*.
 - Vue `<style scoped>` for edge cases only.
 
+### UI rules
+- **Clickable things look clickable.** Every action is a PrimeVue `Button` (`text` + `severity="secondary"` for low emphasis), so it gets the shared hover and focus states — never a bare icon or plain text with a click handler. Custom pickers (icon tiles, colour swatches) need a visible hover state too.
+- **Icon buttons carry a text label where there is room.** Show the label on wide screens and keep only the icon on narrow ones: `label="Edit"` plus `:pt="{ label: { class: 'hidden sm:inline' } }"`. Always give an `aria-label` that names the target (`Edit Cash`).
+
 ### Data & State
 - **Pinia** for state management — used as a **write-through cache**. SQLite is the source of truth; Pinia stores call repositories to persist changes, then update reactive state. Exception: purely visual preferences (the layout store) save optimistically — show the new value at once, persist, revert and report on failure. Financial data is always write-through.
 - **wa-sqlite + IDBBatchAtomicVFS** for local SQLite database (IndexedDB-backed, offline, exportable).
