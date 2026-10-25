@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { currencyName, currencySymbol } from '../currency'
+import {
+  currencyCodeError,
+  currencyName,
+  currencySuggestions,
+  currencySymbol,
+  normaliseCurrencyCode,
+} from '../currency'
 
 describe('currencySymbol', () => {
   it('returns the narrow symbol of an ISO currency', () => {
@@ -29,5 +35,30 @@ describe('currencyName', () => {
   it('returns null for custom codes', () => {
     expect(currencyName('BTC')).toBeNull()
     expect(currencyName('USDT')).toBeNull()
+  })
+})
+
+describe('currency codes', () => {
+  it('normalises a typed code', () => {
+    expect(normaliseCurrencyCode('  usdt ')).toBe('USDT')
+  })
+
+  it('explains what is wrong with a code', () => {
+    expect(currencyCodeError('')).toBe('Enter a currency code, e.g. EUR or BTC.')
+    expect(currencyCodeError('  ')).toBe('Enter a currency code, e.g. EUR or BTC.')
+    expect(currencyCodeError('US D')).toBe('A currency code has no spaces.')
+    expect(currencyCodeError(' btc ')).toBeNull()
+  })
+})
+
+describe('currencySuggestions', () => {
+  it('puts the preferred codes first', () => {
+    expect(currencySuggestions('', ['RUB', 'BTC']).slice(0, 2)).toEqual(['RUB', 'BTC'])
+  })
+
+  it('matches codes by prefix, then names', () => {
+    const result = currencySuggestions('ru')
+    expect(result[0]!.startsWith('RU')).toBe(true)
+    expect(currencySuggestions('ruble')).toEqual(expect.arrayContaining(['RUB', 'BYN']))
   })
 })

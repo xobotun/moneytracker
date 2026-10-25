@@ -9,6 +9,7 @@ import Password from 'primevue/password'
 import RadioButton from 'primevue/radiobutton'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import BaseCurrencySetting from '@/components/BaseCurrencySetting.vue'
 import { useSettingsOptions } from './useSettingsOptions'
 import { useSyncSettings } from './useSyncSettings'
 import { applyProviderConfig, getDatabase, getSyncBackend } from '@/db/init'
@@ -203,6 +204,11 @@ async function onValidateS3(): Promise<void> {
           {{ saveError }}
         </Message>
       </div>
+
+      <Divider align="left" type="solid">
+        <b>Money</b>
+      </Divider>
+      <BaseCurrencySetting />
 
       <Divider align="left" type="solid">
         <b>This device</b>

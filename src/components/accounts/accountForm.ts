@@ -1,7 +1,7 @@
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import type { Account } from '@/db/types'
 import type { AccountCreateInput, AccountUpdateInput } from '@/db/repositories/AccountsRepository'
-import { currencyName } from '@/format/currency'
+import { currencyCodeError, normaliseCurrencyCode } from '@/format/currency'
 import { PRIME_ICONS } from './primeIcons'
 
 // Form logic of the account editor, kept out of the component so it can be
@@ -108,7 +108,8 @@ export function iconColourOn(background: string): string {
   return 1.05 / (l + 0.05) >= 3 ? '#ffffff' : '#111827'
 }
 
-function currenciesByUse(accounts: readonly Account[]): string[] {
+/** The currencies `accounts` use, most used first (ties in list order). */
+export function currenciesByUse(accounts: readonly Account[]): string[] {
   const counts = new Map<string, number>()
   for (const a of accounts)
     counts.set(a.balance.currency, (counts.get(a.balance.currency) ?? 0) + 1)
@@ -140,16 +141,15 @@ export function draftFromAccount(account: Account): AccountDraft {
 export function validateDraft(draft: AccountDraft): AccountDraftErrors {
   const errors: AccountDraftErrors = {}
   if (draft.name.trim() === '') errors.name = 'Give the account a name.'
-  const currency = draft.currency.trim()
-  if (currency === '') errors.currency = 'Enter a currency code, e.g. EUR or BTC.'
-  else if (/\s/.test(currency)) errors.currency = 'A currency code has no spaces.'
+  const currency = currencyCodeError(draft.currency)
+  if (currency) errors.currency = currency
   return errors
 }
 
 export function normaliseDraft(draft: AccountDraft): AccountDraft {
   return {
     name: draft.name.trim(),
-    currency: draft.currency.trim().toUpperCase(),
+    currency: normaliseCurrencyCode(draft.currency),
     icon: draft.icon,
     colour: draft.colour,
     tags: [...new Set(draft.tags.map((t) => t.trim()).filter((t) => t !== ''))],
@@ -183,24 +183,4 @@ export function patchFromDraft(account: Account, draft: AccountDraft): AccountUp
   if (draft.colour !== account.colour) patch.colour = draft.colour
   if (draft.tags.join('\u0000') !== account.tags.join('\u0000')) patch.tags = draft.tags
   return patch
-}
-
-// Intl.supportedValuesOf is ES2022, above the ES2020 lib the app is checked
-// against (Vite's build target), and missing in older browsers.
-const intl = Intl as typeof Intl & { supportedValuesOf?: (key: 'currency') => string[] }
-const ISO_CURRENCIES: readonly string[] = intl.supportedValuesOf?.('currency') ?? []
-
-/**
- * Currency codes for `query`: codes starting with it (those already in use
- * first, then ISO 4217), then codes whose name contains it ('ruble' → RUB).
- */
-export function currencySuggestions(query: string, accounts: readonly Account[]): string[] {
-  const q = query.trim()
-  const all = [...new Set([...currenciesByUse(accounts), ...ISO_CURRENCIES])]
-  const byCode = all.filter((c) => c.startsWith(q.toUpperCase()))
-  if (q === '') return byCode
-  const byName = all.filter(
-    (c) => !byCode.includes(c) && currencyName(c)?.toLowerCase().includes(q.toLowerCase()),
-  )
-  return [...byCode, ...byName]
 }

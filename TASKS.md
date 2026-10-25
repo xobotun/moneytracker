@@ -218,6 +218,18 @@ exercised end-to-end.
 - `useAccountsStore` (Pinia, write-through: persist, then re-read): accounts,
   groups and the `sections` the page renders
 
+### Base currency setting
+
+- Settings → Money → Base currency: default EUR, any code (ISO suggestions
+  with symbol and name, or a custom one like BTC). Device-local like every
+  setting: SQLite `settings` key `money.baseCurrency`, `useMoneySettingsStore`
+  (write-through, hydrated at startup; an invalid stored value falls back to EUR)
+- Shared `CurrencyInput` component and currency-code helpers
+  (`currencyCodeError`, `normaliseCurrencyCode`, `currencySuggestions` in
+  `src/format/currency.ts`), used by the account dialog too
+- Not yet used: account balances and group totals in the base currency are
+  next (where to keep a running balance is still open)
+
 ---
 
 ## To Do
@@ -262,7 +274,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 - Upsert into `exchange_rates` with the correct `provider` tag (`create` rejects an existing (date, base, provider) key, so the fetcher must update the existing row)
 - Refresh strategy — on app start, on demand, scheduled background
 - UI for browsing rates and overriding specific (date, base, target) entries
-- User picks a base currency for reporting (USD / EUR / custom)
 
 ### Aggregation & reporting
 

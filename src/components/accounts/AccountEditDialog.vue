@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
-import AutoComplete, { type AutoCompleteCompleteEvent } from 'primevue/autocomplete'
+import AutoComplete from 'primevue/autocomplete'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from './AccountBadge.vue'
@@ -10,10 +10,10 @@ import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
-import { currencyName, currencySymbol } from '@/format/currency'
+import CurrencyInput from '@/components/CurrencyInput.vue'
 import {
   createInputFromDraft,
-  currencySuggestions,
+  currenciesByUse,
   draftFromAccount,
   newAccountDraft,
   normaliseDraft,
@@ -55,10 +55,6 @@ const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors
 // While the suggestions are open, Escape closes only them, not the dialog
 // (both listen for it; the dialog reads this flag when the key is pressed).
 const currencyListOpen = ref(false)
-const currencyOptions = ref<string[]>([])
-function completeCurrency(event: AutoCompleteCompleteEvent) {
-  currencyOptions.value = currencySuggestions(event.query, store.accounts)
-}
 
 async function save() {
   submitted.value = true
@@ -124,30 +120,18 @@ async function remove() {
 
       <div class="flex flex-col gap-1">
         <label for="account-currency" class="text-sm font-medium">Currency</label>
-        <AutoComplete
+        <CurrencyInput
           v-model="draft.currency"
+          :preferred="currenciesByUse(store.accounts)"
           input-id="account-currency"
-          :suggestions="currencyOptions"
-          dropdown
           fluid
           :invalid="!!shownErrors.currency"
           :aria-describedby="
             shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'
           "
-          @complete="completeCurrency"
           @show="currencyListOpen = true"
           @hide="currencyListOpen = false"
-        >
-          <template #option="{ option }">
-            <span class="flex w-full min-w-0 items-center gap-3">
-              <span class="w-12 shrink-0 font-medium">{{ option }}</span>
-              <span class="w-6 shrink-0 text-center">{{ currencySymbol(option) }}</span>
-              <span class="truncate text-sm text-gray-500 dark:text-gray-400">
-                {{ currencyName(option) }}
-              </span>
-            </span>
-          </template>
-        </AutoComplete>
+        />
         <small v-if="shownErrors.currency" id="account-currency-error" class="text-red-600">
           {{ shownErrors.currency }}
         </small>
