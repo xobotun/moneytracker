@@ -16,7 +16,7 @@ const Empty = { template: '<div />' }
 async function makeRouter(path: string): Promise<Router> {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: ['/', '/wallets', '/page-two', '/about', '/settings'].map((p) => ({
+    routes: ['/', '/accounts', '/page-two', '/about', '/settings'].map((p) => ({
       path: p,
       component: Empty,
     })),

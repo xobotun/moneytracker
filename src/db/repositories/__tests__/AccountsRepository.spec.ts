@@ -175,7 +175,7 @@ describe('AccountsRepository', () => {
     expect(list).toHaveLength(0)
   })
 
-  describe('wallet order (sort_order)', () => {
+  describe('list order (sort_order)', () => {
     function createNamed(name: string) {
       return repo.create({
         name,
@@ -225,7 +225,7 @@ describe('AccountsRepository', () => {
     })
 
     it('list() breaks equal positions by name', async () => {
-      // Two devices can each append a wallet at the same position; the merge
+      // Two devices can each append an account at the same position; the merge
       // keeps both rows, so equal values must still list deterministically.
       const b = await createNamed('B')
       const a = await createNamed('A')

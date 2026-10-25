@@ -8,7 +8,7 @@ import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { zeroMoney } from '@/db/MoneyAmount'
-import WalletsView from '../WalletsView.vue'
+import AccountsView from '../AccountsView.vue'
 
 // Real store and repositories over an in-memory database; only the
 // module-level repository registry is replaced.
@@ -30,7 +30,7 @@ function seed(name: string) {
   })
 }
 
-describe('WalletsView', () => {
+describe('AccountsView', () => {
   let db: Database
   let pinia: Pinia
   let wrapper: VueWrapper | null = null
@@ -71,7 +71,7 @@ describe('WalletsView', () => {
   })
 
   async function mountView() {
-    wrapper = mount(WalletsView, {
+    wrapper = mount(AccountsView, {
       attachTo: document.body,
       global: { plugins: [pinia, [PrimeVue, { theme: { preset: Aura } }]] },
     })
@@ -97,13 +97,13 @@ describe('WalletsView', () => {
     return button
   }
 
-  it('shows an empty state with a way to add the first wallet', async () => {
+  it('shows an empty state with a way to add the first account', async () => {
     const w = await mountView()
-    expect(w.text()).toContain('No wallets yet')
-    expect(buttonByText('Add your first wallet')).toBeTruthy()
+    expect(w.text()).toContain('No accounts yet')
+    expect(buttonByText('Add your first account')).toBeTruthy()
   })
 
-  it('lists wallets in their stored order', async () => {
+  it('lists accounts in their stored order', async () => {
     await seed('Cash')
     await seed('Bank')
     const w = await mountView()
@@ -111,20 +111,20 @@ describe('WalletsView', () => {
     expect(w.text()).toContain('EUR')
   })
 
-  it('adds a wallet through the dialog', async () => {
+  it('adds an account through the dialog', async () => {
     const w = await mountView()
-    buttonByText('Add your first wallet').click()
+    buttonByText('Add your first account').click()
     await settle()
 
-    const name = document.getElementById('wallet-name') as HTMLInputElement
+    const name = document.getElementById('account-name') as HTMLInputElement
     name.value = 'Travel card'
     name.dispatchEvent(new Event('input'))
-    const currency = document.getElementById('wallet-currency') as HTMLInputElement
+    const currency = document.getElementById('account-currency') as HTMLInputElement
     currency.value = 'gbp'
     currency.dispatchEvent(new Event('input'))
     await settle()
 
-    buttonByText('Add wallet').click()
+    buttonByText('Add account').click()
     await settle()
 
     expect(listedNames(w)).toEqual(['Travel card'])
@@ -132,14 +132,14 @@ describe('WalletsView', () => {
     expect(saved!.balance).toEqual(zeroMoney('GBP'))
   })
 
-  it('shows validation errors instead of saving an empty wallet', async () => {
+  it('shows validation errors instead of saving an empty account', async () => {
     const w = await mountView()
-    buttonByText('Add your first wallet').click()
+    buttonByText('Add your first account').click()
     await settle()
-    buttonByText('Add wallet').click()
+    buttonByText('Add account').click()
     await settle()
 
-    expect(document.body.textContent).toContain('Give the wallet a name.')
+    expect(document.body.textContent).toContain('Give the account a name.')
     expect(listedNames(w)).toEqual([])
     expect(await accountsRepo.list()).toEqual([])
   })
@@ -164,13 +164,13 @@ describe('WalletsView', () => {
     expect((await accountsRepo.list()).map((a) => a.name)).toEqual(['B', 'C', 'A'])
   })
 
-  it('opens the editor with the wallet filled in and saves changes', async () => {
+  it('opens the editor with the account filled in and saves changes', async () => {
     await seed('Cash')
     const w = await mountView()
     await w.find('button[title="Edit Cash"]').trigger('click')
     await settle()
 
-    const name = document.getElementById('wallet-name') as HTMLInputElement
+    const name = document.getElementById('account-name') as HTMLInputElement
     expect(name.value).toBe('Cash')
     name.value = 'Pocket money'
     name.dispatchEvent(new Event('input'))

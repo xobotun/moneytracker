@@ -3,17 +3,17 @@ import { moneyAmount } from '@/db/MoneyAmount'
 import { asUuid } from '@/db/uuid'
 import type { Account } from '@/db/types'
 import {
-  WALLET_COLOURS,
+  ACCOUNT_COLOURS,
   createInputFromDraft,
   currencySuggestions,
   draftFromAccount,
   iconColourOn,
-  newWalletDraft,
+  newAccountDraft,
   normaliseDraft,
   patchFromDraft,
   validateDraft,
-  walletIconClass,
-} from '../walletForm'
+  accountIconClass,
+} from '../accountForm'
 
 function account(over: Partial<Account> = {}): Account {
   return {
@@ -32,25 +32,25 @@ function account(over: Partial<Account> = {}): Account {
   }
 }
 
-describe('newWalletDraft', () => {
+describe('newAccountDraft', () => {
   it('starts empty with the most used currency and the next palette colour', () => {
     const existing = [
       account({ balance: moneyAmount(0, 2, 'USD') }),
       account({ balance: moneyAmount(0, 2, 'EUR') }),
       account({ balance: moneyAmount(0, 2, 'EUR') }),
     ]
-    expect(newWalletDraft(existing)).toEqual({
+    expect(newAccountDraft(existing)).toEqual({
       name: '',
       currency: 'EUR',
       icon: 'wallet',
-      colour: WALLET_COLOURS[3],
+      colour: ACCOUNT_COLOURS[3],
       tags: [],
     })
   })
 
-  it('leaves the currency blank for the first wallet', () => {
-    expect(newWalletDraft([]).currency).toBe('')
-    expect(newWalletDraft([]).colour).toBe(WALLET_COLOURS[0])
+  it('leaves the currency blank for the first account', () => {
+    expect(newAccountDraft([]).currency).toBe('')
+    expect(newAccountDraft([]).colour).toBe(ACCOUNT_COLOURS[0])
   })
 })
 
@@ -116,7 +116,7 @@ describe('patchFromDraft', () => {
 })
 
 describe('createInputFromDraft', () => {
-  it('starts the wallet at a zero balance in its currency', () => {
+  it('starts the account at a zero balance in its currency', () => {
     const input = createInputFromDraft({
       name: 'Card',
       currency: 'GBP',
@@ -140,10 +140,10 @@ describe('currencySuggestions', () => {
   })
 })
 
-describe('walletIconClass', () => {
+describe('accountIconClass', () => {
   it('renders a known icon and falls back to the wallet icon', () => {
-    expect(walletIconClass('credit-card')).toBe('pi pi-credit-card')
-    expect(walletIconClass('no-such-icon')).toBe('pi pi-wallet')
+    expect(accountIconClass('credit-card')).toBe('pi pi-credit-card')
+    expect(accountIconClass('no-such-icon')).toBe('pi pi-wallet')
   })
 })
 

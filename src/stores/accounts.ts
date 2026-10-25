@@ -6,12 +6,12 @@ import type { AccountCreateInput, AccountUpdateInput } from '@/db/repositories/A
 import type { UUID } from '@/db/uuid'
 
 /**
- * Accounts (shown as "wallets" in the UI), in list order.
+ * Accounts, in list order.
  *
  * Write-through, like all financial data: every change is persisted first and
  * the list is then re-read from SQLite, so the state never shows something the
  * database does not hold. A failed write rethrows and leaves the state as it
- * was. Re-reading the whole list is fine at wallet scale (a handful of rows).
+ * was. Re-reading the whole list is fine at account scale (a handful of rows).
  */
 export const useAccountsStore = defineStore('accounts', () => {
   const accounts = ref<Account[]>([])

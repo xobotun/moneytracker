@@ -4,13 +4,12 @@ import Card from 'primevue/card'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
-import WalletBadge from '@/components/wallets/WalletBadge.vue'
-import WalletEditDialog from '@/components/wallets/WalletEditDialog.vue'
+import AccountBadge from '@/components/accounts/AccountBadge.vue'
+import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
 import type { UUID } from '@/db/uuid'
 
-// A wallet in the UI is an `accounts` row; see useAccountsStore.
 const store = useAccountsStore()
 const loadError = ref<string | null>(null)
 
@@ -18,7 +17,7 @@ onMounted(async () => {
   try {
     await store.load()
   } catch (e) {
-    loadError.value = `Could not load the wallets. ${(e as Error).message}`
+    loadError.value = `Could not load the accounts. ${(e as Error).message}`
   }
 })
 
@@ -55,7 +54,7 @@ async function moveTo(account: Account, toIndex: number, focus?: 'up' | 'down') 
     const position = store.accounts.findIndex((a) => a.id === account.id) + 1
     announcement.value = `${account.name} moved to position ${position} of ${store.accounts.length}.`
   } catch (e) {
-    moveError.value = `Could not move the wallet. ${(e as Error).message}`
+    moveError.value = `Could not move the account. ${(e as Error).message}`
   } finally {
     moving.value = false
   }
@@ -108,7 +107,7 @@ function endDrag() {
   <Card>
     <template #title>
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <span>Wallets</span>
+        <span>Accounts</span>
         <div class="flex gap-2">
           <Button
             v-if="store.accounts.length > 1"
@@ -121,7 +120,7 @@ function endDrag() {
           />
           <Button
             v-if="!reordering && store.accounts.length > 0"
-            label="Add wallet"
+            label="Add account"
             icon="pi pi-plus"
             size="small"
             @click="openNew"
@@ -133,7 +132,7 @@ function endDrag() {
     <template #content>
       <Message v-if="loadError" severity="error" :closable="false">{{ loadError }}</Message>
 
-      <p v-else-if="!store.loaded" class="text-gray-500 dark:text-gray-400">Loading wallets…</p>
+      <p v-else-if="!store.loaded" class="text-gray-500 dark:text-gray-400">Loading accounts…</p>
 
       <div
         v-else-if="store.accounts.length === 0"
@@ -141,14 +140,14 @@ function endDrag() {
       >
         <span class="pi pi-wallet text-4xl text-gray-400" aria-hidden="true" />
         <p class="max-w-sm text-gray-600 dark:text-gray-300">
-          No wallets yet. Add one for each place you keep money: a bank account, a card, cash.
+          No accounts yet. Add one for each place you keep money: a bank account, a card, cash.
         </p>
-        <Button label="Add your first wallet" icon="pi pi-plus" @click="openNew" />
+        <Button label="Add your first account" icon="pi pi-plus" @click="openNew" />
       </div>
 
       <template v-else>
         <p v-if="reordering" class="mb-3 text-sm text-gray-600 dark:text-gray-300">
-          Drag a wallet or use its arrows to change the order. The order syncs to your other
+          Drag an account or use its arrows to change the order. The order syncs to your other
           devices.
         </p>
         <Message v-if="moveError" severity="error" :closable="false" class="mb-3">
@@ -160,7 +159,7 @@ function endDrag() {
             tag="ul"
             move-class="transition-transform duration-200"
             class="flex flex-col gap-2"
-            aria-label="Wallets"
+            aria-label="Accounts"
           >
             <li
               v-for="(account, index) in store.accounts"
@@ -178,7 +177,7 @@ function endDrag() {
                 :title="`Edit ${account.name}`"
                 @click="openEdit(account)"
               >
-                <WalletBadge :icon="account.icon" :colour="account.colour" />
+                <AccountBadge :icon="account.icon" :colour="account.colour" />
                 <span class="flex min-w-0 flex-1 flex-col gap-1">
                   <span class="truncate font-medium">{{ account.name }}</span>
                   <span class="flex flex-wrap items-center gap-1">
@@ -206,7 +205,7 @@ function endDrag() {
                 ]"
               >
                 <span class="pi pi-bars cursor-grab text-gray-400" aria-hidden="true" />
-                <WalletBadge :icon="account.icon" :colour="account.colour" />
+                <AccountBadge :icon="account.icon" :colour="account.colour" />
                 <span class="min-w-0 flex-1 truncate font-medium">{{ account.name }}</span>
                 <Button
                   icon="pi pi-arrow-up"
@@ -235,7 +234,7 @@ function endDrag() {
         <p class="sr-only" aria-live="polite">{{ announcement }}</p>
       </template>
 
-      <WalletEditDialog v-model:visible="dialogVisible" :account="editing" />
+      <AccountEditDialog v-model:visible="dialogVisible" :account="editing" />
     </template>
   </Card>
 </template>

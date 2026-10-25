@@ -2,11 +2,11 @@ import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import type { Account } from '@/db/types'
 import type { AccountCreateInput, AccountUpdateInput } from '@/db/repositories/AccountsRepository'
 
-// Form logic of the wallet editor, kept out of the component so it can be
-// tested without mounting PrimeVue. A wallet in the UI is an `accounts` row.
+// Form logic of the account editor, kept out of the component so it can be
+// tested without mounting PrimeVue.
 
-/** PrimeIcons names (stored without the `pi-` prefix) offered for a wallet. */
-export const WALLET_ICONS = [
+/** PrimeIcons names (stored without the `pi-` prefix) offered for an account. */
+export const ACCOUNT_ICONS = [
   'wallet',
   'credit-card',
   'building-columns',
@@ -29,10 +29,10 @@ export const WALLET_ICONS = [
   'heart',
 ] as const
 
-const DEFAULT_WALLET_ICON = 'wallet'
+const DEFAULT_ACCOUNT_ICON = 'wallet'
 
 /** Preset swatches (Tailwind 500 shades); any other colour can be picked too. */
-export const WALLET_COLOURS = [
+export const ACCOUNT_COLOURS = [
   '#3b82f6',
   '#22c55e',
   '#f59e0b',
@@ -46,7 +46,7 @@ export const WALLET_COLOURS = [
 ] as const
 
 /** Names of the preset swatches, for their accessible labels. */
-export const WALLET_COLOUR_NAMES: Record<(typeof WALLET_COLOURS)[number], string> = {
+export const ACCOUNT_COLOUR_NAMES: Record<(typeof ACCOUNT_COLOURS)[number], string> = {
   '#3b82f6': 'blue',
   '#22c55e': 'green',
   '#f59e0b': 'amber',
@@ -60,7 +60,7 @@ export const WALLET_COLOUR_NAMES: Record<(typeof WALLET_COLOURS)[number], string
 }
 
 /** What the editor edits. `currency` is the free-form money currency tag. */
-export interface WalletDraft {
+export interface AccountDraft {
   name: string
   currency: string
   icon: string
@@ -68,15 +68,15 @@ export interface WalletDraft {
   tags: string[]
 }
 
-export interface WalletDraftErrors {
+export interface AccountDraftErrors {
   name?: string
   currency?: string
 }
 
 /** CSS class for a stored icon name. Unknown names fall back to the wallet icon. */
-export function walletIconClass(icon: string): string {
-  const known = (WALLET_ICONS as readonly string[]).includes(icon)
-  return `pi pi-${known ? icon : DEFAULT_WALLET_ICON}`
+export function accountIconClass(icon: string): string {
+  const known = (ACCOUNT_ICONS as readonly string[]).includes(icon)
+  return `pi pi-${known ? icon : DEFAULT_ACCOUNT_ICON}`
 }
 
 function relativeLuminance(hex: string): number | null {
@@ -91,7 +91,7 @@ function relativeLuminance(hex: string): number | null {
 }
 
 /**
- * Icon colour for a wallet badge: white while it keeps the 3:1 contrast WCAG
+ * Icon colour for an account badge: white while it keeps the 3:1 contrast WCAG
  * asks of graphics, dark ink on light colours (yellow, teal, …) otherwise.
  */
 export function iconColourOn(background: string): string {
@@ -108,18 +108,18 @@ function currenciesByUse(accounts: readonly Account[]): string[] {
   return [...counts.entries()].sort((x, y) => y[1] - x[1]).map(([currency]) => currency)
 }
 
-/** Draft for a new wallet: the most used currency and the next palette colour. */
-export function newWalletDraft(existing: readonly Account[]): WalletDraft {
+/** Draft for a new account: the most used currency and the next palette colour. */
+export function newAccountDraft(existing: readonly Account[]): AccountDraft {
   return {
     name: '',
     currency: currenciesByUse(existing)[0] ?? '',
-    icon: DEFAULT_WALLET_ICON,
-    colour: WALLET_COLOURS[existing.length % WALLET_COLOURS.length]!,
+    icon: DEFAULT_ACCOUNT_ICON,
+    colour: ACCOUNT_COLOURS[existing.length % ACCOUNT_COLOURS.length]!,
     tags: [],
   }
 }
 
-export function draftFromAccount(account: Account): WalletDraft {
+export function draftFromAccount(account: Account): AccountDraft {
   return {
     name: account.name,
     currency: account.balance.currency,
@@ -129,16 +129,16 @@ export function draftFromAccount(account: Account): WalletDraft {
   }
 }
 
-export function validateDraft(draft: WalletDraft): WalletDraftErrors {
-  const errors: WalletDraftErrors = {}
-  if (draft.name.trim() === '') errors.name = 'Give the wallet a name.'
+export function validateDraft(draft: AccountDraft): AccountDraftErrors {
+  const errors: AccountDraftErrors = {}
+  if (draft.name.trim() === '') errors.name = 'Give the account a name.'
   const currency = draft.currency.trim()
   if (currency === '') errors.currency = 'Enter a currency code, e.g. EUR or BTC.'
   else if (/\s/.test(currency)) errors.currency = 'A currency code has no spaces.'
   return errors
 }
 
-export function normaliseDraft(draft: WalletDraft): WalletDraft {
+export function normaliseDraft(draft: AccountDraft): AccountDraft {
   return {
     name: draft.name.trim(),
     currency: draft.currency.trim().toUpperCase(),
@@ -148,8 +148,8 @@ export function normaliseDraft(draft: WalletDraft): WalletDraft {
   }
 }
 
-/** A new wallet starts at zero; money already on it is entered as income. */
-export function createInputFromDraft(draft: WalletDraft): AccountCreateInput {
+/** A new account starts at zero; money already on it is entered as income. */
+export function createInputFromDraft(draft: AccountDraft): AccountCreateInput {
   return {
     name: draft.name,
     balance: zeroMoney(draft.currency),
@@ -161,7 +161,7 @@ export function createInputFromDraft(draft: WalletDraft): AccountCreateInput {
 }
 
 /** Only the fields that changed, so an untouched save writes nothing. */
-export function patchFromDraft(account: Account, draft: WalletDraft): AccountUpdateInput {
+export function patchFromDraft(account: Account, draft: AccountDraft): AccountUpdateInput {
   const patch: AccountUpdateInput = {}
   if (draft.name !== account.name) patch.name = draft.name
   if (draft.currency !== account.balance.currency) {

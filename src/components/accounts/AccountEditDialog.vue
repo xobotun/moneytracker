@@ -5,31 +5,31 @@ import InputText from 'primevue/inputtext'
 import AutoComplete, { type AutoCompleteCompleteEvent } from 'primevue/autocomplete'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import WalletBadge from './WalletBadge.vue'
+import AccountBadge from './AccountBadge.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
 import {
-  WALLET_COLOURS,
-  WALLET_COLOUR_NAMES,
-  WALLET_ICONS,
+  ACCOUNT_COLOURS,
+  ACCOUNT_COLOUR_NAMES,
+  ACCOUNT_ICONS,
   createInputFromDraft,
   currencySuggestions,
   draftFromAccount,
-  newWalletDraft,
+  newAccountDraft,
   normaliseDraft,
   patchFromDraft,
   validateDraft,
-  type WalletDraft,
-  type WalletDraftErrors,
-} from './walletForm'
+  type AccountDraft,
+  type AccountDraftErrors,
+} from './accountForm'
 
-/** Edits `account`, or creates a new wallet when it is null. */
+/** Edits `account`, or creates a new account when it is null. */
 const props = defineProps<{ account: Account | null }>()
 const visible = defineModel<boolean>('visible', { required: true })
 
 const store = useAccountsStore()
 
-const draft = ref<WalletDraft>(newWalletDraft([]))
+const draft = ref<AccountDraft>(newAccountDraft([]))
 const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
@@ -40,7 +40,7 @@ watch(
   visible,
   (open) => {
     if (!open) return
-    draft.value = props.account ? draftFromAccount(props.account) : newWalletDraft(store.accounts)
+    draft.value = props.account ? draftFromAccount(props.account) : newAccountDraft(store.accounts)
     submitted.value = false
     confirmingDelete.value = false
     error.value = null
@@ -50,7 +50,7 @@ watch(
 
 const errors = computed(() => validateDraft(draft.value))
 // Errors appear only after the first save attempt, not while typing.
-const shownErrors = computed<WalletDraftErrors>(() => (submitted.value ? errors.value : {}))
+const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors.value : {}))
 
 const currencyOptions = ref<string[]>([])
 function completeCurrency(event: AutoCompleteCompleteEvent) {
@@ -62,7 +62,7 @@ const pickerValue = computed(() =>
   /^#[0-9a-f]{6}$/i.test(draft.value.colour) ? draft.value.colour : '#000000',
 )
 const isCustomColour = computed(
-  () => !(WALLET_COLOURS as readonly string[]).includes(draft.value.colour.toLowerCase()),
+  () => !(ACCOUNT_COLOURS as readonly string[]).includes(draft.value.colour.toLowerCase()),
 )
 
 function iconLabel(icon: string): string {
@@ -80,7 +80,7 @@ async function save() {
     else await store.create(createInputFromDraft(clean))
     visible.value = false
   } catch (e) {
-    error.value = `Could not save the wallet. ${(e as Error).message}`
+    error.value = `Could not save the account. ${(e as Error).message}`
   } finally {
     saving.value = false
   }
@@ -94,7 +94,7 @@ async function remove() {
     await store.remove(props.account.id)
     visible.value = false
   } catch (e) {
-    error.value = `Could not delete the wallet. ${(e as Error).message}`
+    error.value = `Could not delete the account. ${(e as Error).message}`
     confirmingDelete.value = false
   } finally {
     saving.value = false
@@ -106,48 +106,48 @@ async function remove() {
   <Dialog
     v-model:visible="visible"
     modal
-    :header="account ? 'Edit wallet' : 'New wallet'"
+    :header="account ? 'Edit account' : 'New account'"
     :draggable="false"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
       <div class="flex items-start gap-3">
-        <WalletBadge :icon="draft.icon" :colour="draft.colour" large class="mt-6" />
+        <AccountBadge :icon="draft.icon" :colour="draft.colour" large class="mt-6" />
         <div class="flex min-w-0 flex-1 flex-col gap-1">
-          <label for="wallet-name" class="text-sm font-medium">Name</label>
+          <label for="account-name" class="text-sm font-medium">Name</label>
           <InputText
-            id="wallet-name"
+            id="account-name"
             v-model="draft.name"
             autofocus
             maxlength="60"
             autocomplete="off"
             :invalid="!!shownErrors.name"
-            :aria-describedby="shownErrors.name ? 'wallet-name-error' : undefined"
+            :aria-describedby="shownErrors.name ? 'account-name-error' : undefined"
           />
-          <small v-if="shownErrors.name" id="wallet-name-error" class="text-red-600">
+          <small v-if="shownErrors.name" id="account-name-error" class="text-red-600">
             {{ shownErrors.name }}
           </small>
         </div>
       </div>
 
       <div class="flex flex-col gap-1">
-        <label for="wallet-currency" class="text-sm font-medium">Currency</label>
+        <label for="account-currency" class="text-sm font-medium">Currency</label>
         <AutoComplete
           v-model="draft.currency"
-          input-id="wallet-currency"
+          input-id="account-currency"
           :suggestions="currencyOptions"
           dropdown
           fluid
           :invalid="!!shownErrors.currency"
           :aria-describedby="
-            shownErrors.currency ? 'wallet-currency-error' : 'wallet-currency-hint'
+            shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'
           "
           @complete="completeCurrency"
         />
-        <small v-if="shownErrors.currency" id="wallet-currency-error" class="text-red-600">
+        <small v-if="shownErrors.currency" id="account-currency-error" class="text-red-600">
           {{ shownErrors.currency }}
         </small>
-        <small v-else id="wallet-currency-hint" class="text-gray-500 dark:text-gray-400">
+        <small v-else id="account-currency-hint" class="text-gray-500 dark:text-gray-400">
           ISO code like EUR, or your own like BTC.
         </small>
       </div>
@@ -156,7 +156,7 @@ async function remove() {
         <legend class="mb-2 text-sm font-medium">Icon</legend>
         <div class="flex flex-wrap gap-1">
           <button
-            v-for="icon in WALLET_ICONS"
+            v-for="icon in ACCOUNT_ICONS"
             :key="icon"
             type="button"
             class="flex size-10 items-center justify-center rounded-md border-2 transition-colors"
@@ -179,13 +179,13 @@ async function remove() {
         <legend class="mb-2 text-sm font-medium">Colour</legend>
         <div class="flex flex-wrap items-center gap-2">
           <button
-            v-for="colour in WALLET_COLOURS"
+            v-for="colour in ACCOUNT_COLOURS"
             :key="colour"
             type="button"
             class="size-8 rounded-full ring-offset-2 ring-offset-white dark:ring-offset-gray-900"
             :class="draft.colour.toLowerCase() === colour ? 'ring-2 ring-(--p-primary-color)' : ''"
             :style="{ backgroundColor: colour }"
-            :aria-label="WALLET_COLOUR_NAMES[colour]"
+            :aria-label="ACCOUNT_COLOUR_NAMES[colour]"
             :aria-pressed="draft.colour.toLowerCase() === colour"
             @click="draft.colour = colour"
           />
@@ -208,16 +208,16 @@ async function remove() {
       </fieldset>
 
       <div class="flex flex-col gap-1">
-        <label for="wallet-tags" class="text-sm font-medium">Tags</label>
+        <label for="account-tags" class="text-sm font-medium">Tags</label>
         <AutoComplete
           v-model="draft.tags"
-          input-id="wallet-tags"
+          input-id="account-tags"
           multiple
           :typeahead="false"
           fluid
-          aria-describedby="wallet-tags-hint"
+          aria-describedby="account-tags-hint"
         />
-        <small id="wallet-tags-hint" class="text-gray-500 dark:text-gray-400">
+        <small id="account-tags-hint" class="text-gray-500 dark:text-gray-400">
           Optional. Type a tag and press Enter.
         </small>
       </div>
@@ -240,7 +240,7 @@ async function remove() {
           />
           <Button
             type="button"
-            label="Delete wallet"
+            label="Delete account"
             severity="danger"
             :loading="saving"
             @click="remove"
@@ -260,7 +260,7 @@ async function remove() {
         />
         <span class="flex-1" />
         <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
-        <Button type="submit" :label="account ? 'Save' : 'Add wallet'" :loading="saving" />
+        <Button type="submit" :label="account ? 'Save' : 'Add account'" :loading="saving" />
       </div>
     </form>
   </Dialog>
