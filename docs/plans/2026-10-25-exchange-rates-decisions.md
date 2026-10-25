@@ -35,10 +35,10 @@ static GitHub Pages app needs.
 | Source | Access | CORS | History | Coverage | Notes |
 |---|---|---|---|---|---|
 | **ECB** via Frankfurter (`api.frankfurter.dev/v1`) | JSON, no key | yes | from 1999-01-04 | 30 currencies (CZK, PLN, HUF, CHF, GBP, USD, SEK, NOK, DKK, RON, TRY…); no RUB, KZT, AMD, AED, GEL, crypto | Base EUR. Working days only (no weekend / holiday rows). A date range is one request (all of 2025 = 105 KB). |
-| **NBG** Georgia (`nbg.gov.ge/gw/api/ct/monetarypolicy/currencies/en/json/?date=`) | JSON, no key | yes | at least from 2010 | 43 currencies incl. KZT, AMD, RUB, AED, EUR, USD, CZK, PLN | Base GEL. Every calendar day. Rates are per `quantity` (GEL per 100 KZT, per 1000 AMD). One request per date. |
-| **NBK** Kazakhstan, Excel export (`nationalbank.kz/en/exchangerates/ezhednevnye-oficialnye-rynochnye-kursy-valyut/excel?beginDate=&endDate=&rates[]=`) | `.xlsx`, no key; the `_token` parameter is not needed | **no** | 2020 checked | AMD, GEL, RUB, EUR, USD, CZK… (about 48 in the form) | Base KZT. Every calendar day. Whole range in one request (2020→today EUR = 44 KB, 2,491 rows). Currencies are internal ids (`rates[]=6` is EUR). The RSS XML feed (`/rss/get_rates.cfm?fdate=`) has no CORS either. |
-| **CBA** Armenia, CSV export (`cba.am/en/exchange-rates-archive/export?currencies[]=KZT&date-from=DD/MM/YYYY&date-to=`) | CSV, no key; `as_sfid` / `as_fid` not needed | **no** | 2020 checked | KZT, GEL, RUB, EUR, USD, gold, ~60 | Base AMD. Working days only. Whole range in one request (KZT+GEL+EUR 2020→today = 66 KB). Header carries the unit (`"KZT 10"`). The SOAP API (`api.cba.am/exchangerates.asmx`) has no CORS and its GET binding answers 500. |
-| **CBR** Russia (`cbr.ru/scripts/XML_daily.asp`) | XML, windows-1251 | **no** | 2020 checked | AMD, KZT, EUR, USD; **no GEL** | Unofficial mirror `cbr-xml-daily.ru` serves JSON with CORS. Not chosen yet. |
+| **NBG** Georgia (`nbg.gov.ge/gw/api/ct/monetarypolicy/currencies/en/json/?date=`) | JSON, no key | yes | at least from 2010 | 43 currencies incl. KZT, AMD, RUB, AED, EUR, USD, CZK, PLN | Base GEL. Every calendar day until 2021; since then nothing for Sundays and Mondays (a request returns Saturday's rates, dated Saturday). Rates are per `quantity` (GEL per 100 KZT, per 1000 AMD). One request per date. |
+| **NBK** Kazakhstan, Excel export (`nationalbank.kz/en/exchangerates/ezhednevnye-oficialnye-rynochnye-kursy-valyut/excel?beginDate=&endDate=&rates[]=`) | `.xlsx`, no key; the `_token` parameter is not needed | **no** | 2020 checked | AMD, GEL, RUB, EUR, USD, CZK… (about 48 in the form) | Base KZT. Every calendar day. Whole range in one request (2020→today EUR = 44 KB, 2,491 rows). Currencies are internal ids (`rates[]=6` is EUR). The RSS XML feed (`/rss/get_rates.cfm?fdate=`) has no CORS either, and answers any date — even a future one — with the newest rates, so fetchers never ask past today. |
+| **CBA** Armenia, CSV export (`cba.am/en/exchange-rates-archive/export?currencies[]=KZT&date-from=DD/MM/YYYY&date-to=`) | CSV, no key; `as_sfid` / `as_fid` not needed | **no** | 2020 checked | KZT, GEL, RUB, EUR, USD, gold, ~60 | Base AMD. Working days only. Whole range in one request for a few codes (KZT+GEL+EUR 2020→today = 66 KB); with all ~50 codes a multi-year export times out after ~65 s, so ask one year at a time. Gold and silver are quoted per gram. Header carries the unit (`"KZT 10"`). The SOAP API (`api.cba.am/exchangerates.asmx`) has no CORS and its GET binding answers 500. |
+| **CBR** Russia (`cbr.ru/scripts/XML_daily.asp`) | XML, windows-1251 | **no** | 2020 checked | AMD, KZT, EUR, USD; GEL only in recent years (not in 2020) | Rates run Tuesday to Saturday; the XML's `Date` is when they apply from. Unofficial mirror `cbr-xml-daily.ru` serves JSON with CORS. In the rates repo. |
 | **fawazahmed0** (`cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{date|latest}/v1/currencies/{code}.json`, mirror `{date}.currency-api.pages.dev`) | JSON, no key, no limits | yes | from **2024-03-02** | ~340 codes incl. crypto and metals (and junk coins); the set changes over time | Daily; `latest` lags a day. Lowercase codes. No accuracy / uptime promise. Sources are hidden in CI secrets (`currscript.js`): an EUR-based fiat API, a USD feed scraped with headless Firefox, CoinMarketCap-shaped crypto. Every file is derived from one EUR set, so only the EUR file counts as direct; other bases are crosses through EUR. |
 | **openexchangerates.org** | JSON, App ID | yes | from 1999 | ~170 + alternatives | Free plan: USD base only, 1,000 requests / month, one request per historical day; hourly updates. |
 | Google Sheets `GOOGLEFINANCE` | public sheet read via `/gviz/tq?tqx=out:csv` | yes | **current values only** | Google Finance pairs (KZT / AMD support not verified) | Historical values read outside Sheets return `#N/A` (since 2016). A daily Apps Script copying values into a log tab builds history forward only. Not chosen; possible later "bring your own rates" adapter. |
@@ -181,16 +181,19 @@ For a currency pair on a date:
 
 ## Rates repo contract (v1)
 
-The repo is built later; this is what the app will read. It mirrors
-fawazahmed0's layout and file shape, so one parser serves both.
+The repo is `xobotun/exchange-rates` (a draft of its scripts is in
+`~/work/playground/moneytracker-rates`, not yet pushed); this is what the
+app will read. It mirrors fawazahmed0's layout and file shape, so one
+parser serves both.
 
 - **Public GitHub repo**, read by the app at
-  `https://raw.githubusercontent.com/<owner>/<repo>/main/` (CORS `*`, a
+  `https://raw.githubusercontent.com/xobotun/exchange-rates/main/` (CORS `*`, a
   5-minute cache). Everything below lives under `v1/`; a breaking change
   goes to `v2/`.
-- **One provider per bank**, named by a short id: `ecb`, `nbg`, `nbk`, `cba`
-  (later `cnb`, `nbp`, `cbr`). Each publishes in its **home currency** as the
-  base: `ecb` → `eur`, `nbg` → `gel`, `nbk` → `kzt`, `cba` → `amd`.
+- **One provider per bank**, named by a short id: `ecb`, `nbg`, `nbk`, `cba`,
+  `cbr` (later perhaps `cnb`, `nbp`). Each publishes in its **home currency**
+  as the base: `ecb` → `eur`, `nbg` → `gel`, `nbk` → `kzt`, `cba` → `amd`,
+  `cbr` → `rub`.
 - **Day files**, exactly fawazahmed0's
   `currency-api@{date}/v1/currencies/{code}.json`:
   - `v1/<provider>/<YYYY-MM-DD>/currencies/<home>.json`
@@ -199,8 +202,9 @@ fawazahmed0's layout and file shape, so one parser serves both.
     lowercase codes; the number is how many units of `<code>` **one** unit
     of `<home>` buys. Banks that quote per 10 / 100 / 1000 units are divided
     down; banks that quote "home per foreign" (NBK, CBA, NBG) are inverted
-    (`1 / quote`, full double precision, no rounding).
-  - `date` in the body is the **publication** the rates come from. There is
+    (`1 / quote`, full double precision, no rounding). Metals (`xau`, `xag`)
+    are per **troy ounce**, as ISO 4217 means them; CBA's per-gram quotes
+    are converted.  - `date` in the body is the **publication** the rates come from. There is
     a file for **every calendar day**: on a day the bank does not publish
     (weekends, holidays) it repeats the newest earlier publication with that
     publication's `date`. One request per day always answers, and the app
@@ -210,11 +214,17 @@ fawazahmed0's layout and file shape, so one parser serves both.
   `{"year": "2025", "<home>": {"2025-01-02": {"<code>": <number>, …}, …}}`,
   publication days only.
 - **Metadata:**
-  - `v1/providers.json` — `["ecb", "nbg", "nbk", "cba"]`;
+  - `v1/providers.json` — `["ecb", "nbg", "nbk", "cba", "cbr"]`;
   - `v1/<provider>/meta.json` — `{"provider": "nbk", "name": "National Bank
     of Kazakhstan", "home": "kzt", "source": "<url>", "first_date":
-    "2020-01-01", "last_date": "2026-10-25", "publishes": "daily" |
-    "working-days"}`. The app skips dates before `first_date`.
+    "2019-12-24", "last_date": "2026-10-25"}`: the span the tree actually
+    holds. The app skips dates before `first_date`. (No `publishes` field:
+    banks keep their own calendars — the Georgian bank publishes nothing for
+    Sundays and Mondays since 2021, the Russian bank's rates run Tuesday to
+    Saturday — and the app needs none of it, since every day has a file.)
+- **History starts on 2019-12-24** for every bank, a week before the
+  user's data, so the app's 7-day lookback from 2020-01-01 always finds a
+  publication inside the year files.
 - **Raw downloads** are kept for auditing under `raw/<provider>/<YYYY>/…`, as
   the bank served them. The app never reads them.
 - **Updates:** a nightly scheduled GitHub Action, after the banks publish
@@ -229,8 +239,9 @@ fawazahmed0's layout and file shape, so one parser serves both.
 1. Rate resolution and `applied_rates` (with the manual-wins sync rule);
    `exchange_rates` becomes device-local; providers with priorities; the
    fawazahmed0 fetcher; refresh. Replaces the placeholder `RateTable`.
-2. The rates repo (above) with ECB, NBG, NBK and CBA, and the app's provider
-   reading it (one provider per bank, all on the central-bank level).
+2. The rates repo (above) with ECB, NBG, NBK, CBA and CBR, and the app's
+   provider reading it (one provider per bank, all on the central-bank
+   level).
 3. openexchangerates (App ID stored per device, like sync credentials).
 4. UI for overrides and the review list.
-5. Optional: Google Sheet provider; CNB / NBP; CBR.
+5. Optional: Google Sheet provider; CNB / NBP.

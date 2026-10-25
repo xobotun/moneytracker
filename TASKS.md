@@ -340,12 +340,12 @@ Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](d
 (sources checked, priorities, resolution rules, tables, the rates-repo contract).
 Phase 1 is done (see Done above). Next:
 
-2. Rates repo — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export, CBR) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level (priority 10)
+2. Rates repo `xobotun/exchange-rates` (scripts drafted in `~/work/playground/moneytracker-rates`, not pushed) — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export, CBR) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level (priority 10)
     - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days)
     - **First:** make the sync rank agree with the levels. `ROW_RANK` ranks direct over cross whatever the level, while resolution puts the level first: a central-bank cross meeting a fawazahmed0 direct rate would lose the conflict, be re-resolved and conflict again on every sync. The sync layer must not import the providers, so the level has to reach the rank another way (stored in the row, or a rank function the money layer registers)
 3. openexchangerates (App ID per device; priority 30)
 4. UI for manual overrides (`setManual` / `removeManual` exist) and the review list (`applied_rates` rows with `via` set or a NULL rate)
-5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN); Russian central bank
+5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN)
 - Transaction form (with the Transactions UI): pre-fill the second amount from the applied rate of the transaction's date (`RateService.ensure(date, …)`); the stored amounts stay the truth
 - Reports: convert each transaction at its own date's applied rate (a leg already in the base currency needs no rate)
 - Follow-ups from the phase-1 review (minor):
