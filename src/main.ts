@@ -11,6 +11,7 @@ import App from './App.vue'
 import router from './router'
 import { initDatabase } from './db/init'
 import { useLayoutStore } from './stores/layout'
+import { useMoneySettingsStore } from './stores/moneySettings'
 import { themePresets } from './stores/layout-types'
 import { showStartupError } from './startupScreen'
 
@@ -31,7 +32,7 @@ async function bootstrap(): Promise<void> {
   })
 
   const layoutStore = useLayoutStore()
-  await layoutStore.hydrate()
+  await Promise.all([layoutStore.hydrate(), useMoneySettingsStore().hydrate()])
 
   // Apply persisted theme settings
   if (layoutStore.themePreset !== 'Aura') {

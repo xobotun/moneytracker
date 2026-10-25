@@ -91,6 +91,17 @@ export class ExchangeRatesRepository {
     return rows.map(rowToExchangeRate)
   }
 
+  /** Every live row of the newest date that has any (all bases and providers). */
+  async latest(): Promise<ExchangeRate[]> {
+    const rows = await this.db.exec<ExchangeRateRow>(
+      `SELECT * FROM exchange_rates
+       WHERE deleted_at_utc IS NULL
+         AND date = (SELECT MAX(date) FROM exchange_rates WHERE deleted_at_utc IS NULL)
+       ORDER BY provider, base_currency`,
+    )
+    return rows.map(rowToExchangeRate)
+  }
+
   async list(): Promise<ExchangeRate[]> {
     const rows = await this.db.exec<ExchangeRateRow>(
       'SELECT * FROM exchange_rates WHERE deleted_at_utc IS NULL ORDER BY date DESC, base_currency, provider',

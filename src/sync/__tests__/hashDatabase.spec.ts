@@ -5,6 +5,7 @@ import { migration as settingsMigration } from '../../db/migrations/001_settings
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import { hashDatabase, __resetHashCache } from '../hashDatabase'
 import { newId } from '../../db/uuid'
+import { seedAccount } from './helpers'
 
 async function migratedDb(): Promise<Database> {
   const db = new Database()
@@ -120,5 +121,21 @@ describe('hashDatabase', () => {
     const hashMissingTheRow = await during
     // The row is now in the DB, so the next hash must reflect it.
     expect(await hashDatabase(db)).not.toBe(hashMissingTheRow)
+  })
+
+  it('ignores cached balances: they are derived from the transactions', async () => {
+    const a = await migratedDb()
+    const b = await migratedDb()
+    dbs.push(a, b)
+    for (const db of [a, b]) {
+      await seedAccount(db, {
+        id: 'acc',
+        name: 'Cash',
+        created: '2026-05-01T00:00:00.000Z',
+        updated: '2026-05-01T00:00:00.000Z',
+      })
+    }
+    await b.run("UPDATE accounts SET balance_value = 999 WHERE id = 'acc'")
+    expect(await hashDatabase(a)).toBe(await hashDatabase(b))
   })
 })

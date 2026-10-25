@@ -1,5 +1,6 @@
 import type { Database } from '../db/Database'
 import { SYNC_TABLES } from './syncTables'
+import { DERIVED_COLUMNS } from './syncColumns'
 import type { SyncRow } from './types'
 
 // Provider-independent content hash of a Database.
@@ -57,8 +58,12 @@ export async function hashDatabase(db: Database): Promise<string> {
     for (const row of rows) {
       // Canonical JSON: keys sorted alphabetically, no whitespace, undefined
       // omitted, NULL preserved. JSON.stringify already omits undefined and
-      // preserves null; we add explicit key sorting.
-      const sortedKeys = Object.keys(row).sort()
+      // preserves null; we add explicit key sorting. Derived columns are
+      // left out: a device-computed cache is not part of the data.
+      const derived = DERIVED_COLUMNS[table.name] ?? []
+      const sortedKeys = Object.keys(row)
+        .filter((key) => !derived.includes(key))
+        .sort()
       const canonical = JSON.stringify(row, sortedKeys)
       chunks.push(encoder.encode(`${table.name} ${canonical}\n`))
     }

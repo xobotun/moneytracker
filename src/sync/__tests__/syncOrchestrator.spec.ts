@@ -4,7 +4,7 @@ import type { SyncMetadata } from '../types'
 import { decideSync, runSync } from '../syncOrchestrator'
 import { FakeSyncBackend } from './fakes'
 import { readRows } from '../rows'
-import { newMigratedDb, seedLocation } from './helpers'
+import { newMigratedDb, seedAccount, seedLocation, seedTransaction } from './helpers'
 import type { SyncBackend } from '../SyncBackend'
 import { hashDatabase } from '../hashDatabase'
 
@@ -103,6 +103,31 @@ describe('runSync', () => {
     expect(outcome.decision).toBe('merge')
     expect(outcome.uploaded).toBe(true)
     expect(await readRows(local, 'locations')).toHaveLength(1)
+  })
+
+  it('uploads a merged database whose cached balances match its transactions', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    const d = deps(backend)
+    const at = '2026-05-21T00:00:00.000Z'
+    await seedAccount(local, { id: 'acc', name: 'Cash', created: at, updated: at })
+    // Device B spent 1.00 USD from it; neither side's cache shows that yet.
+    const remoteDb = await newMigratedDb()
+    await seedAccount(remoteDb, { id: 'acc', name: 'Cash', created: at, updated: at })
+    await seedTransaction(remoteDb, { id: 'txn', accountFrom: 'acc', created: at, updated: at })
+    const remoteHash = await d.backend.hashDatabase(remoteDb)
+    await backend.setRemote(remoteDb, META({ device: 'dev-B', hash: remoteHash }))
+
+    const outcome = await runSync(local, d)
+
+    expect(outcome.decision).toBe('merge')
+    // Rebuilt during the merge, so before the hash and the upload.
+    const uploaded = await backend.downloadDatabase()
+    try {
+      expect((await readRows(uploaded, 'accounts'))[0]).toMatchObject({ balance_value: -100 })
+    } finally {
+      await uploaded.close()
+    }
   })
 
   it('re-merges when a concurrent upload makes the first CAS upload fail', async () => {

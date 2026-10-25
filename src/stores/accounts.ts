@@ -1,8 +1,9 @@
-import { computed, ref } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import {
   getAccountGroupingsRepository,
   getAccountsRepository,
+  getExchangeRatesRepository,
   getTransactionsRepository,
 } from '@/db/init'
 import type { Account, AccountGrouping } from '@/db/types'
@@ -12,6 +13,7 @@ import type {
   AccountGroupingUpdateInput,
 } from '@/db/repositories/AccountGroupingsRepository'
 import type { UUID } from '@/db/uuid'
+import { RateTable } from '@/money/rates'
 
 /** One block of the accounts page: a group with its accounts, or (grouping null) the rest. */
 export interface AccountSection {
@@ -31,6 +33,8 @@ export const useAccountsStore = defineStore('accounts', () => {
   const accounts = ref<Account[]>([])
   const groupings = ref<AccountGrouping[]>([])
   const loaded = ref(false)
+  // Rates to show balances in the base currency (placeholder rules, see RateTable).
+  const rates = shallowRef(RateTable.empty)
 
   /**
    * Each live group with its accounts, in order, then a last section with the
@@ -51,12 +55,14 @@ export const useAccountsStore = defineStore('accounts', () => {
   })
 
   async function load(): Promise<void> {
-    const [accountList, groupingList] = await Promise.all([
+    const [accountList, groupingList, rateRows] = await Promise.all([
       getAccountsRepository().list(),
       getAccountGroupingsRepository().list(),
+      getExchangeRatesRepository().latest(),
     ])
     accounts.value = accountList
     groupings.value = groupingList
+    rates.value = RateTable.fromRows(rateRows)
     loaded.value = true
   }
 
@@ -68,9 +74,42 @@ export const useAccountsStore = defineStore('accounts', () => {
     return account
   }
 
+  /**
+   * Updates the account. A currency change is refused while live
+   * transactions use it: their amounts are in the old currency, and the
+   * balance would silently stop counting them.
+   */
   async function update(id: UUID, patch: AccountUpdateInput): Promise<void> {
+    const current = accounts.value.find((a) => a.id === id)
+    if (patch.balance && current && patch.balance.currency !== current.balance.currency) {
+      const used = await getTransactionsRepository().countByAccountId(id)
+      if (used > 0) {
+        throw new Error(
+          `Its currency cannot change: ${used} transaction${used === 1 ? ' uses' : 's use'} it in ${current.balance.currency}.`,
+        )
+      }
+    }
     await getAccountsRepository().update(id, patch)
     await load()
+  }
+
+  /** Rebuilds every cached balance from the transactions; returns how many changed. */
+  async function recalculateBalances(): Promise<number> {
+    const changed = await getAccountsRepository().recalculateBalances()
+    await load()
+    return changed
+  }
+
+  /** How many live transactions use account `id`. */
+  function transactionCount(id: UUID): Promise<number> {
+    return getTransactionsRepository().countByAccountId(id)
+  }
+
+  /** Rebuilds one account's cached balance; returns whether it changed. */
+  async function recalculateBalance(id: UUID): Promise<boolean> {
+    const changed = await getAccountsRepository().recalculateBalances([id])
+    await load()
+    return changed > 0
   }
 
   /**
@@ -79,7 +118,7 @@ export const useAccountsStore = defineStore('accounts', () => {
    * deleted account.
    */
   async function remove(id: UUID): Promise<void> {
-    const used = (await getTransactionsRepository().listByAccountId(id)).length
+    const used = await getTransactionsRepository().countByAccountId(id)
     if (used > 0) {
       throw new Error(`It is still used by ${used} transaction${used === 1 ? '' : 's'}.`)
     }
@@ -163,10 +202,14 @@ export const useAccountsStore = defineStore('accounts', () => {
     accounts,
     groupings,
     loaded,
+    rates,
     sections,
     load,
     create,
     update,
+    recalculateBalances,
+    recalculateBalance,
+    transactionCount,
     remove,
     moveAccount,
     moveAccountBy,

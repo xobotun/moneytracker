@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { MoneyAmount } from '../MoneyAmount'
-import { moneyAmount, zeroMoney } from '../MoneyAmount'
+import { moneyAmount, moneyToNumber, sumMoney, zeroMoney } from '../MoneyAmount'
 
 describe('MoneyAmount', () => {
   it('factory returns a frozen object with the three fields', () => {
@@ -40,5 +40,27 @@ describe('MoneyAmount', () => {
     // Number.isInteger(2 ** 60) is true, but the value has already lost precision.
     expect(() => moneyAmount(Number.MAX_SAFE_INTEGER + 1, 2, 'USD')).toThrow(/safe integer/)
     expect(() => moneyAmount(2 ** 60, 18, 'ETH')).toThrow(/safe integer/)
+  })
+})
+
+describe('sumMoney', () => {
+  it('adds exactly at the largest scale', () => {
+    expect(sumMoney([moneyAmount(15, 1, 'EUR'), moneyAmount(25, 2, 'EUR')], 'EUR')).toEqual(
+      moneyAmount(175, 2, 'EUR'),
+    )
+  })
+
+  it('is zero for no amounts', () => {
+    expect(sumMoney([], 'EUR')).toEqual(moneyAmount(0, 2, 'EUR'))
+  })
+
+  it('refuses mixed currencies', () => {
+    expect(() => sumMoney([moneyAmount(1, 2, 'EUR'), moneyAmount(1, 2, 'USD')], 'EUR')).toThrow()
+  })
+})
+
+describe('moneyToNumber', () => {
+  it('turns value and scale into a number', () => {
+    expect(moneyToNumber(moneyAmount(-1234, 2, 'EUR'))).toBe(-12.34)
   })
 })

@@ -2,18 +2,20 @@
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
-import AutoComplete, { type AutoCompleteCompleteEvent } from 'primevue/autocomplete'
+import AutoComplete from 'primevue/autocomplete'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from './AccountBadge.vue'
 import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
+import { YELLOW_BUTTON } from './yellowButton'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/db/types'
-import { currencyName, currencySymbol } from '@/format/currency'
+import CurrencyInput from '@/components/CurrencyInput.vue'
+import { currencyName, currencySymbol, formatMoney } from '@/format/currency'
 import {
   createInputFromDraft,
-  currencySuggestions,
+  currenciesByUse,
   draftFromAccount,
   newAccountDraft,
   normaliseDraft,
@@ -34,6 +36,11 @@ const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
 const error = ref<string | null>(null)
+const recalculating = ref(false)
+const recalculated = ref<string | null>(null)
+const currencyLocked = ref(false)
+// Transactions on the account being edited; null while counting (or for a new one).
+const transactionCount = ref<number | null>(null)
 
 // Start from a fresh draft each time the dialog opens.
 watch(
@@ -44,9 +51,30 @@ watch(
     submitted.value = false
     confirmingDelete.value = false
     error.value = null
+    recalculated.value = null
+    void checkCurrencyLock()
   },
   { immediate: true },
 )
+
+// An account that transactions use keeps its currency (their amounts are in
+// it, and its balance counts only amounts in its own currency): the dialog
+// shows it read-only instead of the picker. Read-only until the count is
+// known, so it cannot change in between.
+async function checkCurrencyLock() {
+  const account = props.account
+  currencyLocked.value = account !== null
+  transactionCount.value = null
+  if (!account) return
+  try {
+    const n = await store.transactionCount(account.id)
+    if (props.account?.id !== account.id) return // the dialog moved on meanwhile
+    transactionCount.value = n
+    currencyLocked.value = n > 0
+  } catch (e) {
+    error.value = `Could not check the account's transactions, so its currency stays as it is. ${(e as Error).message}`
+  }
+}
 
 const errors = computed(() => validateDraft(draft.value))
 // Errors appear only after the first save attempt, not while typing.
@@ -55,10 +83,6 @@ const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors
 // While the suggestions are open, Escape closes only them, not the dialog
 // (both listen for it; the dialog reads this flag when the key is pressed).
 const currencyListOpen = ref(false)
-const currencyOptions = ref<string[]>([])
-function completeCurrency(event: AutoCompleteCompleteEvent) {
-  currencyOptions.value = currencySuggestions(event.query, store.accounts)
-}
 
 async function save() {
   submitted.value = true
@@ -74,6 +98,26 @@ async function save() {
     error.value = `Could not save the account. ${(e as Error).message}`
   } finally {
     saving.value = false
+  }
+}
+
+// The balance is a cache of the transactions; this rebuilds it for this account.
+async function recalculate() {
+  if (!props.account) return
+  const id = props.account.id
+  recalculating.value = true
+  error.value = null
+  try {
+    const changed = await store.recalculateBalance(id)
+    const balance = store.accounts.find((a) => a.id === id)?.balance
+    const shown = balance ? formatMoney(balance) : ''
+    recalculated.value = changed
+      ? `The balance was off; it is ${shown} now.`
+      : `The balance was already right: ${shown}.`
+  } catch (e) {
+    error.value = `Could not recalculate the balance. ${(e as Error).message}`
+  } finally {
+    recalculating.value = false
   }
 }
 
@@ -122,32 +166,37 @@ async function remove() {
         </div>
       </div>
 
-      <div class="flex flex-col gap-1">
+      <!-- Read-only once transactions use the account (see checkCurrencyLock). -->
+      <div v-if="currencyLocked && account" class="flex flex-col gap-1">
+        <span class="text-sm font-medium">Currency</span>
+        <p
+          id="account-currency-value"
+          class="flex min-h-10 items-center gap-3 rounded-md bg-gray-100 px-3 dark:bg-white/5"
+        >
+          <span class="font-medium">{{ account.balance.currency }}</span>
+          <span v-if="currencySymbol(account.balance.currency)">
+            {{ currencySymbol(account.balance.currency) }}
+          </span>
+          <span class="text-sm text-gray-500 dark:text-gray-400">
+            {{ currencyName(account.balance.currency) }}
+          </span>
+          <span v-if="transactionCount" class="text-xs text-gray-500 dark:text-gray-400">
+            ({{ transactionCount }} transaction{{ transactionCount === 1 ? '' : 's' }})
+          </span>
+        </p>
+      </div>
+      <div v-else class="flex flex-col gap-1">
         <label for="account-currency" class="text-sm font-medium">Currency</label>
-        <AutoComplete
+        <CurrencyInput
           v-model="draft.currency"
+          :preferred="currenciesByUse(store.accounts)"
           input-id="account-currency"
-          :suggestions="currencyOptions"
-          dropdown
           fluid
           :invalid="!!shownErrors.currency"
-          :aria-describedby="
-            shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'
-          "
-          @complete="completeCurrency"
+          :describedby="shownErrors.currency ? 'account-currency-error' : 'account-currency-hint'"
           @show="currencyListOpen = true"
           @hide="currencyListOpen = false"
-        >
-          <template #option="{ option }">
-            <span class="flex w-full min-w-0 items-center gap-3">
-              <span class="w-12 shrink-0 font-medium">{{ option }}</span>
-              <span class="w-6 shrink-0 text-center">{{ currencySymbol(option) }}</span>
-              <span class="truncate text-sm text-gray-500 dark:text-gray-400">
-                {{ currencyName(option) }}
-              </span>
-            </span>
-          </template>
-        </AutoComplete>
+        />
         <small v-if="shownErrors.currency" id="account-currency-error" class="text-red-600">
           {{ shownErrors.currency }}
         </small>
@@ -174,7 +223,7 @@ async function remove() {
           multiple
           :typeahead="false"
           fluid
-          aria-describedby="account-tags-hint"
+          :pt="{ input: { 'aria-describedby': 'account-tags-hint' } }"
         />
         <small id="account-tags-hint" class="text-gray-500 dark:text-gray-400">
           Optional. Type a tag and press Enter.
@@ -182,6 +231,7 @@ async function remove() {
       </div>
 
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
+      <Message v-if="recalculated" severity="info" :closable="false">{{ recalculated }}</Message>
 
       <div
         v-if="confirmingDelete && account"
@@ -214,8 +264,23 @@ async function remove() {
           icon="pi pi-trash"
           severity="danger"
           text
+          aria-label="Delete account"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
           :disabled="saving"
           @click="confirmingDelete = true"
+        />
+        <Button
+          v-if="account"
+          type="button"
+          label="Recalculate"
+          icon="pi pi-refresh"
+          severity="warn"
+          :class="YELLOW_BUTTON"
+          aria-label="Recalculate balance"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :loading="recalculating"
+          :disabled="saving"
+          @click="recalculate"
         />
         <span class="flex-1" />
         <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />

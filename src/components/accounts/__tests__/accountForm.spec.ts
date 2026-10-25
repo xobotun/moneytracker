@@ -5,7 +5,7 @@ import type { Account } from '@/db/types'
 import {
   ACCOUNT_COLOURS,
   createInputFromDraft,
-  currencySuggestions,
+  currenciesByUse,
   draftFromAccount,
   iconColourOn,
   newAccountDraft,
@@ -133,29 +133,14 @@ describe('createInputFromDraft', () => {
   })
 })
 
-describe('currencySuggestions', () => {
-  it('lists currencies already in use first, then other codes matching the prefix', () => {
-    const existing = [account({ balance: moneyAmount(0, 8, 'BTC') })]
-    const result = currencySuggestions('b', existing)
-    expect(result[0]).toBe('BTC')
-    expect(result).toContain('BRL')
-    expect(new Set(result).size).toBe(result.length)
-  })
-
-  it('lists code matches before name matches', () => {
-    const result = currencySuggestions('ru', [])
-    const codeMatches = result.filter((c) => c.startsWith('RU')).length
-    expect(result.slice(0, codeMatches).every((c) => c.startsWith('RU'))).toBe(true)
-    expect(result.slice(codeMatches)).not.toHaveLength(0)
-  })
-
-  it('finds a currency by its name', () => {
-    expect(currencySuggestions('ruble', [])).toContain('RUB')
-    expect(currencySuggestions('Euro', [])).toContain('EUR')
-  })
-
-  it('lists every code for an empty query', () => {
-    expect(currencySuggestions('', []).length).toBeGreaterThan(100)
+describe('currenciesByUse', () => {
+  it('lists the currencies in use, most used first', () => {
+    const existing = [
+      account({ balance: moneyAmount(0, 2, 'USD') }),
+      account({ balance: moneyAmount(0, 8, 'BTC') }),
+      account({ balance: moneyAmount(0, 8, 'BTC') }),
+    ]
+    expect(currenciesByUse(existing)).toEqual(['BTC', 'USD'])
   })
 })
 

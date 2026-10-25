@@ -519,4 +519,62 @@ describe('TransactionsRepository', () => {
       expect(plan.map((r) => r.detail).join('\n')).toContain(indexName)
     })
   })
+
+  describe('cached account balances', () => {
+    // Account 1 is in USD, Account 2 in EUR.
+    const balance = async (id: UUID) =>
+      (
+        await db.exec<{ v: number; s: number }>(
+          'SELECT balance_value AS v, balance_scale AS s FROM accounts WHERE id = ?',
+          [id],
+        )
+      )[0]!
+
+    function input(from: UUID | null, to: UUID | null, usd: number, eur: number) {
+      return {
+        account_id__from: from,
+        account_id__to: to,
+        amount__from: moneyAmount(usd, 2, 'USD'),
+        amount__to: moneyAmount(eur, 2, 'EUR'),
+        transaction_at: localMoment('2026-10-25T12:00:00.000+02:00', 'Europe/Berlin'),
+        date_override: null,
+        tags: [],
+        location_lat: null,
+        location_lon: null,
+        location_id: null,
+      }
+    }
+
+    it('create() updates both accounts of a transfer', async () => {
+      await repo.create(input(accountId1, accountId2, 1000, 920))
+      expect(await balance(accountId1)).toEqual({ v: -1000, s: 2 })
+      expect(await balance(accountId2)).toEqual({ v: 920, s: 2 })
+    })
+
+    it('update() refreshes the account a leg left and the one it moved to', async () => {
+      const t = await repo.create(input(null, accountId2, 0, 500)) // income to Account 2
+      await repo.update(t.id, {
+        account_id__to: accountId1,
+        amount__to: moneyAmount(550, 2, 'USD'),
+      })
+      expect(await balance(accountId2)).toEqual({ v: 0, s: 2 })
+      expect(await balance(accountId1)).toEqual({ v: 550, s: 2 })
+    })
+
+    it('countByAccountId() counts live transactions on either leg', async () => {
+      await repo.create(input(accountId1, accountId2, 100, 90))
+      await repo.create(input(null, accountId2, 0, 50))
+      const gone = await repo.create(input(accountId1, null, 10, 0))
+      await repo.softDelete(gone.id)
+      expect(await repo.countByAccountId(accountId1)).toBe(1)
+      expect(await repo.countByAccountId(accountId2)).toBe(2)
+    })
+
+    it('softDelete() takes the transaction out of the balance', async () => {
+      const t = await repo.create(input(accountId1, null, 300, 0))
+      expect((await balance(accountId1)).v).toBe(-300)
+      await repo.softDelete(t.id)
+      expect((await balance(accountId1)).v).toBe(0)
+    })
+  })
 })

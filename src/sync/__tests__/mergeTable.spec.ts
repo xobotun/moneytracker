@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import type { Database } from '../../db/Database'
 import { mergeTable } from '../mergeEngine'
 import { readRows } from '../rows'
-import { newMigratedDb, seedLocation } from './helpers'
+import { newMigratedDb, seedAccount, seedLocation } from './helpers'
 
 const LOCATIONS = { name: 'locations', pk: 'id' }
 const CUTOFF = '2026-05-01T00:00:00.000Z'
@@ -159,5 +159,16 @@ describe('mergeTable', () => {
       resolution: 'delete-wins',
     })
     expect((await readRows(local, 'locations'))[0]!.deleted_at_utc).toBe('2026-05-05T00:00:00.000Z')
+  })
+
+  it('does not count a difference in cached balances as a conflict', async () => {
+    local = await newMigratedDb()
+    remote = await newMigratedDb()
+    await seedAccount(local, { id: 'acc', name: 'Cash', created: CUTOFF, updated: CUTOFF })
+    await seedAccount(remote, { id: 'acc', name: 'Cash', created: CUTOFF, updated: CUTOFF })
+    // Derived, device-computed: the merge rebuilds it afterwards.
+    await remote.run("UPDATE accounts SET balance_value = 999 WHERE id = 'acc'")
+    const conflicts = await mergeTable(local, remote, { name: 'accounts', pk: 'id' }, CUTOFF)
+    expect(conflicts).toHaveLength(0)
   })
 })

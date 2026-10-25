@@ -218,6 +218,50 @@ exercised end-to-end.
 - `useAccountsStore` (Pinia, write-through: persist, then re-read): accounts,
   groups and the `sections` the page renders
 
+### Base currency setting
+
+- Settings → Money → Base currency: default EUR, any code (ISO suggestions
+  with symbol and name, or a custom one like BTC). Device-local like every
+  setting: SQLite `settings` key `money.baseCurrency`, `useMoneySettingsStore`
+  (write-through, hydrated at startup; an invalid stored value falls back to EUR)
+- Shared `CurrencyInput` component and currency-code helpers
+  (`currencyCodeError`, `normaliseCurrencyCode`, `currencySuggestions` in
+  `src/format/currency.ts`), used by the account dialog too
+- Used by the Accounts page: ≈ amounts and mixed-currency totals are shown
+  in it (see "Account balances")
+
+### Account balances (cache)
+
+- `accounts.balance_value` / `balance_scale` cache each account's balance
+  in its own currency, from its live transactions (incoming minus outgoing,
+  exact across scales; legs in another currency are not its money). Display
+  and totals only, never financial truth. `recalculateBalances`
+  (`src/db/balances.ts`) rebuilds it: on every transaction create / update /
+  delete (same database transaction, every account touched before and
+  after), after every sync merge, and on demand. It never bumps
+  `updated_at_utc`
+- Sync: `DERIVED_COLUMNS` (`src/sync/syncColumns.ts`) — the merge comparison
+  and the database hash skip the cache, and `mergeDatabases` rebuilds it in
+  its transaction, so devices converge without false conflicts
+- An account that transactions use cannot change its currency: the dialog
+  shows it read-only (code, symbol, name, transaction count) instead of the
+  picker; the store refuses it too
+- Accounts page: each account shows its balance in its own currency, plus
+  ≈ the base currency (smaller) when that is another. A group header shows
+  its accounts' sum: natively when they share one currency (+ ≈ base when
+  it is another), only ≈ base when mixed; the page total the same over all
+  accounts. Currencies without a rate are named ("no AED, BTC → EUR rate",
+  beside the amount or below it); a mixed total then sums the rest as a bound:
+  "≥ €3,491" when every left-out balance is ≥ 0, "≤" when ≤ 0, no amount
+  when they have both signs
+- Yellow "Recalculate balances" button below the list (all accounts) and
+  "Recalculate" next to Delete in the account dialog (that account); both
+  say whether anything was off
+- Conversions use the PLACEHOLDER rate rules in `src/money/rates.ts` (see
+  Exchange rates under To Do); the `exchange_rates` table is empty until a
+  fetcher exists, so ≈ amounts show "no … rate" for now
+
+
 ---
 
 ## To Do
@@ -242,7 +286,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 - Accounts (list, create, edit, delete, reorder: done, see Accounts UI)
     - Optional home location picker (needs the Locations UI first; the dialog leaves `location_id` untouched)
-    - Show a balance once `accounts.balance_*` semantics are decided
 - Transactions
     - List with filters (by account, by date range, by tag)
     - Create — expense, income, transfer
@@ -258,11 +301,11 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 ### Exchange rates
 
+- **Decide how rates are applied** (provider priority, which date, cross rates, a stale-rate cutoff) and replace the PLACEHOLDER rules in `src/money/rates.ts`: newest date only, providers by name ascending, convert through a row's base, no rate → shown as missing
 - Fetcher pulling from openexchangerates and fawazahmed0
 - Upsert into `exchange_rates` with the correct `provider` tag (`create` rejects an existing (date, base, provider) key, so the fetcher must update the existing row)
 - Refresh strategy — on app start, on demand, scheduled background
 - UI for browsing rates and overriding specific (date, base, target) entries
-- User picks a base currency for reporting (USD / EUR / custom)
 
 ### Aggregation & reporting
 
@@ -356,5 +399,6 @@ Known sync defects, postponed (review 2026-10-18):
 ### Known defects / open decisions
 
 - A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline
-- `accounts.balance_*` semantics are undecided (it is not a starting balance — see CRUD UI); the column is named `currency` rather than `balance_currency`
+- `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
+- A sync conflict on an `accounts` row (edited on two devices) captures both sides' cached balance in its snapshot; the two may differ for no data reason. Cosmetic — matters only once a conflict viewer exists (strip `DERIVED_COLUMNS` from the snapshots then)
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)
