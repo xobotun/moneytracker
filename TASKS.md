@@ -308,7 +308,8 @@ Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](d
 1. Rate resolution replacing the PLACEHOLDER rules in `src/money/rates.ts`:
     - Providers in code with a `priority` (equal = one level): `manual` → central banks → fawazahmed0 → openexchangerates
     - Per level: direct rate (either direction), else a cross through one currency, else the next level; newest rate on or before the date, up to 7 days back
-    - New synced `applied_rates` table — one row per (date, A < B, manual or not), `rate` (NULL = none found), `provider`, `via` (cross); the rows with `via` or a NULL rate are the review list of pairs lacking a direct rate
+    - New synced `applied_rates` table — one row per (date, A < B), `rate` (NULL = none found), `provider` (`manual` = override), `via` (cross); the rows with `via` or a NULL rate are the review list of pairs lacking a direct rate
+    - A `manual` row always wins a sync conflict against an auto one (a table-specific rule in `resolveConflict`, after "delete wins")
     - `exchange_rates` stays the reference library (one row per date, base, provider) but becomes device-local: out of `SYNC_TABLES` / `SYNC_COLUMNS` (the SQLite-blob export would still carry it — open point)
     - Fetchers: ECB via Frankfurter, fawazahmed0; upsert into `exchange_rates` (`create` rejects an existing (date, base, provider) key, so a fetcher must update the existing row)
     - Refresh on app start (newest rate older than yesterday, online), a "Refresh rates" button, lazy backfill on a miss; non-final applied rows resolved again when better data arrives

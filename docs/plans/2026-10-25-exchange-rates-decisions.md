@@ -69,8 +69,8 @@ direct CZK ↔ PLN rate. Their feeds have not been checked.
 
 For a currency pair on a date:
 
-1. Look in `applied_rates` (below). A `manual` row wins over the app's own
-   row. Found → done; no other lookups.
+1. Look in `applied_rates` (below), which also holds the manual overrides.
+   Found → done; no other lookups.
 2. Otherwise go through the levels in priority order. At each level, look in
    the local `exchange_rates` first, then fetch from that level's sources:
    1. a **direct** rate from any provider of the level — a row whose base is
@@ -109,16 +109,22 @@ For a currency pair on a date:
 
 **`applied_rates` — the rate the app uses for a day and a pair. Syncs.**
 
-- One row per **(date, currency A, currency B, manual or not)**:
+- One row per **(date, currency A, currency B)**:
   - **A < B alphabetically**; `rate` is how much B one A buys; the other
     direction is `1 / rate`. KZT → AMD and AMD → KZT share the row.
-  - Whether the row is manual is part of its identity, so the user's
-    override and the app's own row sit side by side. Otherwise the newest-
-    wins merge could let a device's earlier auto row overwrite an override.
-    The lookup prefers the manual row; deleting an override uncovers the
-    auto row.
   - The id is a UUIDv5 of that key, like `exchange_rates` today, so two
     devices that create the same row merge it as one.
+- **An override is the same row with `provider = 'manual'`**, and **manual
+  always wins a sync conflict**: when both devices changed the row since
+  their last sync and exactly one side is manual, the manual side wins
+  whatever the timestamps; two manual sides → the newest wins as usual. A
+  table-specific rule in `resolveConflict`, applied after "delete wins".
+  Without it, a device that auto-filled the same day after the override was
+  set would win on the newer timestamp and silently drop the override.
+  - Removing an override turns the row back into an auto row (resolved
+    again, `rate` NULL until then).
+  - An override edited on one device while removed on another (both before
+    syncing) keeps the edit — both are deliberate.
 - Columns (beyond the key and the sync columns):
   - `rate` — REAL; NULL = nothing found;
   - `provider` — `manual` or the provider the rate came from;
@@ -134,8 +140,8 @@ For a currency pair on a date:
   added bank). Today's rows are resolved again the next day (fawazahmed0
   lags a day; the ECB publishes in the afternoon).
 - A new resolution only replaces a row with a better one (higher level,
-  direct over cross); it never downgrades. This also keeps devices from
-  ping-ponging a row through sync.
+  direct over cross); it never downgrades, and never touches a manual row.
+  This also keeps devices from ping-ponging a row through sync.
 - Review-list rows are re-checked about once a day.
 
 ### Refresh
