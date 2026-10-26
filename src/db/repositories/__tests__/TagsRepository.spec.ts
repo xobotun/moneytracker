@@ -5,10 +5,13 @@ import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
 import {
   CategoryInUseError,
+  DeletedTagError,
   DuplicateTagNameError,
+  InvalidTagDetailsError,
   MergeConflictError,
   TagKindMismatchError,
   TagLoopError,
+  TagNotFoundError,
 } from '../../errors'
 import { asShortId, type ShortId } from '../../shortId'
 import type { TagKind } from '../../types'
@@ -111,11 +114,11 @@ describe('TagsRepository', () => {
     const old = await repo.create({ kind: 'tag', name: 'old' })
     await repo.softDelete(old.id)
     await expect(repo.create({ kind: 'tag', name: 'x', parent_id: old.id })).rejects.toThrow(
-      /not found/,
+      DeletedTagError,
     )
     await expect(
       repo.create({ kind: 'tag', name: 'x', parent_id: asShortId('nowhere00000') }),
-    ).rejects.toThrow(/not found/)
+    ).rejects.toThrow(TagNotFoundError)
   })
 
   it('refuses a duplicate name among live siblings, synonyms included, ignoring case', async () => {
@@ -317,7 +320,9 @@ describe('TagsRepository', () => {
       mergedInto: target,
     })
 
+    await expect(repo.restore(merged)).rejects.toThrow(DeletedTagError)
     await expect(repo.restore(merged)).rejects.toThrow(/merged/)
+    await expect(repo.restore(asShortId('nowhere00000'))).rejects.toThrow(TagNotFoundError)
     expect(await repo.findById(merged)).toBeNull()
   })
 
@@ -608,8 +613,9 @@ describe('TagsRepository', () => {
     // Both tags must be live.
     const gone = await repo.create({ kind: 'merchant', name: 'Gone' })
     await repo.softDelete(gone.id)
-    await expect(repo.merge(gone.id, rewe.id)).rejects.toThrow(/not found/)
-    await expect(repo.merge(rewe.id, gone.id)).rejects.toThrow(/not found/)
+    await expect(repo.merge(gone.id, rewe.id)).rejects.toThrow(DeletedTagError)
+    await expect(repo.merge(rewe.id, gone.id)).rejects.toThrow(DeletedTagError)
+    await expect(repo.merge(rewe.id, asShortId('nowhere00000'))).rejects.toThrow(TagNotFoundError)
   })
 
   it('refuses to delete a category in use', async () => {
@@ -708,12 +714,12 @@ describe('TagsRepository', () => {
 
     it('counts a half-set position as none', async () => {
       const { a, b } = await twoLocations()
-      await details.setLocation(a.id, {
-        address: null,
-        latitude: 1,
-        longitude: null,
-        merchant_id: null,
-      })
+      // setLocation refuses a lone coordinate; old data or a sync can still hold one.
+      await db.run(
+        `INSERT INTO location_details (tag_id, latitude, created_at_utc, updated_at_utc)
+         VALUES (?, 1, ?, ?)`,
+        [a.id, AT, AT],
+      )
       await details.setLocation(b.id, {
         address: null,
         latitude: 5,
@@ -843,8 +849,61 @@ describe('TagsRepository', () => {
       ])
       await expect(repo.detailConflicts(a.id, food.id)).rejects.toThrow(TagKindMismatchError)
       await expect(repo.detailConflicts(a.id, asShortId('nonexistent1'))).rejects.toThrow(
-        /not found/,
+        TagNotFoundError,
       )
+    })
+
+    it('is not blocked by a link the target already has to a tag deleted since', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const m2 = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(m2.id, { default_category_id: food.id })
+      await repo.softDelete(food.id) // allowed: no transaction uses it
+
+      await repo.merge(m1.id, m2.id)
+      expect(await repo.findById(m1.id)).toBeNull()
+      expect((await details.getMerchant(m2.id))!.default_category_id).toBe(food.id)
+    })
+
+    it('checks a link the target gets, from the source or a resolution', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const drinks = await repo.create({ kind: 'category', name: 'Drinks' })
+      const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const m2 = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(m1.id, { default_category_id: food.id })
+      await repo.softDelete(food.id)
+      await repo.softDelete(drinks.id)
+
+      await expect(repo.merge(m1.id, m2.id)).rejects.toThrow(DeletedTagError)
+      await expect(repo.merge(m1.id, m2.id, { default_category_id: drinks.id })).rejects.toThrow(
+        DeletedTagError,
+      )
+      expect(await repo.findById(m1.id)).toMatchObject({ merged_into_id: null })
+      expect(await details.getMerchant(m2.id)).toBeNull()
+
+      // Resolving the link away lets the merge through.
+      await repo.merge(m1.id, m2.id, { default_category_id: null })
+      expect(await repo.findById(m1.id)).toBeNull()
+    })
+
+    it('checks changed journey dates', async () => {
+      const j1 = await repo.create({ kind: 'journey', name: 'Rome' })
+      const j2 = await repo.create({ kind: 'journey', name: 'Roma' })
+      await details.setJourney(j1.id, { start_date: '2026-05-10', end_date: null })
+      await details.setJourney(j2.id, { start_date: null, end_date: '2026-05-05' })
+
+      // Filling the empty ends would leave the journey ending before it starts.
+      await expect(repo.merge(j1.id, j2.id)).rejects.toThrow(InvalidTagDetailsError)
+      await expect(repo.merge(j1.id, j2.id, { start_date: '2026-02-30' })).rejects.toThrow(
+        InvalidTagDetailsError,
+      )
+      expect(await repo.findById(j1.id)).toMatchObject({ merged_into_id: null })
+
+      await repo.merge(j1.id, j2.id, { start_date: '2026-05-01' })
+      expect(await details.getJourney(j2.id)).toMatchObject({
+        start_date: '2026-05-01',
+        end_date: '2026-05-05',
+      })
     })
   })
 })

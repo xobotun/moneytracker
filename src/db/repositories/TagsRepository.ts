@@ -4,14 +4,17 @@ import { asShortId, newShortId, type ShortId } from '../shortId'
 import { mergeChainEnd } from '../mergeChain'
 import {
   CategoryInUseError,
+  DeletedTagError,
   DuplicateTagNameError,
   MergeConflictError,
   TagKindMismatchError,
   TagLoopError,
+  TagNotFoundError,
 } from '../errors'
 import {
   DETAIL_FIELDS_BY_KIND,
   assertDetailLinks,
+  assertJourneyDates,
   readDetailValues,
   writeDetailValues,
 } from './TagDetailsRepository'
@@ -106,13 +109,15 @@ async function selectTag(ex: SqlExecutor, id: ShortId, liveOnly: boolean): Promi
   return rows.length === 0 ? null : rowToTag(rows[0]!)
 }
 
+/** The live tag `id`; a TagNotFoundError when there is none, a DeletedTagError when it is deleted. */
 async function liveTagOrThrow(ex: SqlExecutor, id: ShortId, role: string): Promise<Tag> {
-  const tag = await selectTag(ex, id, true)
-  if (!tag) throw new Error(`${role} ${id} not found`)
+  const tag = await selectTag(ex, id, false)
+  if (!tag) throw new TagNotFoundError(`${role} ${id} not found`)
+  if (tag.deleted_at_utc !== null) throw new DeletedTagError(`${role} "${tag.name}" is deleted`)
   return tag
 }
 
-/** Both tags must be live and of one kind; the pair's kind is returned. */
+/** Both tags must be live and of one kind; returns them. */
 async function mergePair(
   ex: SqlExecutor,
   sourceId: ShortId,
@@ -215,8 +220,11 @@ async function loopPath(ex: SqlExecutor, id: ShortId, parentId: ShortId): Promis
  * Tags of all five kinds: categories, merchants, locations, journeys and
  * plain tags. A tag can have a parent of its own kind. Names and synonyms are
  * unique among the live tags of one kind and parent, ignoring case — checked
- * here on create / update / move only, since sync may bring duplicates in
- * (two devices creating the same tag offline); `duplicates()` lists those.
+ * here on create / update / move only. Duplicates still arise: sync brings
+ * them in (two devices creating the same tag offline), deleting or merging a
+ * tag moves its children next to siblings that may share a name, and a
+ * restore brings back a name that was taken meanwhile. `duplicates()` lists
+ * them.
  */
 export class TagsRepository {
   constructor(private db: Database) {}
@@ -278,13 +286,14 @@ export class TagsRepository {
 
   /**
    * The live tag of `kind` called `name`, by its name or a synonym, ignoring
-   * case. `parentId`: null = top level only; undefined = under any parent.
+   * case. `parentId`: null = at the top level; undefined = under any parent.
    * Among several matches (sync duplicates, or other parents) a main name
    * beats a synonym, then the oldest tag wins.
    *
    * When no live tag matches, the merged tags of `kind` (under `parentId`)
    * are matched the same way, and the answer is the live tag at the end of
-   * the first match's merge chain whose end is live. A merge gives the
+   * the first match's merge chain whose end is live — wherever that tag sits,
+   * so with `parentId` null it may not be a top-level one. A merge gives the
    * target the source's names, but sync does not carry them along a chain
    * merged on two devices (X into Y here, Y into Z there: Z lacks X's names).
    */
@@ -414,7 +423,10 @@ export class TagsRepository {
    * The source's details fill the target's empty ones. Where both have
    * different values, `resolved` must give the value (one of the two, or a
    * third; null clears it) or a MergeConflictError lists the fields and
-   * nothing is changed. Fields of other kinds in `resolved` are ignored.
+   * nothing is changed. Fields of other kinds in `resolved` are ignored. A
+   * link the target gets (a merchant, a default category) must be a live tag
+   * of the right kind, and changed journey dates must be valid; the target's
+   * own unchanged values are not checked again.
    */
   async merge(
     sourceId: ShortId,
@@ -441,8 +453,14 @@ export class TagsRepository {
             resolved[field] !== undefined ? resolved[field] : (into[field] ?? from[field])
           ;(next as Record<TagDetailField, unknown>)[field] = value ?? null
         }
-        await assertDetailLinks(tx, target.kind, next)
-        if (fields.some((field) => !sameDetail(next[field], into[field]))) {
+        const changed = fields.filter((field) => !sameDetail(next[field], into[field]))
+        // Only what changes is checked: a link the target already has may
+        // point to a tag deleted since, and that must not block the merge.
+        await assertDetailLinks(tx, target.kind, next, into)
+        if (changed.includes('start_date') || changed.includes('end_date')) {
+          assertJourneyDates(next)
+        }
+        if (changed.length > 0) {
           await writeDetailValues(tx, targetId, target.kind, next, now)
         }
       }
@@ -517,9 +535,11 @@ export class TagsRepository {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
       const tag = await selectTag(tx, id, false)
-      if (!tag) throw new Error(`Tag ${id} not found`)
+      if (!tag) throw new TagNotFoundError(`Tag ${id} not found`)
       if (tag.merged_into_id !== null) {
-        throw new Error(`"${tag.name}" was merged into another tag and cannot be restored`)
+        throw new DeletedTagError(
+          `"${tag.name}" was merged into another tag and cannot be restored`,
+        )
       }
       if (tag.deleted_at_utc === null) return
       const parentLive =

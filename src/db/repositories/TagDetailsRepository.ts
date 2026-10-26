@@ -9,7 +9,13 @@ import type {
   TagKind,
 } from '../types'
 import type { ShortId } from '../shortId'
-import { TagKindMismatchError } from '../errors'
+import {
+  DeletedTagError,
+  InvalidTagDetailsError,
+  TagKindMismatchError,
+  TagNotFoundError,
+} from '../errors'
+import { isCalendarDate } from '@/money/dates'
 import {
   instantToColumn,
   optionalTextToColumn,
@@ -62,7 +68,7 @@ export async function assertKind(
     [id],
   )
   const tag = rows[0]
-  if (!tag) throw new Error(`${role}: tag ${id} not found`)
+  if (!tag) throw new TagNotFoundError(`${role}: tag ${id} not found`)
   if (tag.kind !== expected) {
     throw new TagKindMismatchError(
       `${role}: expected a ${expected}, but "${tag.name}" is a ${tag.kind}`,
@@ -125,13 +131,9 @@ export const DETAIL_FIELDS_BY_KIND: Record<TagKind, readonly TagDetailField[]> =
   tag: [],
 }
 
-/** A tag's live details as one value set; a missing row means every field is null. */
-export async function readDetailValues(
-  ex: SqlExecutor,
-  id: ShortId,
-  kind: TagKind,
-): Promise<TagDetailValues> {
-  const values: TagDetailValues = {
+/** Details with every field empty. */
+function noDetails(): TagDetailValues {
+  return {
     address: null,
     position: null,
     merchant_id: null,
@@ -139,6 +141,15 @@ export async function readDetailValues(
     start_date: null,
     end_date: null,
   }
+}
+
+/** A tag's live details as one value set; a missing row means every field is null. */
+export async function readDetailValues(
+  ex: SqlExecutor,
+  id: ShortId,
+  kind: TagKind,
+): Promise<TagDetailValues> {
+  const values = noDetails()
   if (kind === 'location') {
     const d = await readLocation(ex, id)
     if (d) {
@@ -159,22 +170,30 @@ export async function readDetailValues(
   return values
 }
 
+type DetailLinks = Pick<TagDetailValues, 'merchant_id' | 'default_category_id'>
+
 /**
  * Checks that the links in `values` that the kind uses are live tags of the
- * right kind (a location's merchant, a merchant's default category).
+ * right kind (a location's merchant, a merchant's default category). A link
+ * equal to the one in `stored` (the details as they are) is not checked: a
+ * deleted tag stays linked (restoring it brings it back), but nothing new can
+ * link to it.
  */
 export async function assertDetailLinks(
   ex: SqlExecutor,
   kind: TagKind,
-  values: Pick<TagDetailValues, 'merchant_id' | 'default_category_id'>,
+  values: DetailLinks,
+  stored: DetailLinks | null = null,
 ): Promise<void> {
-  if (kind === 'location' && values.merchant_id !== null) {
-    await assertLiveKind(ex, values.merchant_id, 'merchant', 'A location’s merchant')
+  const changed = (field: keyof DetailLinks) =>
+    values[field] !== null && values[field] !== stored?.[field]
+  if (kind === 'location' && changed('merchant_id')) {
+    await assertLiveKind(ex, values.merchant_id!, 'merchant', 'A location’s merchant')
   }
-  if (kind === 'merchant' && values.default_category_id !== null) {
+  if (kind === 'merchant' && changed('default_category_id')) {
     await assertLiveKind(
       ex,
-      values.default_category_id,
+      values.default_category_id!,
       'category',
       'A merchant’s default category',
     )
@@ -188,11 +207,31 @@ async function assertLiveKind(
   role: string,
 ): Promise<void> {
   await assertKind(ex, id, expected, role)
-  const rows = await ex.exec<{ n: number }>(
-    'SELECT COUNT(*) AS n FROM tags WHERE id = ? AND deleted_at_utc IS NULL',
+  const rows = await ex.exec<{ name: string }>(
+    'SELECT name FROM tags WHERE id = ? AND deleted_at_utc IS NOT NULL',
     [id],
   )
-  if (rows[0]!.n === 0) throw new Error(`${role}: tag ${id} was deleted`)
+  if (rows.length > 0) throw new DeletedTagError(`${role}: "${rows[0]!.name}" is deleted`)
+}
+
+/** A journey's typed dates: each a calendar date 'YYYY-MM-DD' or null, the start not after the end. */
+export function assertJourneyDates(values: Pick<TagDetailValues, 'start_date' | 'end_date'>): void {
+  for (const date of [values.start_date, values.end_date]) {
+    if (date !== null && !isCalendarDate(date)) {
+      throw new InvalidTagDetailsError(
+        `A journey date must be a calendar date (YYYY-MM-DD), not "${date}"`,
+      )
+    }
+  }
+  if (
+    values.start_date !== null &&
+    values.end_date !== null &&
+    values.start_date > values.end_date
+  ) {
+    throw new InvalidTagDetailsError(
+      `A journey cannot end (${values.end_date}) before it starts (${values.start_date})`,
+    )
+  }
 }
 
 /** Upserts the details row of a location, merchant or journey with all of its fields. */
@@ -255,23 +294,23 @@ export class TagDetailsRepository {
     return readLocation(this.db, id)
   }
 
-  /** Stores the details of a location tag; `merchant_id` must be a merchant. */
+  /**
+   * Stores the details of a location tag: both coordinates or neither, and
+   * `merchant_id` a merchant, live unless the location already has it.
+   */
   async setLocation(id: ShortId, d: Omit<LocationDetails, 'tag_id'>): Promise<void> {
-    const now = instantToColumn(new Date())
-    await this.db.transaction(async (tx) => {
-      await assertKind(tx, id, 'location', 'Location details')
-      if (d.merchant_id !== null)
-        await assertKind(tx, d.merchant_id, 'merchant', 'A location’s merchant')
-      await tx.run(
-        `INSERT INTO location_details (tag_id, address, latitude, longitude, merchant_id,
-                                       created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(tag_id) DO UPDATE SET
-           address = excluded.address, latitude = excluded.latitude,
-           longitude = excluded.longitude, merchant_id = excluded.merchant_id,
-           updated_at_utc = excluded.updated_at_utc, deleted_at_utc = NULL`,
-        [id, optionalTextToColumn(d.address), d.latitude, d.longitude, d.merchant_id, now, now],
-      )
+    if ((d.latitude === null) !== (d.longitude === null)) {
+      throw new InvalidTagDetailsError('A location needs both coordinates or neither')
+    }
+    const position =
+      d.latitude !== null && d.longitude !== null
+        ? { latitude: d.latitude, longitude: d.longitude }
+        : null
+    await this.write(id, 'location', 'Location details', {
+      ...noDetails(),
+      address: d.address,
+      position,
+      merchant_id: d.merchant_id,
     })
   }
 
@@ -279,22 +318,14 @@ export class TagDetailsRepository {
     return readMerchant(this.db, id)
   }
 
-  /** Stores the details of a merchant tag; `default_category_id` must be a category. */
+  /**
+   * Stores the details of a merchant tag; `default_category_id` must be a
+   * category, live unless the merchant already has it.
+   */
   async setMerchant(id: ShortId, d: Omit<MerchantDetails, 'tag_id'>): Promise<void> {
-    const now = instantToColumn(new Date())
-    await this.db.transaction(async (tx) => {
-      await assertKind(tx, id, 'merchant', 'Merchant details')
-      if (d.default_category_id !== null) {
-        await assertKind(tx, d.default_category_id, 'category', 'A merchant’s default category')
-      }
-      await tx.run(
-        `INSERT INTO merchant_details (tag_id, default_category_id, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(tag_id) DO UPDATE SET
-           default_category_id = excluded.default_category_id,
-           updated_at_utc = excluded.updated_at_utc, deleted_at_utc = NULL`,
-        [id, d.default_category_id, now, now],
-      )
+    await this.write(id, 'merchant', 'Merchant details', {
+      ...noDetails(),
+      default_category_id: d.default_category_id,
     })
   }
 
@@ -302,19 +333,31 @@ export class TagDetailsRepository {
     return readJourney(this.db, id)
   }
 
-  /** Stores the dates typed for a journey tag (null = derived from its transactions). */
+  /**
+   * Stores the dates typed for a journey tag (null = derived from its
+   * transactions): calendar dates 'YYYY-MM-DD', the start not after the end.
+   */
   async setJourney(id: ShortId, d: Omit<JourneyDetails, 'tag_id'>): Promise<void> {
+    assertJourneyDates(d)
+    await this.write(id, 'journey', 'Journey details', {
+      ...noDetails(),
+      start_date: d.start_date,
+      end_date: d.end_date,
+    })
+  }
+
+  /** Upserts the details of tag `id`, which must be of `kind`, after checking their links. */
+  private async write(
+    id: ShortId,
+    kind: TagKind,
+    role: string,
+    values: TagDetailValues,
+  ): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
-      await assertKind(tx, id, 'journey', 'Journey details')
-      await tx.run(
-        `INSERT INTO journey_details (tag_id, start_date, end_date, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(tag_id) DO UPDATE SET
-           start_date = excluded.start_date, end_date = excluded.end_date,
-           updated_at_utc = excluded.updated_at_utc, deleted_at_utc = NULL`,
-        [id, optionalTextToColumn(d.start_date), optionalTextToColumn(d.end_date), now, now],
-      )
+      await assertKind(tx, id, kind, role)
+      await assertDetailLinks(tx, kind, values, await readDetailValues(tx, id, kind))
+      await writeDetailValues(tx, id, kind, values, now)
     })
   }
 

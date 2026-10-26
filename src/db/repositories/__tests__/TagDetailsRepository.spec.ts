@@ -3,11 +3,16 @@ import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
-import { TagKindMismatchError } from '../../errors'
+import {
+  DeletedTagError,
+  InvalidTagDetailsError,
+  TagKindMismatchError,
+  TagNotFoundError,
+} from '../../errors'
 import { TagsRepository } from '../TagsRepository'
 import { TagDetailsRepository } from '../TagDetailsRepository'
 import { newId } from '../../uuid'
-import type { ShortId } from '../../shortId'
+import { asShortId, type ShortId } from '../../shortId'
 
 // Metres per degree of latitude on the mean Earth radius (6 371 008.8 m).
 const METRES_PER_DEGREE = (Math.PI / 180) * 6_371_008.8
@@ -117,6 +122,85 @@ describe('TagDetailsRepository', () => {
     await expect(repo.setJourney(rewe.id, { start_date: null, end_date: null })).rejects.toThrow(
       TagKindMismatchError,
     )
+    await expect(
+      repo.setMerchant(asShortId('nowhere00000'), { default_category_id: null }),
+    ).rejects.toThrow(TagNotFoundError)
+  })
+
+  it('refuses a newly linked deleted tag but keeps one already linked', async () => {
+    const groceries = await tags.create({ kind: 'category', name: 'Groceries' })
+    const drinks = await tags.create({ kind: 'category', name: 'Drinks' })
+    const rewe = await tags.create({ kind: 'merchant', name: 'Rewe' })
+    const lidl = await tags.create({ kind: 'merchant', name: 'Lidl' })
+    const store = await tags.create({ kind: 'location', name: 'Rewe Alexanderplatz' })
+    const place = { address: null, latitude: null, longitude: null }
+    await repo.setMerchant(rewe.id, { default_category_id: groceries.id })
+    await repo.setLocation(store.id, { ...place, merchant_id: rewe.id })
+    await tags.softDelete(groceries.id)
+    await tags.softDelete(drinks.id)
+    await tags.softDelete(rewe.id)
+
+    // Saving other details keeps the links the tags already have.
+    await repo.setMerchant(rewe.id, { default_category_id: groceries.id })
+    await repo.setLocation(store.id, {
+      ...place,
+      address: 'Alexanderplatz 1',
+      merchant_id: rewe.id,
+    })
+    expect(await repo.getLocation(store.id)).toMatchObject({
+      address: 'Alexanderplatz 1',
+      merchant_id: rewe.id,
+    })
+
+    // Nothing new can link to a deleted tag.
+    await expect(repo.setMerchant(lidl.id, { default_category_id: groceries.id })).rejects.toThrow(
+      DeletedTagError,
+    )
+    await expect(repo.setMerchant(rewe.id, { default_category_id: drinks.id })).rejects.toThrow(
+      DeletedTagError,
+    )
+    const other = await tags.create({ kind: 'location', name: 'Lidl Mitte' })
+    await expect(repo.setLocation(other.id, { ...place, merchant_id: rewe.id })).rejects.toThrow(
+      DeletedTagError,
+    )
+    expect(await repo.getMerchant(lidl.id)).toBeNull()
+    expect(await repo.getLocation(other.id)).toBeNull()
+  })
+
+  it('refuses a lone coordinate', async () => {
+    const store = await tags.create({ kind: 'location', name: 'Rewe Alexanderplatz' })
+    for (const [latitude, longitude] of [
+      [52.5, null],
+      [null, 13.4],
+    ] as const) {
+      await expect(
+        repo.setLocation(store.id, { address: null, latitude, longitude, merchant_id: null }),
+      ).rejects.toThrow(InvalidTagDetailsError)
+    }
+    expect(await repo.getLocation(store.id)).toBeNull()
+  })
+
+  it('accepts journey dates that are calendar dates, the start not after the end', async () => {
+    const lisbon = await tags.create({ kind: 'journey', name: 'Lisbon' })
+    for (const [start_date, end_date] of [
+      ['2026-7-1', null],
+      [null, '2026-02-30'],
+      ['01.07.2026', null],
+      ['', null],
+      ['2026-07-10', '2026-07-01'],
+    ] as const) {
+      await expect(repo.setJourney(lisbon.id, { start_date, end_date })).rejects.toThrow(
+        InvalidTagDetailsError,
+      )
+    }
+    expect(await repo.getJourney(lisbon.id)).toBeNull()
+
+    await repo.setJourney(lisbon.id, { start_date: '2026-07-01', end_date: '2026-07-01' })
+    await repo.setJourney(lisbon.id, { start_date: null, end_date: '2024-02-29' })
+    expect(await repo.getJourney(lisbon.id)).toMatchObject({
+      start_date: null,
+      end_date: '2024-02-29',
+    })
   })
 
   it('finds nearest locations within the radius, nearest first, live only', async () => {
