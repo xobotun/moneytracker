@@ -1,6 +1,6 @@
 import type { AccountGrouping } from '@/db/types'
 import type { AccountGroupingUpdateInput } from '@/db/repositories/AccountGroupingsRepository'
-import { ACCOUNT_COLOURS } from './accountForm'
+import { COLOUR_PRESETS } from '@/format/colours'
 
 // Form logic of the group editor, kept out of the component like accountForm.
 
@@ -15,7 +15,7 @@ export function newGroupingDraft(existing: readonly AccountGrouping[]): Grouping
   return {
     name: '',
     icon: 'folder',
-    colour: ACCOUNT_COLOURS[existing.length % ACCOUNT_COLOURS.length]!,
+    colour: COLOUR_PRESETS[existing.length % COLOUR_PRESETS.length]!,
   }
 }
 

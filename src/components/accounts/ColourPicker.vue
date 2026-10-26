@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ACCOUNT_COLOURS, ACCOUNT_COLOUR_NAMES } from './accountForm'
+import { COLOUR_PRESETS, COLOUR_PRESET_NAMES } from '@/format/colours'
 
 /** The selected colour, '#rrggbb'. */
 const colour = defineModel<string>({ required: true })
@@ -10,7 +10,7 @@ const pickerValue = computed(() =>
   /^#[0-9a-f]{6}$/i.test(colour.value) ? colour.value : '#000000',
 )
 const isCustom = computed(
-  () => !(ACCOUNT_COLOURS as readonly string[]).includes(colour.value.toLowerCase()),
+  () => !(COLOUR_PRESETS as readonly string[]).includes(colour.value.toLowerCase()),
 )
 
 // Selected swatches get the primary ring, the others a grey one on hover.
@@ -23,13 +23,13 @@ const swatchRing = (selected: boolean) =>
 <template>
   <div class="flex flex-wrap items-center gap-2">
     <button
-      v-for="preset in ACCOUNT_COLOURS"
+      v-for="preset in COLOUR_PRESETS"
       :key="preset"
       type="button"
       class="size-8 rounded-full ring-offset-2 ring-offset-white transition-shadow dark:ring-offset-gray-900"
       :class="swatchRing(colour.toLowerCase() === preset)"
       :style="{ backgroundColor: preset }"
-      :aria-label="ACCOUNT_COLOUR_NAMES[preset]"
+      :aria-label="COLOUR_PRESET_NAMES[preset]"
       :aria-pressed="colour.toLowerCase() === preset"
       @click="colour = preset"
     />

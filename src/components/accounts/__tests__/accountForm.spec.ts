@@ -2,15 +2,17 @@ import { describe, it, expect } from 'vitest'
 import { moneyAmount } from '@/db/MoneyAmount'
 import { asShortId } from '@/db/shortId'
 import type { Account } from '@/db/types'
+import { COLOUR_PRESETS } from '@/format/colours'
 import {
-  ACCOUNT_COLOURS,
   createInputFromDraft,
   currenciesByUse,
   draftFromAccount,
+  hiddenTagIds,
   iconColourOn,
   newAccountDraft,
   normaliseDraft,
   patchFromDraft,
+  tagIdsToSave,
   validateDraft,
   accountIconClass,
   iconLabel,
@@ -52,7 +54,7 @@ describe('newAccountDraft', () => {
       name: '',
       currency: 'EUR',
       icon: 'wallet',
-      colour: ACCOUNT_COLOURS[3],
+      colour: COLOUR_PRESETS[3],
       tags: [],
       is_cash: false,
     })
@@ -60,7 +62,7 @@ describe('newAccountDraft', () => {
 
   it('leaves the currency blank for the first account', () => {
     expect(newAccountDraft([]).currency).toBe('')
-    expect(newAccountDraft([]).colour).toBe(ACCOUNT_COLOURS[0])
+    expect(newAccountDraft([]).colour).toBe(COLOUR_PRESETS[0])
   })
 })
 
@@ -115,6 +117,41 @@ describe('draftFromAccount', () => {
   it('edits tags by name and leaves out deleted or unknown ones', () => {
     const a = account({ tags: [DAILY, asShortId('TagGone00001')] })
     expect(draftFromAccount(a, tagName).tags).toEqual(['daily'])
+    expect(hiddenTagIds(a, tagName)).toEqual(['TagGone00001'])
+  })
+})
+
+describe('tagIdsToSave', () => {
+  const GONE = asShortId('TagGone00001')
+  const TRIP = asShortId('TagTrip00001')
+  const NEW = asShortId('TagNew000001')
+
+  it('keeps a deleted tag where it was, so a rename-only save writes only the name', () => {
+    // The deleted tag sits between two live ones: it must not move to the end.
+    const a = account({ tags: [DAILY, GONE, TRIP] })
+    const names: Record<string, string> = { TagDaily0001: 'daily', TagTrip00001: 'trip' }
+    const name = (id: string) => names[id] ?? null
+    const draft = { ...draftFromAccount(a, name), name: 'Pocket' }
+    // What resolving the draft's names ('daily', 'trip') gives.
+    const toSave = tagIdsToSave(a.tags, [DAILY, TRIP], hiddenTagIds(a, name))
+    expect(toSave).toEqual([DAILY, GONE, TRIP])
+    expect(patchFromDraft(a, draft, toSave)).toEqual({ name: 'Pocket' })
+  })
+
+  it('keeps the stored ids when the tags could not be loaded', () => {
+    const a = account({ tags: [DAILY, GONE] })
+    const unknown = () => null // an empty tags store: every id is unknown
+    const draft = draftFromAccount(a, unknown)
+    expect(draft.tags).toEqual([])
+    const toSave = tagIdsToSave(a.tags, [], hiddenTagIds(a, unknown))
+    expect(toSave).toEqual([DAILY, GONE])
+    expect(patchFromDraft(a, draft, toSave)).toEqual({})
+    expect(patchFromDraft(a, { ...draft, name: 'Pocket' }, toSave)).toEqual({ name: 'Pocket' })
+  })
+
+  it('drops a removed tag and appends new ones, each once', () => {
+    const a = account({ tags: [DAILY, GONE, TRIP] })
+    expect(tagIdsToSave(a.tags, [TRIP, NEW, NEW], [GONE])).toEqual([GONE, TRIP, NEW])
   })
 })
 

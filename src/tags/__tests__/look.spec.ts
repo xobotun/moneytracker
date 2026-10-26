@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ACCOUNT_COLOURS } from '@/components/accounts/accountForm'
+import { COLOUR_PRESETS } from '@/format/colours'
 import { asShortId, type ShortId } from '@/db/shortId'
 import type { Tag } from '@/db/types'
 import { KIND_ICONS, effectiveLook, newTagLook } from '../look'
@@ -67,7 +67,7 @@ describe('effectiveLook', () => {
 
     const look = effectiveLook(rewe, all)
     expect(look.icon).toBe('shop')
-    expect(ACCOUNT_COLOURS).toContain(look.colour)
+    expect(COLOUR_PRESETS).toContain(look.colour)
     expect(effectiveLook(rewe, all)).toEqual(look)
     // The fallback follows the top of the tree, so a subtree keeps one colour.
     expect(effectiveLook(city, all)).toEqual(look)
@@ -86,17 +86,17 @@ describe('effectiveLook', () => {
 describe('newTagLook', () => {
   it('uses the injected random to pick a preset colour, and the kind icon', () => {
     expect(newTagLook('journey', () => 0)).toEqual({
-      colour: ACCOUNT_COLOURS[0],
+      colour: COLOUR_PRESETS[0],
       icon: 'globe',
     })
-    expect(newTagLook('tag', () => 0.999).colour).toBe(ACCOUNT_COLOURS[ACCOUNT_COLOURS.length - 1])
+    expect(newTagLook('tag', () => 0.999).colour).toBe(COLOUR_PRESETS[COLOUR_PRESETS.length - 1])
     expect(newTagLook('location', () => 0.5)).toEqual({
-      colour: ACCOUNT_COLOURS[Math.floor(ACCOUNT_COLOURS.length / 2)],
+      colour: COLOUR_PRESETS[Math.floor(COLOUR_PRESETS.length / 2)],
       icon: 'map-marker',
     })
   })
 
   it('picks a preset by default', () => {
-    expect(ACCOUNT_COLOURS).toContain(newTagLook('category').colour)
+    expect(COLOUR_PRESETS).toContain(newTagLook('category').colour)
   })
 })

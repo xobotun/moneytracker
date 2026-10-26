@@ -1,4 +1,4 @@
-import { ACCOUNT_COLOURS } from '@/components/accounts/accountForm'
+import { COLOUR_PRESETS } from '@/format/colours'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 
@@ -21,8 +21,8 @@ export interface TagLook {
 
 /** The look a new top-level tag starts with: a random preset colour and its kind's icon. */
 export function newTagLook(kind: TagKind, random: () => number = Math.random): TagLook {
-  const index = Math.min(Math.floor(random() * ACCOUNT_COLOURS.length), ACCOUNT_COLOURS.length - 1)
-  return { colour: ACCOUNT_COLOURS[index]!, icon: KIND_ICONS[kind] }
+  const index = Math.min(Math.floor(random() * COLOUR_PRESETS.length), COLOUR_PRESETS.length - 1)
+  return { colour: COLOUR_PRESETS[index]!, icon: KIND_ICONS[kind] }
 }
 
 /**
@@ -46,7 +46,7 @@ export function effectiveLook(tag: Tag, byId: ReadonlyMap<ShortId, Tag>): TagLoo
     current = current.parent_id === null ? undefined : byId.get(current.parent_id)
   }
   return {
-    colour: colour ?? ACCOUNT_COLOURS[stringHash(top.id) % ACCOUNT_COLOURS.length]!,
+    colour: colour ?? COLOUR_PRESETS[stringHash(top.id) % COLOUR_PRESETS.length]!,
     icon: icon ?? KIND_ICONS[tag.kind],
   }
 }

@@ -1,6 +1,12 @@
-import type { Database } from '../Database'
+import type { Database, SqlExecutor } from '../Database'
 import { recalculateBalances } from '../balances'
 import type { Account } from '../types'
+import {
+  assertListedOnce,
+  assertTagReferences,
+  plainTagReferences,
+  singleReference,
+} from './transactionRules'
 import {
   booleanFromColumn,
   booleanToColumn,
@@ -67,6 +73,31 @@ function rowToAccount(row: AccountRow): Account {
   }
 }
 
+type AccountReferences = Pick<Account, 'tags' | 'location_id'>
+
+/**
+ * The tag references among `fields` (those given) follow the transaction
+ * rules: `tags` are plain tags, each listed once, and `location_id` is a
+ * location; each live unless `stored` (the row before the write; null on
+ * create) already has it there.
+ */
+async function assertAccountReferences(
+  ex: SqlExecutor,
+  fields: Partial<AccountReferences>,
+  stored: AccountReferences | null,
+): Promise<void> {
+  const names = await assertTagReferences(ex, [
+    ...plainTagReferences(fields.tags ?? [], stored?.tags ?? null),
+    ...singleReference(
+      fields.location_id ?? null,
+      'location',
+      'Location',
+      stored?.location_id ?? null,
+    ),
+  ])
+  assertListedOnce(fields.tags ?? [], names, 'Tag', 'a tag is on an account once')
+}
+
 export class AccountsRepository {
   constructor(private db: Database) {}
 
@@ -76,29 +107,32 @@ export class AccountsRepository {
     const moneyColumns = moneyToColumns('balance', input.balance)
     const tagsJson = jsonArrayToColumn(input.tags)
 
-    // The position (end of its group) is computed inside the INSERT, so
-    // appending stays atomic without a transaction. Deleted rows count too:
+    // The position (end of its group) is computed inside the INSERT, in the
+    // same transaction as the reference checks. Deleted rows count too:
     // harmless, and simpler. `IS`, not `=`, so NULL (no group) matches NULL.
-    await this.db.run(
-      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, is_cash, tags, location_id, colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts WHERE grouping_id IS ?), ?, ?)`,
-      [
-        id,
-        input.name,
-        input.balance.currency,
-        moneyColumns.balance_value,
-        moneyColumns.balance_scale,
-        booleanToColumn(input.is_cash ?? false),
-        tagsJson,
-        input.location_id,
-        input.colour,
-        input.icon,
-        input.grouping_id,
-        input.grouping_id,
-        now,
-        now,
-      ],
-    )
+    await this.db.transaction(async (tx) => {
+      await assertAccountReferences(tx, input, null)
+      await tx.run(
+        `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, is_cash, tags, location_id, colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts WHERE grouping_id IS ?), ?, ?)`,
+        [
+          id,
+          input.name,
+          input.balance.currency,
+          moneyColumns.balance_value,
+          moneyColumns.balance_scale,
+          booleanToColumn(input.is_cash ?? false),
+          tagsJson,
+          input.location_id,
+          input.colour,
+          input.icon,
+          input.grouping_id,
+          input.grouping_id,
+          now,
+          now,
+        ],
+      )
+    })
 
     return (await this.findById(id))!
   }
@@ -196,7 +230,24 @@ export class AccountsRepository {
     params.push(instantToColumn(new Date()))
     params.push(id)
 
-    await this.db.run(`UPDATE accounts SET ${sets.join(', ')} WHERE id = ?`, params)
+    await this.db.transaction(async (tx) => {
+      // Only the references the patch sets are checked: keeping a deleted
+      // tag the account already has is fine, adding one is not.
+      if (patch.tags !== undefined || patch.location_id !== undefined) {
+        const rows = await tx.exec<{ tags: string; location_id: string | null }>(
+          'SELECT tags, location_id FROM accounts WHERE id = ?',
+          [id],
+        )
+        const stored = rows[0]
+          ? {
+              tags: jsonArrayFromColumn<ShortId>(rows[0].tags),
+              location_id: shortIdFromNullableColumn(rows[0].location_id),
+            }
+          : null
+        await assertAccountReferences(tx, patch, stored)
+      }
+      await tx.run(`UPDATE accounts SET ${sets.join(', ')} WHERE id = ?`, params)
+    })
   }
 
   /**

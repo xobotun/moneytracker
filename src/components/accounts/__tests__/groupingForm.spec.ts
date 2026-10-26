@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { asShortId } from '@/db/shortId'
 import type { AccountGrouping } from '@/db/types'
-import { ACCOUNT_COLOURS } from '../accountForm'
+import { COLOUR_PRESETS } from '@/format/colours'
 import {
   draftFromGrouping,
   groupingPatchFromDraft,
@@ -29,7 +29,7 @@ describe('groupingForm', () => {
     expect(newGroupingDraft([grouping()])).toEqual({
       name: '',
       icon: 'folder',
-      colour: ACCOUNT_COLOURS[1],
+      colour: COLOUR_PRESETS[1],
     })
   })
 

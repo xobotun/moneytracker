@@ -20,9 +20,11 @@ import {
   createInputFromDraft,
   currenciesByUse,
   draftFromAccount,
+  hiddenTagIds,
   newAccountDraft,
   normaliseDraft,
   patchFromDraft,
+  tagIdsToSave,
   validateDraft,
   type AccountDraft,
   type AccountDraftErrors,
@@ -36,6 +38,9 @@ const store = useAccountsStore()
 const tagsStore = useTagsStore()
 
 const draft = ref<AccountDraft>(newAccountDraft([]))
+// Tag ids the draft cannot show (deleted or unknown tags); saving keeps them.
+// Taken when the dialog opens: saving reloads the tags store meanwhile.
+const hiddenTags = ref<ShortId[]>([])
 const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
@@ -60,6 +65,7 @@ watch(
     draft.value = props.account
       ? draftFromAccount(props.account, visibleTagName)
       : newAccountDraft(store.accounts)
+    hiddenTags.value = props.account ? hiddenTagIds(props.account, visibleTagName) : []
     submitted.value = false
     confirmingDelete.value = false
     error.value = null
@@ -105,7 +111,8 @@ async function save() {
   try {
     const tagIds = await tagsStore.resolvePlainTags(clean.tags)
     if (props.account) {
-      await store.update(props.account.id, patchFromDraft(props.account, clean, tagIds))
+      const toSave = tagIdsToSave(props.account.tags, tagIds, hiddenTags.value)
+      await store.update(props.account.id, patchFromDraft(props.account, clean, toSave))
     } else {
       await store.create(createInputFromDraft(clean, tagIds))
     }
