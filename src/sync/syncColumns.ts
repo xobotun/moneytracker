@@ -66,27 +66,44 @@ export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
 }
 
 export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
-  locations: [
+  tags: [
     { name: 'id', sqlType: 'TEXT', nullable: true },
+    { name: 'kind', sqlType: 'TEXT', nullable: false },
     { name: 'name', sqlType: 'TEXT', nullable: false },
+    { name: 'parent_id', sqlType: 'TEXT', nullable: true },
     { name: 'description', sqlType: 'TEXT', nullable: true },
-    { name: 'address', sqlType: 'TEXT', nullable: true },
-    { name: 'city', sqlType: 'TEXT', nullable: true },
-    { name: 'country', sqlType: 'TEXT', nullable: true },
-    { name: 'latitude', sqlType: 'REAL', nullable: true },
-    { name: 'longitude', sqlType: 'REAL', nullable: true },
-    { name: 'tags', sqlType: 'TEXT', nullable: false },
+    { name: 'synonyms', sqlType: 'TEXT', nullable: false },
+    { name: 'colour', sqlType: 'TEXT', nullable: true },
+    { name: 'icon', sqlType: 'TEXT', nullable: true },
+    { name: 'merged_into_id', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
   ],
 
-  tags: [
-    { name: 'tag', sqlType: 'TEXT', nullable: true },
-    { name: 'description', sqlType: 'TEXT', nullable: true },
-    { name: 'synonyms', sqlType: 'TEXT', nullable: false },
-    { name: 'colour', sqlType: 'TEXT', nullable: false },
-    { name: 'icon', sqlType: 'TEXT', nullable: false },
+  location_details: [
+    { name: 'tag_id', sqlType: 'TEXT', nullable: true },
+    { name: 'address', sqlType: 'TEXT', nullable: true },
+    { name: 'latitude', sqlType: 'REAL', nullable: true },
+    { name: 'longitude', sqlType: 'REAL', nullable: true },
+    { name: 'merchant_id', sqlType: 'TEXT', nullable: true },
+    { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
+  ],
+
+  merchant_details: [
+    { name: 'tag_id', sqlType: 'TEXT', nullable: true },
+    { name: 'default_category_id', sqlType: 'TEXT', nullable: true },
+    { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
+  ],
+
+  journey_details: [
+    { name: 'tag_id', sqlType: 'TEXT', nullable: true },
+    { name: 'start_date', sqlType: 'TEXT', nullable: true },
+    { name: 'end_date', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },

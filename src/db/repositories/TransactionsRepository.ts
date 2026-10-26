@@ -14,6 +14,7 @@ import {
   moneyFromRow,
   moneyToColumns,
   optionalTextToColumn,
+  shortIdFromNullableColumn,
   uuidFromColumn,
   uuidFromNullableColumn,
 } from '../columnMappers'
@@ -86,7 +87,7 @@ function rowToTransaction(row: TransactionRow): Transaction {
     tags: jsonArrayFromColumn<string>(row.tags),
     location_lat: row.location_lat,
     location_lon: row.location_lon,
-    location_id: uuidFromNullableColumn(row.location_id),
+    location_id: shortIdFromNullableColumn(row.location_id),
     description__user: row.description__user,
     description__auto: jsonObjectFromNullableColumn<unknown>(row.description__auto),
     created_at_utc: instantFromColumn(row.created_at_utc),

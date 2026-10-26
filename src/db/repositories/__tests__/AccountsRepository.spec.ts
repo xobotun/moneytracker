@@ -7,6 +7,7 @@ import { AccountsRepository } from '../AccountsRepository'
 import { AccountGroupingsRepository } from '../AccountGroupingsRepository'
 import { moneyAmount } from '../../MoneyAmount'
 import { asUuid, type UUID } from '../../uuid'
+import { asShortId } from '../../shortId'
 
 describe('AccountsRepository', () => {
   let db: Database
@@ -338,7 +339,7 @@ describe('AccountsRepository', () => {
         name: 'Bad Location',
         balance: moneyAmount(1000, 2, 'USD'),
         tags: [],
-        location_id: asUuid('nonexistent-location-id'),
+        location_id: asShortId('nonexistent-location-id'),
         grouping_id: null,
         colour: '#000',
         icon: 'bank',

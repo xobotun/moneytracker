@@ -11,6 +11,7 @@ import {
   jsonArrayToColumn,
   moneyFromRow,
   moneyToColumns,
+  shortIdFromNullableColumn,
   uuidFromColumn,
   uuidFromNullableColumn,
 } from '../columnMappers'
@@ -56,7 +57,7 @@ function rowToAccount(row: AccountRow): Account {
     }),
     is_cash: booleanFromColumn(row.is_cash),
     tags: jsonArrayFromColumn<string>(row.tags),
-    location_id: uuidFromNullableColumn(row.location_id),
+    location_id: shortIdFromNullableColumn(row.location_id),
     colour: row.colour,
     icon: row.icon,
     grouping_id: uuidFromNullableColumn(row.grouping_id),

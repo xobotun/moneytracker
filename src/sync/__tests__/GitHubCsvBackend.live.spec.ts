@@ -15,7 +15,7 @@ import { localMoment } from '../../db/LocalMoment'
 import { AccountGroupingsRepository } from '../../db/repositories/AccountGroupingsRepository'
 import { AccountsRepository } from '../../db/repositories/AccountsRepository'
 import { AppliedRatesRepository } from '../../db/repositories/AppliedRatesRepository'
-import { LocationsRepository } from '../../db/repositories/LocationsRepository'
+import { TagDetailsRepository } from '../../db/repositories/TagDetailsRepository'
 import { TagsRepository } from '../../db/repositories/TagsRepository'
 import { TransactionsRepository } from '../../db/repositories/TransactionsRepository'
 import { newId, type UUID } from '../../db/uuid'
@@ -121,51 +121,57 @@ async function rowCounts(db: Database): Promise<Record<string, number>> {
  * fractional coordinates, JSON columns, a non-Berlin zone and soft deletes.
  */
 async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: UUID }> {
-  const locations = new LocationsRepository(db)
   const tags = new TagsRepository(db)
+  const tagDetails = new TagDetailsRepository(db)
   const rates = new AppliedRatesRepository(db)
   const accounts = new AccountsRepository(db)
   const groupings = new AccountGroupingsRepository(db)
   const transactions = new TransactionsRepository(db)
 
-  const cafe = await locations.create({
+  const cafe = await tags.create({
+    kind: 'location',
     name: 'Café "Zum Löwen", Kreuzberg',
     description: 'First line\nsecond line, with "quotes"',
+    synonyms: ['coffee', 'кофе'],
+  })
+  await tagDetails.setLocation(cafe.id, {
     address: 'Oranienstraße 1',
-    city: 'Berlin',
-    country: 'DE',
     latitude: 52.499_123_456,
     longitude: 13.418_9,
-    tags: ['coffee', 'кофе'],
+    merchant_id: null,
   })
-  const nowhere = await locations.create({
-    name: 'Nowhere',
-    description: null,
+  const nowhere = await tags.create({ kind: 'location', name: 'Nowhere', description: null })
+  await tagDetails.setLocation(nowhere.id, {
     address: '', // stored as NULL — '' cannot survive a CSV cell
-    city: null,
-    country: '',
     latitude: 0,
     longitude: -0.5,
-    tags: [],
+    merchant_id: null,
   })
-  await locations.softDelete(nowhere.id)
+  await tags.softDelete(nowhere.id)
 
   await tags.create({
-    tag: 'food',
+    kind: 'tag',
+    name: 'food',
     colour: '#ff8800',
     icon: 'pi-shopping-cart',
     synonyms: ['еда', 'Essen'],
     description: '',
   })
   await tags.create({
-    tag: 'travel ✈️',
+    kind: 'tag',
+    name: 'travel ✈️',
     colour: '#0088ff',
     icon: 'pi-globe',
     synonyms: [],
     description: 'Trips, "holidays", etc.',
   })
-  await tags.create({ tag: 'obsolete', colour: '#000000', icon: 'pi-times', synonyms: [] })
-  await tags.softDelete('obsolete')
+  const obsolete = await tags.create({
+    kind: 'tag',
+    name: 'obsolete',
+    colour: '#000000',
+    icon: 'pi-times',
+  })
+  await tags.softDelete(obsolete.id)
 
   await rates.saveAuto({
     date: '2026-10-17',
@@ -312,7 +318,8 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     const dbLate = await newMigratedDb()
     opened.push(dbLate)
     await new TagsRepository(dbLate).create({
-      tag: 'late',
+      kind: 'tag',
+      name: 'late',
       colour: '#000000',
       icon: 'pi-clock',
       synonyms: [],
@@ -405,7 +412,8 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
   it("device A's stale compare-and-swap is rejected", async () => {
     // A's backend still holds the HEAD it saw before B's commit.
     await new TagsRepository(a.db).create({
-      tag: 'added-on-A',
+      kind: 'tag',
+      name: 'added-on-A',
       colour: '#abcdef',
       icon: 'pi-star',
       synonyms: [],
@@ -433,7 +441,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     expect(await hashDatabase(db)).toBe(await hashDatabase(a.db))
     const counts = await rowCounts(db)
     expect(counts.transactions).toBe(2346) // 2,345 from A (one soft-deleted) + 1 from B
-    expect(counts.tags).toBe(4) // 3 from A + added-on-A
+    expect(counts.tags).toBe(6) // 5 from A (incl. the two soft-deleted) + added-on-A
   })
 
   it('a second sync with nothing new is a no-op', async () => {

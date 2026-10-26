@@ -4,7 +4,7 @@ import type { SyncMetadata } from '../types'
 import { decideSync, runSync } from '../syncOrchestrator'
 import { FakeSyncBackend } from './fakes'
 import { readRows } from '../rows'
-import { newMigratedDb, seedAccount, seedLocation, seedTransaction } from './helpers'
+import { newMigratedDb, seedAccount, seedTag, seedTransaction } from './helpers'
 import type { SyncBackend } from '../SyncBackend'
 import { hashDatabase } from '../hashDatabase'
 
@@ -89,7 +89,7 @@ describe('runSync', () => {
     const d = deps(backend)
     // Remote, produced by another device, carries a location the local DB lacks.
     const remoteDb = await newMigratedDb()
-    await seedLocation(remoteDb, {
+    await seedTag(remoteDb, {
       id: 'loc-remote',
       name: 'From device B',
       created: '2026-05-21T00:00:00.000Z',
@@ -102,7 +102,7 @@ describe('runSync', () => {
 
     expect(outcome.decision).toBe('merge')
     expect(outcome.uploaded).toBe(true)
-    expect(await readRows(local, 'locations')).toHaveLength(1)
+    expect(await readRows(local, 'tags')).toHaveLength(1)
   })
 
   it('uploads a merged database whose cached balances match its transactions', async () => {
@@ -135,7 +135,7 @@ describe('runSync', () => {
     backend = new FakeSyncBackend()
     const d = deps(backend)
     const remoteDb = await newMigratedDb()
-    await seedLocation(remoteDb, {
+    await seedTag(remoteDb, {
       id: 'loc-1',
       name: 'Initial remote',
       created: '2026-05-21T00:00:00.000Z',
@@ -151,7 +151,7 @@ describe('runSync', () => {
       if (firstCall) {
         firstCall = false
         const otherDb = await newMigratedDb()
-        await seedLocation(otherDb, {
+        await seedTag(otherDb, {
           id: 'loc-2',
           name: 'Sneaked in',
           created: '2026-05-21T12:00:00.000Z',
@@ -168,7 +168,7 @@ describe('runSync', () => {
     expect(outcome.decision).toBe('merge')
     expect(outcome.uploaded).toBe(true)
     // Both the original remote row and the sneaked-in row survived the re-merge.
-    expect((await readRows(local, 'locations')).map((r) => r.id).sort()).toEqual(['loc-1', 'loc-2'])
+    expect((await readRows(local, 'tags')).map((r) => r.id).sort()).toEqual(['loc-1', 'loc-2'])
   })
 
   it('aborts when the remote schema is newer than this app', async () => {
@@ -179,7 +179,7 @@ describe('runSync', () => {
     // Seed a row so the remote hash differs from the local hash. Two empty
     // DBs would hash equal and decideSync would short-circuit to 'none',
     // never reaching the schema gate.
-    await seedLocation(remoteDb, {
+    await seedTag(remoteDb, {
       id: 'loc-future',
       name: 'From newer schema',
       created: '2026-05-21T00:00:00.000Z',

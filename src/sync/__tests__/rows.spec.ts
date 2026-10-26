@@ -29,10 +29,11 @@ describe('row helpers', () => {
   it('readRows returns every row of a table', async () => {
     db = await migratedDb()
     await db.run(
-      'INSERT INTO locations (id, name, created_at_utc, updated_at_utc) VALUES (?, ?, ?, ?)',
+      `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', ?, ?, ?)`,
       ['loc-1', 'Home', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
     )
-    const rows = await readRows(db, 'locations')
+    const rows = await readRows(db, 'tags')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.id).toBe('loc-1')
   })
@@ -107,21 +108,21 @@ describe('row helpers', () => {
     db = await migratedDb()
     const row = {
       id: 'loc-9',
+      kind: 'location',
       name: 'First',
+      parent_id: null,
       description: null,
-      address: null,
-      city: null,
-      country: null,
-      latitude: null,
-      longitude: null,
-      tags: '[]',
+      synonyms: '[]',
+      colour: null,
+      icon: null,
+      merged_into_id: null,
       created_at_utc: '2026-05-01T00:00:00.000Z',
       updated_at_utc: '2026-05-01T00:00:00.000Z',
       deleted_at_utc: null,
     }
-    await upsertRow(db, 'locations', 'id', row)
-    await upsertRow(db, 'locations', 'id', { ...row, name: 'Second' })
-    const rows = await readRows(db, 'locations')
+    await upsertRow(db, 'tags', 'id', row)
+    await upsertRow(db, 'tags', 'id', { ...row, name: 'Second' })
+    const rows = await readRows(db, 'tags')
     expect(rows).toHaveLength(1)
     expect(rows[0]!.name).toBe('Second')
   })

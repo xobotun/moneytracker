@@ -5,7 +5,7 @@ import { readRows } from '../rows'
 import { ExchangeRatesRepository } from '../../db/repositories/ExchangeRatesRepository'
 import { AppliedRatesRepository } from '../../db/repositories/AppliedRatesRepository'
 import { hashDatabase } from '../hashDatabase'
-import { newMigratedDb, seedLocation, seedAccount, seedTransaction } from './helpers'
+import { newMigratedDb, seedTag, seedAccount, seedTransaction } from './helpers'
 
 const CUTOFF = '2026-05-01T00:00:00.000Z'
 
@@ -23,7 +23,7 @@ describe('mergeDatabases', () => {
     remote = await newMigratedDb()
     // Parent before child within the remote: location must merge before the account
     // that references it, or the foreign key would fail.
-    await seedLocation(remote, { id: 'loc-1', name: 'Bank HQ', created: CUTOFF, updated: CUTOFF })
+    await seedTag(remote, { id: 'loc-1', name: 'Bank HQ', created: CUTOFF, updated: CUTOFF })
     await seedAccount(remote, {
       id: 'acc-1',
       name: 'Checking',
@@ -35,7 +35,7 @@ describe('mergeDatabases', () => {
     const conflicts = await mergeDatabases(local, remote, CUTOFF)
 
     expect(conflicts).toHaveLength(0)
-    expect(await readRows(local, 'locations')).toHaveLength(1)
+    expect(await readRows(local, 'tags')).toHaveLength(1)
     expect(await readRows(local, 'accounts')).toHaveLength(1)
   })
 
@@ -59,13 +59,13 @@ describe('mergeDatabases', () => {
   it('aggregates conflicts across multiple tables', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()
-    await seedLocation(local, {
+    await seedTag(local, {
       id: 'l',
       name: 'L-local',
       created: CUTOFF,
       updated: '2026-05-05T00:00:00.000Z',
     })
-    await seedLocation(remote, {
+    await seedTag(remote, {
       id: 'l',
       name: 'L-remote',
       created: CUTOFF,
@@ -86,7 +86,7 @@ describe('mergeDatabases', () => {
 
     const conflicts = await mergeDatabases(local, remote, CUTOFF)
 
-    expect(conflicts.map((c) => c.table).sort()).toEqual(['accounts', 'locations'])
+    expect(conflicts.map((c) => c.table).sort()).toEqual(['accounts', 'tags'])
   })
 
   it('captures both local and remote snapshots on every conflict', async () => {
@@ -94,13 +94,13 @@ describe('mergeDatabases', () => {
     // mergeDatabases stashes both row versions, not just the winner.
     local = await newMigratedDb()
     remote = await newMigratedDb()
-    await seedLocation(local, {
+    await seedTag(local, {
       id: 'snap',
       name: 'Local snapshot',
       created: CUTOFF,
       updated: '2026-05-05T00:00:00.000Z',
     })
-    await seedLocation(remote, {
+    await seedTag(remote, {
       id: 'snap',
       name: 'Remote snapshot',
       created: CUTOFF,
@@ -120,7 +120,7 @@ describe('mergeDatabases', () => {
   it('rolls back the local database when a merge step fails', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()
-    await seedLocation(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
+    await seedTag(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
     // Build a remote whose transaction references a missing account. The
     // straightforward `DELETE FROM accounts` would itself fail under
     // PRAGMA foreign_keys = ON (set by Database.init) because the transaction
@@ -140,14 +140,14 @@ describe('mergeDatabases', () => {
 
     await expect(mergeDatabases(local, remote, CUTOFF)).rejects.toThrow()
     // The earlier, successful location upsert must have been rolled back.
-    expect(await readRows(local, 'locations')).toHaveLength(0)
+    expect(await readRows(local, 'tags')).toHaveLength(0)
   })
 
   it('does not swallow an app write made while a failing merge is in flight', async () => {
     local = await newMigratedDb()
     remote = await newMigratedDb()
     // Same broken remote as above: the merge fails on the transaction's FK.
-    await seedLocation(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
+    await seedTag(remote, { id: 'ok', name: 'Fine', created: CUTOFF, updated: CUTOFF })
     await seedAccount(remote, { id: 'acc-x', name: 'X', created: CUTOFF, updated: CUTOFF })
     await seedTransaction(remote, {
       id: 'txn-x',
@@ -161,7 +161,7 @@ describe('mergeDatabases', () => {
 
     const merge = mergeDatabases(local, remote, CUTOFF)
     // The user saves something while the sync runs.
-    const appWrite = seedLocation(local, {
+    const appWrite = seedTag(local, {
       id: 'user-edit',
       name: 'Mine',
       created: CUTOFF,
@@ -170,7 +170,7 @@ describe('mergeDatabases', () => {
 
     await expect(merge).rejects.toThrow()
     await appWrite
-    const ids = (await readRows(local, 'locations')).map((r) => r.id)
+    const ids = (await readRows(local, 'tags')).map((r) => r.id)
     expect(ids).toEqual(['user-edit'])
   })
 

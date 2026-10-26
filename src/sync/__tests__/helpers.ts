@@ -11,7 +11,7 @@ export async function newMigratedDb(): Promise<Database> {
   return db
 }
 
-export interface SeedLocationInput {
+export interface SeedTagInput {
   id: string
   name: string
   created: string
@@ -19,11 +19,11 @@ export interface SeedLocationInput {
   deleted?: string | null
 }
 
-/** Inserts one row into `locations` with explicit timestamps. */
-export async function seedLocation(db: Database, input: SeedLocationInput): Promise<void> {
+/** Inserts one top-level `location` tag with explicit timestamps. */
+export async function seedTag(db: Database, input: SeedTagInput): Promise<void> {
   await db.run(
-    `INSERT INTO locations (id, name, created_at_utc, updated_at_utc, deleted_at_utc)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc, deleted_at_utc)
+     VALUES (?, 'location', ?, ?, ?, ?)`,
     [input.id, input.name, input.created, input.updated, input.deleted ?? null],
   )
 }
@@ -70,23 +70,23 @@ export async function seedTransaction(db: Database, input: SeedTransactionInput)
 }
 
 /**
- * Bulk-inserts `count` live locations in one statement. Ids are
- * zero-padded hex counters (1-based), so primary-key order equals n;
+ * Bulk-inserts `count` live top-level `location` tags in one statement. Ids
+ * are zero-padded hex counters (1-based), so primary-key order equals n;
  * `descriptionFor(n)` may set a description.
  */
-export async function seedLocations(
+export async function seedTags(
   db: Database,
   count: number,
   descriptionFor: (n: number) => string | null = () => null,
 ): Promise<void> {
   const rows = Array.from({ length: count }, (_, i) => ({
-    id: (i + 1).toString(16).padStart(32, '0'),
+    id: (i + 1).toString(16).padStart(12, '0'),
     name: `Loc ${i + 1}`,
     description: descriptionFor(i + 1),
   }))
   await db.run(
-    `INSERT INTO locations (id, name, description, tags, created_at_utc, updated_at_utc)
-     SELECT json_extract(value, '$.id'), json_extract(value, '$.name'),
+    `INSERT INTO tags (id, kind, name, description, synonyms, created_at_utc, updated_at_utc)
+     SELECT json_extract(value, '$.id'), 'location', json_extract(value, '$.name'),
             json_extract(value, '$.description'), '[]',
             '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'
      FROM json_each(?)`,
