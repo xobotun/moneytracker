@@ -7,7 +7,7 @@ import {
   uuidFromColumn,
 } from '../columnMappers'
 import { nameBasedId, type UUID } from '../uuid'
-import { MANUAL_PROVIDER } from '@/money/providers'
+import { MANUAL_PROVIDER } from '@/money/levels'
 import type { Resolution } from '@/money/resolveRate'
 
 type AppliedRateRow = {

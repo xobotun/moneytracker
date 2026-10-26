@@ -1,8 +1,6 @@
 import type { ExchangeRate } from '@/db/types'
 import { createFawazahmed0 } from './providers/fawazahmed0'
-
-/** The provider name of the user's own rates (overrides in `applied_rates`). */
-export const MANUAL_PROVIDER = 'manual'
+import { MANUAL_PROVIDER } from './levels'
 
 /** A reference-rate row as a provider publishes it, before it is stored. */
 export type ExchangeRateInput = Omit<
@@ -13,8 +11,8 @@ export type ExchangeRateInput = Omit<
 /**
  * A source of reference rates. Providers are asked in `priority` order, lower
  * first; providers with the same priority form one level, and a level answers
- * as a whole (see resolveRate). Levels: manual 0, central banks 10,
- * fawazahmed0 20, openexchangerates 30.
+ * as a whole (see resolveRate). The numbers come from PROVIDER_LEVELS
+ * (levels.ts): manual 0, central banks 10, fawazahmed0 20, openexchangerates 30.
  */
 export interface RateProvider {
   readonly id: string

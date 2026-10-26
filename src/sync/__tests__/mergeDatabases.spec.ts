@@ -243,6 +243,32 @@ describe('mergeDatabases', () => {
       })
     })
 
+    it('keeps a central bank’s cross rate over a newer aggregator’s direct one', async () => {
+      local = await newMigratedDb()
+      remote = await newMigratedDb()
+      const bankCross = { rate: 1.12, provider: 'ecb+nbk', via: 'KZT', referenceDate: D }
+      await new AppliedRatesRepository(local).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: bankCross,
+      })
+      await later()
+      await new AppliedRatesRepository(remote).saveAuto({
+        date: D,
+        x: 'EUR',
+        y: 'USD',
+        resolution: DIRECT,
+      })
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts.map((c) => c.resolution)).toEqual(['rank-wins'])
+      expect((await new AppliedRatesRepository(local).find(D, 'EUR', 'USD'))!.provider).toBe(
+        'ecb+nbk',
+      )
+    })
+
     it('keeps a found rate over a newer empty row', async () => {
       local = await newMigratedDb()
       remote = await newMigratedDb()

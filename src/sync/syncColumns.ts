@@ -13,6 +13,7 @@
 // changing the schema and forgetting to update this file fails CI.
 
 import type { SyncRow } from './types'
+import { rankOf } from '../money/levels'
 
 export interface ColumnDescriptor {
   name: string
@@ -48,14 +49,20 @@ export const EQUALITY_IGNORED_COLUMNS: Record<string, readonly string[]> = {
 /**
  * How firmly a row holds in a sync conflict, for tables where some rows must
  * win whatever the timestamps. After "delete wins", the higher rank wins;
- * equal ranks fall back to the newest. Applied rates: the user's override (3)
- * over a direct rate (2) over a cross (1) over none found (0), so an override
- * is never lost to a device that resolved the same day, and a found rate never
- * to an empty row from a device that was offline.
+ * equal ranks fall back to the newest. Applied rates rank by `rankOf` — the
+ * user's override, then the provider's level, then direct over cross, "none
+ * found" last — the same order the resolver keeps, so an override is never
+ * lost to a device that resolved the same day, a found rate never to an empty
+ * row from a device that was offline, and a row the resolver improved is not
+ * undone by a device with worse data (which would resolve it again, forever).
  */
 export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
   applied_rates: (row) =>
-    row.provider === 'manual' ? 3 : row.rate === null ? 0 : row.via === null ? 2 : 1,
+    rankOf({
+      provider: row.provider as string | null,
+      rate: row.rate as number | null,
+      via: row.via as string | null,
+    }),
 }
 
 export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {

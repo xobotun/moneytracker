@@ -1,4 +1,5 @@
 import { addDays } from '../dates'
+import { PROVIDER_LEVELS } from '../levels'
 import type { ExchangeRateInput, RateProvider } from '../providers'
 
 // fawazahmed0/exchange-api: free, keyless daily rates for ~340 codes
@@ -68,7 +69,7 @@ export function createFawazahmed0(
 ): RateProvider {
   return {
     id: 'fawazahmed0',
-    priority: 20,
+    priority: PROVIDER_LEVELS.fawazahmed0!,
     async fetchDay(date, today) {
       if (date < FAWAZAHMED0_FIRST_DATE) return []
       // Today's file appears during the day and `latest` lags a day: ask for

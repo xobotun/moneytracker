@@ -1,6 +1,7 @@
 import type { AppliedRate, ExchangeRate } from '@/db/types'
 import { addDays } from './dates'
-import { levelOf, MANUAL_PROVIDER, topLevel, type RateProvider } from './providers'
+import { MANUAL_PROVIDER, rankOf } from './levels'
+import { levelOf, topLevel, type RateProvider } from './providers'
 
 // How the rate for a currency pair on a day is chosen from the reference rates
 // (see docs/plans/2026-10-25-exchange-rates-decisions.md):
@@ -140,22 +141,20 @@ export function isFinal(
 }
 
 /**
- * Whether `candidate` should replace the stored row: never a manual row;
- * always an empty one; otherwise a better level, then direct over cross, then
- * a newer reference date — so a row never downgrades.
+ * Whether `candidate` should replace the stored row: by `rankOf` (never a
+ * manual row; always an empty one; a better level, then direct over cross),
+ * then a newer reference date — so a row never downgrades. The rank is the
+ * one sync conflicts use, so the two never disagree.
  */
 export function isBetter(
   candidate: Resolution,
   current: AppliedRate | null,
   providers: readonly RateProvider[],
 ): boolean {
-  if (current === null || current.rate === null) return true
-  if (current.provider === MANUAL_PROVIDER) return false
-  const levelNew = levelOf(candidate.provider, providers)
-  const levelOld = levelOf(current.provider, providers)
-  if (levelNew !== levelOld) return levelNew < levelOld
-  const directNew = candidate.via === null
-  const directOld = current.via === null
-  if (directNew !== directOld) return directNew
+  if (current === null) return true
+  const level = (provider: string) => levelOf(provider, providers)
+  const rankNew = rankOf(candidate, level)
+  const rankOld = rankOf(current, level)
+  if (rankNew !== rankOld) return rankNew > rankOld
   return candidate.referenceDate > (current.reference_date ?? '')
 }
