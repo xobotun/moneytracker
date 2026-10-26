@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { moneyAmount, moneyToNumber, sumMoney, type MoneyAmount } from '@/db/MoneyAmount'
+import { moneyAmount, sumMoney, type MoneyAmount } from '@/db/MoneyAmount'
 import {
   addPart,
   displayAmount,
@@ -8,6 +8,7 @@ import {
   resetPart,
   typePart,
   typeTotal,
+  type SplitAmounts,
   type SplitState,
 } from '../split'
 
@@ -28,6 +29,27 @@ function part(s: SplitState, key: string) {
   const found = s.parts.find((p) => p.key === key)
   if (!found) throw new Error(`no part ${key}`)
   return found
+}
+
+/** What a row of the spec's table shows: the totals and each part rounded for display, [from, to]. */
+function shown(s: SplitState) {
+  const pair = (a: SplitAmounts) => [displayAmount(a.from), displayAmount(a.to)]
+  return Object.fromEntries([
+    ['total', pair(s.total)],
+    ...s.parts.map((p) => [p.key, pair(p.amounts)]),
+  ])
+}
+
+/** Each side's parts added up exactly (sumMoney: at the finest scale among them), as [from, to]. */
+function partSums(s: SplitState) {
+  return (['from', 'to'] as const).map((side) =>
+    vs(
+      sumMoney(
+        s.parts.map((p) => p.amounts[side]),
+        s.total[side].currency,
+      ),
+    ),
+  )
 }
 
 describe('split calculator', () => {
@@ -51,10 +73,23 @@ describe('split calculator', () => {
   })
 
   it('walks the worked example of the spec', () => {
-    // Steps 1-2
+    // Step 1: 800 AMD typed as the total
     let s = typeTotal(emptySplit('EUR', 'AMD'), 'to', amd(80000))
-    s = addPart(addPart(s, 'groceries'), 'gifts')
     let r = solve(s)
+    expect(shown(r.state)).toEqual({ total: [eur(201), amd(80000)] })
+
+    // Step 2: Groceries and Gifts
+    s = addPart(addPart(r.state, 'groceries'), 'gifts')
+    r = solve(s)
+    expect(shown(r.state)).toEqual({
+      total: [eur(201), amd(80000)],
+      groceries: [eur(100), amd(40000)],
+      gifts: [eur(100), amd(40000)],
+    })
+    expect(partSums(r.state)).toEqual([
+      [2010000, 6],
+      [800000000, 6],
+    ])
     expect(r.warnings).toEqual([])
 
     // Step 3: Gifts to = 600 AMD
@@ -63,18 +98,31 @@ describe('split calculator', () => {
     expect(vs(part(r.state, 'gifts').amounts.from)).toEqual([1507500, 6])
     expect(vs(part(r.state, 'groceries').amounts.from)).toEqual([502500, 6])
     expect(vs(part(r.state, 'groceries').amounts.to)).toEqual([200000000, 6])
-    expect(displayAmount(part(r.state, 'gifts').amounts.from)).toEqual(eur(151))
-    expect(displayAmount(part(r.state, 'groceries').amounts.from)).toEqual(eur(50))
+    expect(shown(r.state)).toEqual({
+      total: [eur(201), amd(80000)],
+      groceries: [eur(50), amd(20000)],
+      gifts: [eur(151), amd(60000)],
+    })
+    expect(partSums(r.state)).toEqual([
+      [2010000, 6],
+      [800000000, 6],
+    ])
     expect(r.warnings).toEqual([])
 
     // Step 4: total from = 2.21 EUR
     s = typeTotal(r.state, 'from', eur(221))
     r = solve(s)
-    expect(r.state.total.from).toEqual(eur(221))
     expect(vs(part(r.state, 'gifts').amounts.from)).toEqual([1657500, 6])
     expect(vs(part(r.state, 'groceries').amounts.from)).toEqual([552500, 6])
-    expect(displayAmount(part(r.state, 'gifts').amounts.from)).toEqual(eur(166))
-    expect(displayAmount(part(r.state, 'groceries').amounts.from)).toEqual(eur(55))
+    expect(shown(r.state)).toEqual({
+      total: [eur(221), amd(80000)],
+      groceries: [eur(55), amd(20000)],
+      gifts: [eur(166), amd(60000)],
+    })
+    expect(partSums(r.state)).toEqual([
+      [2210000, 6],
+      [800000000, 6],
+    ])
     expect(r.warnings).toEqual([])
 
     // Step 5: Groceries from = 0.60 EUR
@@ -82,20 +130,17 @@ describe('split calculator', () => {
     r = solve(s)
     expect(vs(part(r.state, 'gifts').amounts.from)).toEqual([1610000, 6])
     expect(vs(part(r.state, 'groceries').amounts.to)).toEqual([200000000, 6])
-    expect(displayAmount(part(r.state, 'gifts').amounts.from)).toEqual(eur(161))
-    expect(r.warnings).toHaveLength(1)
-    const keys = r.warnings.flatMap((w) => (w.kind === 'rate-mismatch' ? w.keys : []))
-    expect(new Set(keys)).toEqual(new Set(['groceries', 'gifts']))
-    // The sums still win on both sides.
-    const sides = ['from', 'to'] as const
-    for (const side of sides) {
-      const total = r.state.parts.map((p) => p.amounts[side])
-      const currency = side === 'from' ? 'EUR' : 'AMD'
-      expect(moneyToNumber(sumMoney(total, currency))).toBeCloseTo(
-        moneyToNumber(r.state.total[side]),
-        9,
-      )
-    }
+    expect(shown(r.state)).toEqual({
+      total: [eur(221), amd(80000)],
+      groceries: [eur(60), amd(20000)],
+      gifts: [eur(161), amd(60000)],
+    })
+    // The sums still win on both sides, exactly.
+    expect(partSums(r.state)).toEqual([
+      [2210000, 6],
+      [800000000, 6],
+    ])
+    expect(r.warnings).toEqual([{ kind: 'rate-mismatch', keys: ['groceries', 'gifts'] }])
   })
 
   it('absorbs rounding in the last free part', () => {
@@ -139,6 +184,20 @@ describe('split calculator', () => {
     expect(state.total.from.value).toBe(0)
     expect(vs(part(state, 'a').amounts.from)).toEqual([0, 6])
     expect(vs(part(state, 'b').amounts.from)).toEqual([0, 6])
+    expect(warnings).toEqual([])
+  })
+
+  it('treats an anchored part as free, not as an ideal of 0, when a total is zero', () => {
+    // 2.21 € typed, no market rate: the AMD total stays 0, so a's typed 600 AMD
+    // anchors nothing and a shares the euros like b. Anchored with an ideal
+    // of 0, a would get 0.00 € and b all 2.21 €.
+    let s = typeTotal(emptySplit('EUR', 'AMD'), 'from', eur(221))
+    s = addPart(addPart(s, 'a'), 'b')
+    s = typePart(s, 'a', 'to', amd(60000))
+    const { state, warnings } = recompute(s, null)
+    expect(state.total.to.value).toBe(0)
+    expect(vs(part(state, 'a').amounts.from)).toEqual([1105000, 6])
+    expect(vs(part(state, 'b').amounts.from)).toEqual([1105000, 6])
     expect(warnings).toEqual([])
   })
 

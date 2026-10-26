@@ -357,25 +357,62 @@ describe('csvCodec', () => {
     })
 
     it('rolls back the destination on an FK violation mid-import', async () => {
+      const src = await migratedDb()
       const dst = await migratedDb()
-      dbs.push(dst)
-      const bundle = new Map<string, string[]>()
-      // Empty parents but a transaction referencing a non-existent account.
-      // exportTableToCsvFiles on an empty dst gives us header-only CSVs for the
-      // tables that aren't transactions.
-      for (const t of SYNC_TABLES) {
-        bundle.set(t.name, await exportTableToCsvFiles(dst, t))
+      dbs.push(src, dst)
+      // A tag, so the rollback has imported rows of another table to undo.
+      await seedTag(src, {
+        id: 'food',
+        name: 'Food',
+        kind: 'category',
+        created: CUTOFF,
+        updated: CUTOFF,
+      })
+      const bundle = await exportAllTables(src)
+
+      // A transaction on an account that does not exist; every other cell is
+      // valid. Built by column name, so new columns cannot break the row.
+      const header = bundle.get('transactions')![0]!
+      const fields = Papa.parse<string[]>(header.trim()).data[0]!
+      const row: Record<string, string> = {
+        id: newId(),
+        account_id__from: 'missing-account',
+        amount_value__from: '100',
+        amount_scale__from: '2',
+        amount_currency__from: 'USD',
+        amount_value__to: '100',
+        amount_scale__to: '2',
+        amount_currency__to: 'USD',
+        transaction_at_local: '2026-05-01T09:00:00.000+00:00',
+        transaction_at_zone: 'UTC',
+        tags: '[]',
+        categories: JSON.stringify([
+          {
+            category_id: 'food',
+            amount_value__from: 100,
+            amount_scale__from: 2,
+            amount_value__to: 100,
+            amount_scale__to: 2,
+          },
+        ]),
+        created_at_utc: CUTOFF,
+        updated_at_utc: CUTOFF,
       }
-      const txnHeader = bundle.get('transactions')![0]!
+      expect(fields).toEqual(expect.arrayContaining(Object.keys(row)))
       bundle.set('transactions', [
-        txnHeader +
-          `${newId()},missing-account,,100,2,USD,100,2,USD,2026-05-01T09:00:00.000+00:00,UTC,,,[],,,,,,${CUTOFF},${CUTOFF},\n`,
+        Papa.unparse({ fields, data: [fields.map((f) => row[f] ?? '')] }, { newline: '\n' }) + '\n',
       ])
-      await expect(importAllTables(dst, bundle)).rejects.toThrow()
-      // Other tables also imported nothing — everything rolled back.
+
+      // Foreign keys are checked at COMMIT, which fails and rolls back everything.
+      await expect(importAllTables(dst, bundle)).rejects.toThrow(/FOREIGN KEY/)
       for (const t of SYNC_TABLES) {
         expect(await dst.exec(`SELECT * FROM ${t.name}`)).toHaveLength(0)
       }
+
+      // The connection is usable afterwards: the bundle without the bad row imports.
+      bundle.set('transactions', [header])
+      await importAllTables(dst, bundle)
+      expect(await dst.exec('SELECT id FROM tags')).toEqual([{ id: 'food' }])
     })
   })
 })
