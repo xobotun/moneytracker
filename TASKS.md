@@ -322,6 +322,20 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 ## To Do
 
+### Sync: tell which side changed a row without timestamps
+
+Known bug, postponed 2026-10-26. A change made offline and uploaded after another device's
+last sync counts as "unchanged" on that device, so delete-wins and rank rules are skipped and
+the discarded change is not reported: a delete or a manual exchange rate is lost on both
+devices, even with synchronised clocks. Problem, why the current mechanisms miss it, options
+with their upsides and downsides, and the recommendation (per-row base hashes):
+[docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md).
+
+- Deliberately failing tests until this is done: the two `it.fails` in
+  `src/sync/__tests__/cornerCases/cutoff.spec.ts` — turn them into `it(...)` when fixed
+- Revisit `src/sync/__tests__/convergence.spec.ts` "after a redirect whose merged tag comes
+  back", which relies on today's cutoff
+
 ### Domain model gaps
 
 Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema:
