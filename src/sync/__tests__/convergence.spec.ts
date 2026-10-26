@@ -32,6 +32,9 @@ describe('two devices converge', () => {
   const tagRow = async (device: Device, id: string) =>
     (await device.db.exec('SELECT * FROM tags WHERE id = ?', [id]))[0]!
 
+  // Relies on today's timestamp cutoff (A's rename of d wins only because B's tombstone predates
+  // A's cutoff; with real change detection delete-wins keeps d deleted). Revisit with TASKS.md
+  // "Sync: tell which side changed a row without timestamps" — docs/plans/2026-10-26-sync-change-detection.md.
   it('after a lift whose deleted parent comes back', async () => {
     let g!: ShortId, d!: ShortId, c!: ShortId
     await start(world, async ({ tags }) => {

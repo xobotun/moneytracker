@@ -94,8 +94,16 @@ Then the existing rules decide (delete wins → rank → newer → tie by conten
     provider: fall back to today's cutoff for that one sync.
   - One more pass over all rows per sync to hash them (the database hash already does one;
     they can share it).
-  - Repairs that rewrite rows without a timestamp bump (tag redirect / lift) show up as
-    local changes on the next sync — harmless, as every device repairs the same way.
+  - Rewrites without a timestamp bump make a row differ from the other device's base
+    although nobody edited it: the sync repairs' redirect and lift (`bump: false`), and the
+    user's merge on tombstones (a merge does not bump deleted rows, `src/db/tagReferences.ts`).
+    Counted as changes they are not harmless: a rewritten tombstone meets a concurrent
+    restore on the other device as "changed on both sides", and delete-wins drops the
+    restore (`src/sync/__tests__/cornerCases/merges.spec.ts`, "keeps a restore when the other
+    device merged the restored tag's parent"). So option A must not count them: compare rows
+    normalised through the merge-chain map (apply the redirects to the base hashes and to the
+    current rows alike), or record the repairs' rewrites in the base. A lift is no merge
+    chain: it needs the second way, or the same normalisation over deleted parents.
 
 ### B. Full base copy (three-way merge)
 
@@ -142,8 +150,14 @@ Option A, with today's cutoff as the fallback when no base exists. Consider B la
 column-level merging becomes a goal.
 
 When implementing:
-- Flip the two `it.fails` in `cutoff.spec.ts` to `it`, and revisit the `convergence.spec.ts`
-  test "after a redirect whose merged tag comes back", which relies on today's cutoff
-  (a live row winning over an older remote merge).
+- Flip the two `it.fails` in `cutoff.spec.ts` to `it`, and revisit two `convergence.spec.ts`
+  tests that rely on today's cutoff: "after a redirect whose merged tag comes back" (a live
+  row winning over an older remote merge) and "after a lift whose deleted parent comes back"
+  (A's rename of d wins only because B's tombstone of d predates A's cutoff; with real change
+  detection both sides changed d, delete-wins keeps it deleted, and the test's last
+  assertion flips).
+- Keep `cornerCases/merges.spec.ts` "keeps a restore when the other device merged the
+  restored tag's parent" passing: it fails if the rewrites without a timestamp bump count as
+  changes (see option A's downsides).
 - Update the scenarios doc (algorithm step 5, "Merge cutoff"; conflict definition).
 - Remove the TASKS.md entry.

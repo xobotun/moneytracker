@@ -7,8 +7,9 @@ import { newTagLook } from '@/tags/look'
 
 /**
  * Tags of every kind, read from SQLite (the source of truth) and re-read after
- * each write. Pages show a tag by id through `nameOf`, so a rename shows up
- * everywhere after the next `load()`.
+ * each write. Pages look a tag up by id in `byId` (deleted and merged ones
+ * included, so they can hide those), so a rename shows up everywhere after the
+ * next `load()`.
  */
 export const useTagsStore = defineStore('tags', () => {
   const tags = ref<Tag[]>([])

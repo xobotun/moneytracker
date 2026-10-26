@@ -87,7 +87,8 @@ User may interrupt the sync at any time, the app will have to use the local data
     last known remote state). Only rows whose `created_at_utc`, `updated_at_utc`, or `deleted_at_utc` is newer than this
     cutoff need to be considered on either side. Over-including rows is harmless (re-applying an identical row is a no-op).
 6. **Merge, parent tables before child tables** so foreign keys (`ON DELETE RESTRICT`) are never violated mid-merge:
-   1. locations, tags (and other referenced lookup tables such as currencies)
+   1. tags and the tag side tables (location, merchant and journey details), and the other parent tables
+      (applied rates, account groups); tags also reference each other, so foreign keys are checked at COMMIT
    2. accounts
    3. transactions
    For each candidate row:
