@@ -296,6 +296,27 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
   works across midnight); the app refreshes at start when the newest rate is older than
   yesterday
 
+### Exchange rates — phase 2 (app side)
+
+- Central banks from the rates repo ([xobotun/exchange-rates](https://github.com/xobotun/exchange-rates),
+  read from `raw.githubusercontent.com`): one provider per bank — `ecb` EUR,
+  `nbg` GEL, `nbk` KZT, `cba` AMD, `cbr` RUB — on level 10, above
+  fawazahmed0 (`src/money/providers/centralBanks.ts`). A bank asks for
+  `latest` only for today (the repo's `latest` is already today's; every
+  earlier day has its own file), nothing before 2019-12-24, and a day the
+  repo does not hold yet (404) is nothing found. fawazahmed0 and the banks
+  share one file reader (`providers/rateFile.ts`: no-store for `latest`, a
+  30 s timeout)
+- Provider levels and one rank formula live in `src/money/levels.ts`
+  (constants only): `isBetter` and the sync conflict rule (`ROW_RANK`) both
+  rank by it — manual, then level, then direct over cross, "none found" last —
+  so a central bank's cross is never undone on sync by an aggregator's direct
+  rate. The db layer takes `MANUAL_PROVIDER` from there
+- Checked in the browser: today's pairs came from the banks in 6 requests
+  (five `latest` files, plus fawazahmed0 for a code no bank knows); RUB from
+  `cbr` directly, not NBK's cross; a refresh upgraded the previous day's
+  fawazahmed0 rows to bank rates
+
 
 ---
 
@@ -338,11 +359,11 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md)
 (sources checked, priorities, resolution rules, tables, the rates-repo contract).
-Phase 1 is done (see Done above). Next:
+Phases 1 and 2 (the app side) are done (see Done above). Next:
 
-2. Rates repo `xobotun/exchange-rates` (scripts drafted in `~/work/playground/moneytracker-rates`, not pushed) — a separate public GitHub repo whose scheduled Action curls the central banks (ECB, NBG, NBK Excel export, CBA CSV export, CBR) and commits fawazahmed0-shaped files (contract in the decisions doc); the app reads it from `raw.githubusercontent.com`, one provider per bank on the central-bank level (priority 10)
+2. Rates repo — live at [xobotun/exchange-rates](https://github.com/xobotun/exchange-rates) (its README is the contract; updated twice a day; history is being backfilled one year at a time). The app reads ECB, NBG, NBK, CBA and CBR from it since 2026-10-26 (see Done). Left:
     - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days)
-    - **First:** make the sync rank agree with the levels. `ROW_RANK` ranks direct over cross whatever the level, while resolution puts the level first: a central-bank cross meeting a fawazahmed0 direct rate would lose the conflict, be re-resolved and conflict again on every sync. The sync layer must not import the providers, so the level has to reach the rank another way (stored in the row, or a rank function the money layer registers)
+    - Backfill history from the year files (`v1/<bank>/years/<YYYY>/…`, one request per bank and year) instead of one day file per date, once reports or a statement import need many past dates
 3. openexchangerates (App ID per device; priority 30)
 4. UI for manual overrides (`setManual` / `removeManual` exist) and the review list (`applied_rates` rows with `via` set or a NULL rate)
 5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN)
@@ -354,7 +375,6 @@ Phase 1 is done (see Done above). Next:
     - Settings' conflict text ("deletions win, otherwise the latest edit wins") omits `rank-wins`; applied rates two devices resolved at different times of day (different `reference_date`) count as conflicts — don't count machine-written rows, or break ties by the fresher `reference_date`
     - A failed fetch is remembered as "nothing there" until Refresh or a reload; no `online` listener. `refreshIfStale` does not check `navigator.onLine`
     - `refresh` can fetch `latest` twice (keyed under today and yesterday) and re-fetch up to 8 dated files to re-check NULL rows; `resolveRate()` is used only by tests (the service has its own level loop)
-    - `MANUAL_PROVIDER` lives in `src/money/` but the db layer imports it; `ROW_RANK` repeats the `'manual'` string
     - `CHECK (currency_a < currency_b)` uses SQLite's UTF-8 byte order, the code JS's UTF-16 order: they differ for some pairs of exotic non-ASCII custom codes (an emoji and a U+E000–U+FFFF character)
 
 ### Aggregation & reporting

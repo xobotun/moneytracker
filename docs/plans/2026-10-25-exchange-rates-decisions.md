@@ -2,7 +2,8 @@
 
 **Status:** Decisions agreed 2026-10-25 in a brainstorming session. Phase 1
 (below) built 2026-10-25 on branch `exchange-rates`; it replaced the
-placeholder rules in `src/money/rates.ts`.
+placeholder rules in `src/money/rates.ts`. Phase 2 on the app side (reading
+the central banks from the rates repo) built 2026-10-26.
 
 **Goal:** Convert amounts between currencies for display, reports and the
 transaction form, using authoritative rates where they exist, working
@@ -181,10 +182,10 @@ For a currency pair on a date:
 
 ## Rates repo contract (v1)
 
-The repo is `xobotun/exchange-rates` (a draft of its scripts is in
-`~/work/playground/moneytracker-rates`, not yet pushed); this is what the
-app will read. It mirrors fawazahmed0's layout and file shape, so one
-parser serves both.
+The repo is live at https://github.com/xobotun/exchange-rates, and its
+README is the authoritative description of the published files; this
+section is the summary the app relies on. It mirrors fawazahmed0's layout
+and file shape, so one parser serves both (`src/money/providers/rateFile.ts`).
 
 - **Public GitHub repo**, read by the app at
   `https://raw.githubusercontent.com/xobotun/exchange-rates/main/` (CORS `*`, a
@@ -204,7 +205,8 @@ parser serves both.
     down; banks that quote "home per foreign" (NBK, CBA, NBG) are inverted
     (`1 / quote`, full double precision, no rounding). Metals (`xau`, `xag`)
     are per **troy ounce**, as ISO 4217 means them; CBA's per-gram quotes
-    are converted.  - `date` in the body is the **publication** the rates come from. There is
+    are converted.
+  - `date` in the body is the **publication** the rates come from. There is
     a file for **every calendar day**: on a day the bank does not publish
     (weekends, holidays) it repeats the newest earlier publication with that
     publication's `date`. One request per day always answers, and the app
@@ -227,8 +229,8 @@ parser serves both.
   publication inside the year files.
 - **Raw downloads** are kept for auditing under `raw/<provider>/<YYYY>/…`, as
   the bank served them. The app never reads them.
-- **Updates:** a nightly scheduled GitHub Action, after the banks publish
-  (the ECB publishes around 16:00 CET), plus a manual backfill workflow. A
+- **Updates:** a scheduled GitHub Action twice a day (06:00 and 18:00 UTC),
+  plus a manual backfill workflow, one calendar year per run. A
   failed fetch leaves the files untouched: never partial or empty files.
   Commits only when data changed.
 - **Only real codes:** ISO 4217 and the metals or crypto a bank actually
@@ -241,7 +243,8 @@ parser serves both.
    fawazahmed0 fetcher; refresh. Replaces the placeholder `RateTable`.
 2. The rates repo (above) with ECB, NBG, NBK, CBA and CBR, and the app's
    provider reading it (one provider per bank, all on the central-bank
-   level).
+   level). Built 2026-10-26; the sync rank now follows the levels too
+   (`src/money/levels.ts`).
 3. openexchangerates (App ID stored per device, like sync credentials).
 4. UI for overrides and the review list.
 5. Optional: Google Sheet provider; CNB / NBP.
