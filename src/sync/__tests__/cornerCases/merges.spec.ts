@@ -92,16 +92,12 @@ describe('tag merges on several devices', () => {
     }
   })
 
-  // BUG: the restore of a merge cycle is stamped one millisecond after the
-  // cycle's latest change (minute 2, B's merge), although the row it restores
-  // carries A's rename from minute 4 (src/sync/repairTags.ts, `restored` takes
-  // `oneMillisecondAfter(node.updatedAt)`, the merged row's time). C's edit
-  // of minute 3 then counts as newer and wins: the latest edit of Y, A's
-  // rename, is lost on every device.
-  // Deliberately failing until the restore-stamp ruling is revised: "max(cycle's latest, the
-  // restored row's updated_at_utc) + 1 ms" restamps a restore of a restore one millisecond later, so
-  // convergence.spec.ts "after a merge cycle is broken…" no longer converges in one sync (see task-F1-report.md).
-  it.fails('keeps a newer edit carried by a merge-cycle restore', async () => {
+  // The restore of a merge cycle carries A's rename of Y from minute 4. It is
+  // stamped at the later of one millisecond after the cycle's latest change
+  // (minute 2, B's merge) and the restored row's own time (minute 4), so C's
+  // edit of minute 3 does not count as newer: the latest edit of Y, A's
+  // rename, wins on every device.
+  it('keeps a newer edit carried by a merge-cycle restore', async () => {
     const [a, b, c] = (world = await openTrio()).devices
     let x!: ShortId, y!: ShortId
     await start(world, async (d) => {

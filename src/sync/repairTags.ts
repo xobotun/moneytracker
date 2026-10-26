@@ -37,9 +37,11 @@ type Nodes = ReadonlyMap<string, TagNode>
  *     device, Y into X on another) is broken by undoing the later merge: the
  *     tag in it with the latest `updated_at_utc` is restored — as the side
  *     where it was live had it (with the names the surviving merge gave it),
- *     stamped one millisecond after that latest change, so every device that
- *     meets the cycle writes the same row. Then every reference to a merged
- *     tag moves to the end of its merge chain.
+ *     stamped one millisecond after that latest change, or at the row's own
+ *     time when that is later (an edit it carries stays the newest). A device
+ *     that restores the restored row again keeps its stamp, so every device
+ *     that meets the cycle writes the same row. Then every reference to a
+ *     merged tag moves to the end of its merge chain.
  *  2. **Categories in use.** A category in use cannot be deleted: a deleted,
  *     unmerged category that a live transaction's parts use (recorded on the
  *     other device, or moved there by the redirect) is restored, stamped one
@@ -112,11 +114,12 @@ export async function repairTags(
   for (const cycle of findCycles(ids, (id) => nodes.get(id)?.mergedIntoId ?? null)) {
     const node = nodes.get(latest(cycle, (id) => nodes.get(id)!.updatedAt))!
     const side = liveSide(node.id)
+    const row = side ? before[side].get(node.id)! : merged.get(node.id)!
     const restored: SyncRow = {
-      ...(side ? before[side].get(node.id)! : merged.get(node.id)!),
+      ...row,
       merged_into_id: null,
       deleted_at_utc: null,
-      updated_at_utc: oneMillisecondAfter(node.updatedAt),
+      updated_at_utc: laterOf(oneMillisecondAfter(node.updatedAt), row.updated_at_utc as string),
     }
     await upsertRow(tx, 'tags', 'id', restored)
     node.parentId = restored.parent_id as string | null
@@ -273,6 +276,11 @@ function nearestLive(nodes: Nodes, start: string, self: string): string | null {
 /** `now`, or a millisecond after `previous` when the clock is behind it: a bump always moves forward. */
 function later(previous: string, now: string): string {
   return now > previous ? now : oneMillisecondAfter(previous)
+}
+
+/** The later of two instants (ISO 8601 UTC text sorts chronologically). */
+function laterOf(a: string, b: string): string {
+  return a > b ? a : b
 }
 
 function oneMillisecondAfter(instant: string): string {

@@ -302,6 +302,41 @@ describe('repairTags', () => {
     })
   })
 
+  describe('the stamp of a merge-cycle restore', () => {
+    // X merged into Y on this device (T1), Y into X on the other (T2, the
+    // later merge): Y is restored as this device has it.
+    beforeEach(async () => {
+      await tag('x', { mergedInto: 'y', deleted: T1 })
+      await tag('y', { mergedInto: 'x', deleted: T2 })
+    })
+    const liveY = (change: Partial<SyncRow>) =>
+      side({ y: { merged_into_id: null, deleted_at_utc: null, ...change } })
+
+    it('is one millisecond after the cycle’s latest change when the live row is older', async () => {
+      await repair(await liveY({ updated_at_utc: T1 }), await side())
+
+      expect(await tagRow('y')).toMatchObject({ updated_at_utc: '2026-05-06T00:00:00.001Z' })
+    })
+
+    it('is the live row’s own time when that is later, so the edit it carries stays newest', async () => {
+      await repair(await liveY({ name: 'labour', updated_at_utc: T3 }), await side())
+
+      expect(await tagRow('y')).toMatchObject({
+        name: 'labour',
+        deleted_at_utc: null,
+        updated_at_utc: T3,
+      })
+    })
+
+    it('stays the same when the live row is a restore already', async () => {
+      // The other device met the cycle first and uploaded its restore.
+      const restoredAt = '2026-05-06T00:00:00.001Z'
+      await repair(await liveY({ updated_at_utc: restoredAt }), await side())
+
+      expect(await tagRow('y')).toMatchObject({ updated_at_utc: restoredAt })
+    })
+  })
+
   it('redirects any number of merged tags in the same number of statements', async () => {
     async function statementsFor(count: number): Promise<number> {
       await db.close()
