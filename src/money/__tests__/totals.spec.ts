@@ -12,6 +12,7 @@ function account(balance: MoneyAmount): Account {
     id: asUuid(`acc-${n}`),
     name: `Account ${n}`,
     balance,
+    is_cash: false,
     tags: [],
     location_id: null,
     colour: '#000000',

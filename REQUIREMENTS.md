@@ -5,6 +5,7 @@
 ### Accounts
 - Track multiple accounts across different banks/ecosystems.
 - A new account starts at a zero balance; money already on it is entered as an **income** transaction (there is no separate starting-balance field).
+- An account is either **cash** (money in hand, like a wallet) or not; this is what reports split cash from non-cash by. An ATM withdrawal is a transfer into a cash account.
 
 ### Transactions
 - Three transaction types: **expense**, **income**, **transfer** (between accounts).
@@ -14,7 +15,8 @@
   - **Category** and **tags** with descriptions.
   - **Datetime + timezone + location** (country/city/geoposition, FIAS-level granularity). Specific venues via tags.
   - **Date override** — logical date can differ from transaction date (e.g., tickets bought in December for a January trip).
-  - **Cash vs. non-cash** flag (for aggregation).
+  - **Description** — the user's own note, and separately what an import read (OCR, bank API, bank statement, …), kept as JSON.
+  - **Cash vs. non-cash** — taken from the account (see Accounts), not stored per transaction.
 
 ### Currency & Exchange Rates
 - Store exchange rate history.

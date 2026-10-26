@@ -75,6 +75,27 @@ export function jsonObjectFromColumn<V>(text: string): Record<string, V> {
   return parsed as Record<string, V>
 }
 
+export function jsonObjectToNullableColumn<V>(obj: Record<string, V> | null): string | null {
+  return obj === null ? null : jsonObjectToColumn(obj)
+}
+
+export function jsonObjectFromNullableColumn<V>(text: string | null): Record<string, V> | null {
+  return text === null ? null : jsonObjectFromColumn<V>(text)
+}
+
+// ---------- boolean ↔ INTEGER 0/1 column ----------
+//
+// SQLite has no boolean type (`BOOLEAN` silently resolves to NUMERIC), so flags
+// are `INTEGER NOT NULL ... CHECK (col IN (0, 1))`.
+
+export function booleanToColumn(b: boolean): number {
+  return b ? 1 : 0
+}
+
+export function booleanFromColumn(n: number): boolean {
+  return n === 1
+}
+
 // ---------- Date (Instant) ↔ ISO 8601 UTC TEXT column ----------
 //
 // SQLite stores `_utc` timestamps as ISO 8601 TEXT (e.g. '2026-03-15T14:30:00.000Z').

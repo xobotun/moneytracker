@@ -7,10 +7,13 @@ import {
   instantToColumn,
   jsonArrayFromColumn,
   jsonArrayToColumn,
+  jsonObjectFromNullableColumn,
+  jsonObjectToNullableColumn,
   localMomentFromRow,
   localMomentToColumns,
   moneyFromRow,
   moneyToColumns,
+  optionalTextToColumn,
   uuidFromColumn,
   uuidFromNullableColumn,
 } from '../columnMappers'
@@ -34,15 +37,24 @@ type TransactionRow = {
   location_lat: number | null
   location_lon: number | null
   location_id: string | null
+  description__user: string | null
+  description__auto: string | null
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
 }
 
+// The descriptions may be left out of create() (none).
 type TransactionCreateInput = Omit<
   Transaction,
-  'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
->
+  | 'id'
+  | 'description__user'
+  | 'description__auto'
+  | 'created_at_utc'
+  | 'updated_at_utc'
+  | 'deleted_at_utc'
+> &
+  Partial<Pick<Transaction, 'description__user' | 'description__auto'>>
 
 type TransactionUpdateInput = Partial<
   Omit<Transaction, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
@@ -75,6 +87,8 @@ function rowToTransaction(row: TransactionRow): Transaction {
     location_lat: row.location_lat,
     location_lon: row.location_lon,
     location_id: uuidFromNullableColumn(row.location_id),
+    description__user: row.description__user,
+    description__auto: jsonObjectFromNullableColumn<unknown>(row.description__auto),
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
@@ -123,8 +137,9 @@ export class TransactionsRepository {
         date_override_local, date_override_zone,
         tags,
         location_lat, location_lon, location_id,
+        description__user, description__auto,
         created_at_utc, updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           input.account_id__from,
@@ -143,6 +158,8 @@ export class TransactionsRepository {
           input.location_lat,
           input.location_lon,
           input.location_id,
+          optionalTextToColumn(input.description__user),
+          jsonObjectToNullableColumn(input.description__auto ?? null),
           now,
           now,
         ],
@@ -283,6 +300,16 @@ export class TransactionsRepository {
     if (patch.location_id !== undefined) {
       sets.push('location_id = ?')
       params.push(patch.location_id)
+    }
+
+    if (patch.description__user !== undefined) {
+      sets.push('description__user = ?')
+      params.push(optionalTextToColumn(patch.description__user))
+    }
+
+    if (patch.description__auto !== undefined) {
+      sets.push('description__auto = ?')
+      params.push(jsonObjectToNullableColumn(patch.description__auto))
     }
 
     if (sets.length === 0) return

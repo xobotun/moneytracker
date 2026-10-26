@@ -447,6 +447,63 @@ describe('TransactionsRepository', () => {
     expect(updated!.updated_at_utc.getTime()).toBeGreaterThan(originalUpdatedAt.getTime())
   })
 
+  describe('descriptions', () => {
+    const input = () => ({
+      account_id__from: asUuid(accountId1),
+      account_id__to: null,
+      amount__from: moneyAmount(350, 2, 'USD'),
+      amount__to: moneyAmount(350, 2, 'USD'),
+      transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
+      date_override: null,
+      tags: [],
+      location_lat: null,
+      location_lon: null,
+      location_id: null,
+    })
+
+    it('default to null when not given', async () => {
+      const created = await repo.create(input())
+      expect(created.description__user).toBeNull()
+      expect(created.description__auto).toBeNull()
+    })
+
+    it('round-trip the user note and the imported object', async () => {
+      const auto = { source: 'ocr', raw: 'KAFFEE 3,50\n"Bar" am Markt', confidence: 0.93 }
+      const created = await repo.create({
+        ...input(),
+        description__user: 'Coffee with Anna, "the usual"',
+        description__auto: auto,
+      })
+      const found = await repo.findById(created.id)
+      expect(found?.description__user).toBe('Coffee with Anna, "the usual"')
+      expect(found?.description__auto).toEqual(auto)
+    })
+
+    it('store an empty user note as null', async () => {
+      const created = await repo.create({
+        ...input(),
+        description__user: '',
+      })
+      expect(created.description__user).toBeNull()
+    })
+
+    it('are updated and cleared', async () => {
+      const created = await repo.create({
+        ...input(),
+        description__user: 'before',
+        description__auto: { source: 'bank-api' },
+      })
+      await repo.update(created.id, { description__user: 'after' })
+      expect((await repo.findById(created.id))?.description__user).toBe('after')
+      expect((await repo.findById(created.id))?.description__auto).toEqual({ source: 'bank-api' })
+
+      await repo.update(created.id, { description__user: '', description__auto: null })
+      const cleared = await repo.findById(created.id)
+      expect(cleared?.description__user).toBeNull()
+      expect(cleared?.description__auto).toBeNull()
+    })
+  })
+
   describe('ordering', () => {
     function inputAt(local: string, zone: string, override: [string, string] | null = null) {
       return {

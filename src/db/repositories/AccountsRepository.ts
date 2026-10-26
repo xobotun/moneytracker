@@ -2,6 +2,8 @@ import type { Database } from '../Database'
 import { recalculateBalances } from '../balances'
 import type { Account } from '../types'
 import {
+  booleanFromColumn,
+  booleanToColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -20,6 +22,7 @@ type AccountRow = {
   currency: string
   balance_value: number
   balance_scale: number
+  is_cash: number
   tags: string
   location_id: string | null
   colour: string
@@ -32,11 +35,13 @@ type AccountRow = {
 }
 
 // sort_order is excluded from both inputs: create() and a grouping change in
-// update() append to the end of the group, arrange() moves.
+// update() append to the end of the group, arrange() moves. is_cash may be left
+// out of create() (not cash).
 export type AccountCreateInput = Omit<
   Account,
-  'id' | 'sort_order' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
->
+  'id' | 'is_cash' | 'sort_order' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+> &
+  Partial<Pick<Account, 'is_cash'>>
 
 export type AccountUpdateInput = Partial<AccountCreateInput>
 
@@ -49,6 +54,7 @@ function rowToAccount(row: AccountRow): Account {
       balance_scale: row.balance_scale,
       balance_currency: row.currency,
     }),
+    is_cash: booleanFromColumn(row.is_cash),
     tags: jsonArrayFromColumn<string>(row.tags),
     location_id: uuidFromNullableColumn(row.location_id),
     colour: row.colour,
@@ -74,14 +80,15 @@ export class AccountsRepository {
     // appending stays atomic without a transaction. Deleted rows count too:
     // harmless, and simpler. `IS`, not `=`, so NULL (no group) matches NULL.
     await this.db.run(
-      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, tags, location_id, colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts WHERE grouping_id IS ?), ?, ?)`,
+      `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, is_cash, tags, location_id, colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM accounts WHERE grouping_id IS ?), ?, ?)`,
       [
         id,
         input.name,
         input.balance.currency,
         moneyColumns.balance_value,
         moneyColumns.balance_scale,
+        booleanToColumn(input.is_cash ?? false),
         tagsJson,
         input.location_id,
         input.colour,
@@ -150,6 +157,10 @@ export class AccountsRepository {
       params.push(moneyColumns.balance_scale)
       sets.push('currency = ?')
       params.push(moneyColumns.balance_currency)
+    }
+    if (patch.is_cash !== undefined) {
+      sets.push('is_cash = ?')
+      params.push(booleanToColumn(patch.is_cash))
     }
     if (patch.tags !== undefined) {
       sets.push('tags = ?')

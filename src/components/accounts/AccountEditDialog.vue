@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import AutoComplete from 'primevue/autocomplete'
+import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from './AccountBadge.vue'
@@ -202,6 +203,21 @@ async function remove() {
         </small>
         <small v-else id="account-currency-hint" class="text-gray-500 dark:text-gray-400">
           ISO code like EUR, or your own like BTC.
+        </small>
+      </div>
+
+      <div class="flex flex-col gap-1">
+        <div class="flex items-center gap-2">
+          <Checkbox
+            v-model="draft.is_cash"
+            input-id="account-is-cash"
+            binary
+            :pt="{ input: { 'aria-describedby': 'account-is-cash-hint' } }"
+          />
+          <label for="account-is-cash" class="text-sm font-medium">Cash</label>
+        </div>
+        <small id="account-is-cash-hint" class="text-gray-500 dark:text-gray-400">
+          Money in hand, like a wallet, rather than in a bank.
         </small>
       </div>
 

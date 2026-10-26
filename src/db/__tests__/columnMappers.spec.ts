@@ -10,6 +10,10 @@ import {
   jsonArrayFromColumn,
   jsonObjectToColumn,
   jsonObjectFromColumn,
+  jsonObjectToNullableColumn,
+  jsonObjectFromNullableColumn,
+  booleanToColumn,
+  booleanFromColumn,
 } from '../columnMappers'
 
 describe('moneyToColumns / moneyFromRow', () => {
@@ -99,5 +103,23 @@ describe('jsonObjectToColumn / jsonObjectFromColumn', () => {
 
   it('throws if the parsed value is not an object', () => {
     expect(() => jsonObjectFromColumn('[1,2,3]')).toThrow()
+  })
+})
+
+describe('jsonObjectToNullableColumn / jsonObjectFromNullableColumn', () => {
+  it('round-trips an object and keeps null as SQL NULL', () => {
+    const auto = { source: 'ocr', raw: 'KAFFEE 3,50' }
+    expect(jsonObjectFromNullableColumn(jsonObjectToNullableColumn(auto))).toEqual(auto)
+    expect(jsonObjectToNullableColumn(null)).toBeNull()
+    expect(jsonObjectFromNullableColumn(null)).toBeNull()
+  })
+})
+
+describe('booleanToColumn / booleanFromColumn', () => {
+  it('stores booleans as 1 / 0 and reads them back', () => {
+    expect(booleanToColumn(true)).toBe(1)
+    expect(booleanToColumn(false)).toBe(0)
+    expect(booleanFromColumn(1)).toBe(true)
+    expect(booleanFromColumn(0)).toBe(false)
   })
 })
