@@ -8,6 +8,7 @@ import {
   part,
   partsOf,
   record,
+  tagRow,
   transactionsWithoutLiveCategory,
 } from './fixtures'
 
@@ -46,6 +47,40 @@ describe('categories deleted or merged elsewhere', () => {
     await settle([a, b], 5)
     await expectSound([a, b])
     for (const d of [a, b]) expect(await transactionsWithoutLiveCategory(d)).toEqual([])
+  })
+
+  // As above, but B also renamed the category before recording on it. Delete
+  // wins and keeps A's tombstone, named "Fun"; the repair restores the
+  // category as B, where it was live, had it — so the rename is not lost.
+  it('keeps the other device’s rename of a category in use that was deleted elsewhere', async () => {
+    const [a, b] = (world = await openPair()).devices
+    let fun!: ShortId, wallet!: ShortId
+    await start(world, async (d) => {
+      await d.tags.create({ kind: 'category', name: 'Food' })
+      fun = (await d.tags.create({ kind: 'category', name: 'Fun' })).id
+      wallet = await openAccount(d, 'Wallet')
+    })
+    at(minute(1))
+    await a.tags.softDelete(fun) // unused on A: allowed
+    at(minute(2))
+    await b.tags.update(fun, { name: 'Leisure' })
+    at(minute(3))
+    await record(b, { from: wallet, to: null, parts: [part(fun, 2500)] })
+    at(minute(4))
+    await a.sync()
+    at(minute(5))
+    await b.sync()
+
+    await settle([a, b], 6)
+    await expectSound([a, b])
+    for (const d of [a, b]) {
+      expect(await tagRow(d, fun)).toMatchObject({
+        name: 'Leisure',
+        deleted_at_utc: null,
+        updated_at_utc: minute(2),
+      })
+      expect(await transactionsWithoutLiveCategory(d)).toEqual([])
+    }
   })
 
   // A merges X into Y while B deletes the unused Y. Delete wins on Y, and the

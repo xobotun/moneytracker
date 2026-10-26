@@ -115,6 +115,8 @@ the remote side since the merge cutoff.
 
 - If the two versions are byte-identical, it is not a real conflict — pick either.
 - If one side deleted the row and the other updated it, **the delete wins** — keep the tombstone.
+- Some rows outrank others whatever the timestamps (`ROW_RANK`). For tags: when both sides deleted the tag,
+  a **merged tombstone wins over a plain delete** — it remembers where the tag's references go.
 - Otherwise, the row with the latest `updated_at_utc` / `deleted_at_utc` wins.
 - On an exact tie, the version whose content sorts greater wins (columns in name order, the merge's
   ignored columns left out), so every device picks the same one — never "local", which would let two
@@ -128,6 +130,29 @@ be implemented later.
 > devices edited different fields of the same row" from a true overwrite,
 > because there is no stored common ancestor — that is an accepted limitation of
 > the PoC. The conflict email is the safety net.
+
+## Tag repairs
+
+Taking each tag row whole from one side can combine changes into states no device produced. After the table
+merge, in the same transaction, `repairTags` mends them in this order:
+
+1. **Merge cycles** (X merged into Y on one device, Y into X on another) are broken by undoing the later merge:
+   the tag with the latest `updated_at_utc` is restored from the side where it was live, stamped
+   `max(the cycle's latest updated_at_utc + 1 ms, that row's updated_at_utc)`. Reported as `loop-undone`.
+2. **References to merged tags** move to the end of each merge chain (transactions, accounts, the details
+   tables, child tags). No timestamp is bumped.
+3. **Categories in use** are restored: a deleted, unmerged category that a live transaction uses comes back from
+   the side where it was live (or as its tombstone, when no side had it live), stamped
+   `max(deleted_at_utc + 1 ms, that row's updated_at_utc)`. Reported as `delete-undone`.
+4. **Children of deleted or merged tags** are lifted to the nearest live ancestor, or to the top level. No
+   timestamp is bumped.
+5. **Parent loops** are undone at the tag moved last (the greatest `moved_at_utc`, which only the user's moves
+   set; ties: the greatest id): it goes back to its parent on the other side, or to the top level, and its
+   `updated_at_utc` is bumped to now. Reported as `loop-undone`.
+
+The stamps of steps 1 and 3 come from the rows, not the clock, and steps 2 and 4 keep timestamps, so every
+device that meets the same state writes the same rows — including a device that restores another device's
+restore again.
 
 # Abstract sync provider API
 

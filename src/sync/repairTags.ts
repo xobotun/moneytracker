@@ -44,8 +44,11 @@ type Nodes = ReadonlyMap<string, TagNode>
  *     merged tag moves to the end of its merge chain.
  *  2. **Categories in use.** A category in use cannot be deleted: a deleted,
  *     unmerged category that a live transaction's parts use (recorded on the
- *     other device, or moved there by the redirect) is restored, stamped one
- *     millisecond after its delete — again the same row on every device.
+ *     other device, or moved there by the redirect) is restored — as the side
+ *     where it was live had it (an edit made there is kept), with its parent
+ *     redirected, stamped one millisecond after its delete or at the row's
+ *     own time when that is later. With no live side, the tombstone itself
+ *     is restored. Again every device writes the same row.
  *  3. **Lift.** A live tag whose parent is deleted or merged moves to the
  *     parent's nearest live ancestor, or to the top level.
  *  4. **Parent loops.** In each loop, the tag moved last (the latest
@@ -139,23 +142,33 @@ export async function repairTags(
     for (const row of parents) nodes.get(row.id)!.parentId = row.parent_id
   }
 
-  // 2. Categories in use. Before the lift: a restored category whose parent
-  // is gone is lifted, and its live children stay under it.
-  const restoredAt: Record<string, string> = {}
+  // 2. Categories in use, restored like a merge cycle's tag. Before the lift:
+  // a restored category whose parent is gone is lifted, and its live
+  // children stay under it.
   for (const id of await deletedCategoriesInUse(tx)) {
     const node = nodes.get(id)!
+    const tombstone = merged.get(id)!
+    const side = liveSide(id)
+    const row = side ? before[side].get(id)! : tombstone
+    // Both rows were read before the redirect: the parent may be merged.
+    const parentId = row.parent_id as string | null
+    const restored: SyncRow = {
+      ...row,
+      parent_id: parentId === null ? null : (redirects.get(asShortId(parentId)) ?? parentId),
+      merged_into_id: null,
+      deleted_at_utc: null,
+      updated_at_utc: laterOf(
+        oneMillisecondAfter(tombstone.deleted_at_utc as string),
+        row.updated_at_utc as string,
+      ),
+    }
+    await upsertRow(tx, 'tags', 'id', restored)
+    node.parentId = restored.parent_id as string | null
+    node.mergedIntoId = null
     node.live = true
-    node.updatedAt = oneMillisecondAfter(merged.get(id)!.deleted_at_utc as string)
-    restoredAt[id] = node.updatedAt
-    report(id, 'delete-undone', liveSide(id) ?? otherSide(id))
-  }
-  if (Object.keys(restoredAt).length > 0) {
-    await tx.run(
-      `UPDATE tags SET deleted_at_utc = NULL, updated_at_utc = restore.value
-       FROM json_each(?) AS restore
-       WHERE tags.id = restore.key`,
-      [JSON.stringify(restoredAt)],
-    )
+    node.updatedAt = restored.updated_at_utc as string
+    node.movedAt = restored.moved_at_utc as string
+    report(id, 'delete-undone', side ?? otherSide(id))
   }
 
   // 3. Lift. Each walk passes deleted tags only and stops at the first live

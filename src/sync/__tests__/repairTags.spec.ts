@@ -368,16 +368,20 @@ describe('repairTags', () => {
   })
 
   describe('a deleted category in use', () => {
-    it('is restored one millisecond after its delete, and reported', async () => {
+    it('is restored as the live side had it, one millisecond after its delete, and reported', async () => {
       await tag('fun', { deleted: T1 })
       await txn('t1', { categories: [part('fun')] })
-      // This device recorded t1 on Fun; the other one deleted Fun.
-      const local = await side({ fun: { deleted_at_utc: null, updated_at_utc: CUT } })
+      // This device recorded t1 on Fun (renamed before the other device's
+      // delete); the other one deleted Fun.
+      const local = await side({
+        fun: { deleted_at_utc: null, name: 'Leisure', updated_at_utc: CUT },
+      })
       const remote = await side()
 
       const conflicts = await repair(local, remote)
 
       expect(await tagRow('fun')).toMatchObject({
+        name: 'Leisure',
         deleted_at_utc: null,
         updated_at_utc: '2026-05-05T00:00:00.001Z',
         moved_at_utc: T1,
@@ -392,6 +396,76 @@ describe('repairTags', () => {
           resolution: 'delete-undone',
         },
       ])
+    })
+
+    it('keeps the live row’s own time when that is later than the delete', async () => {
+      await tag('fun', { deleted: T1 })
+      await txn('t1', { categories: [part('fun')] })
+      // Renamed on this device after the other device's delete.
+      const local = await side({
+        fun: { deleted_at_utc: null, name: 'Leisure', updated_at_utc: T2 },
+      })
+
+      await repair(local, await side())
+
+      expect(await tagRow('fun')).toMatchObject({
+        name: 'Leisure',
+        deleted_at_utc: null,
+        updated_at_utc: T2,
+      })
+    })
+
+    it('keeps its stamp when the live row is a restore already', async () => {
+      // The other device met the deleted category in use first and uploaded its restore.
+      await tag('fun', { deleted: T1 })
+      await txn('t1', { categories: [part('fun')] })
+      const restoredAt = '2026-05-05T00:00:00.001Z'
+      const remote = await side({ fun: { deleted_at_utc: null, updated_at_utc: restoredAt } })
+
+      const conflicts = await repair(await side(), remote)
+
+      expect(await tagRow('fun')).toMatchObject({
+        deleted_at_utc: null,
+        updated_at_utc: restoredAt,
+      })
+      expect(conflicts).toEqual([
+        expect.objectContaining({
+          primaryKey: 'fun',
+          resolution: 'delete-undone',
+          winner: 'remote',
+        }),
+      ])
+    })
+
+    it('restores the tombstone when no side had it live', async () => {
+      // A third device's transaction, a category both sides deleted.
+      await tag('fun', { deleted: T1 })
+      await db.run(`UPDATE tags SET synonyms = '["kept"]' WHERE id = 'fun'`)
+      await txn('t1', { categories: [part('fun')] })
+
+      const conflicts = await repair(await side(), await side())
+
+      expect(await tagRow('fun')).toMatchObject({
+        deleted_at_utc: null,
+        synonyms: '["kept"]',
+        updated_at_utc: '2026-05-05T00:00:00.001Z',
+      })
+      expect(conflicts).toEqual([
+        expect.objectContaining({ primaryKey: 'fun', resolution: 'delete-undone' }),
+      ])
+    })
+
+    it('goes under the end of its parent’s merge chain', async () => {
+      // On the live side Fun sat under P, which the other device merged into Q.
+      await tag('q')
+      await tag('p', { mergedInto: 'q', deleted: T1 })
+      await tag('fun', { parent: 'p', deleted: T2 })
+      await txn('t1', { categories: [part('fun')] })
+      const local = await side({ fun: { deleted_at_utc: null, updated_at_utc: CUT } })
+
+      await repair(local, await side())
+
+      expect(await tagRow('fun')).toMatchObject({ parent_id: 'q', deleted_at_utc: null })
     })
 
     it('is restored when the redirect moved a transaction onto it, and lifted', async () => {
