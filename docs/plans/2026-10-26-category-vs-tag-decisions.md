@@ -1,39 +1,66 @@
 # Money Tracker: Category vs. Tag Decisions
 
-**Status:** Draft, based on discussion with Pavel Maminov; revised 2026-10-26
-**Scope:** Data model for categories, tags, and transaction kinds in the first version
+**Status:** Decided in discussion with Pavel Maminov, 2026-10-26. The data model is not designed yet.
+**Scope:** Categories, merchants, locations, journeys and plain tags (all of them tags), and transaction kinds, in the first version
 **Users:** Pavel and his wife (shared household)
 
 ---
 
 ## 1. Core distinction
 
-|                           | Category                                           | Tag                                                             |
-|---------------------------|----------------------------------------------------|-----------------------------------------------------------------|
-| **Question answered**     | What kind of spending or income is this?           | What is this connected to?                                      |
-| **Count per transaction** | At least one; several when split                   | Zero or many                                                    |
-| **Defined by**            | Predefined set explicitly created by the two users | Free-form, created by the users as needed                       |
-| **Affects totals**        | Yes. Each amount counts in exactly one category    | No. Tag totals overlap and are for filtering and reporting only |
-| **Examples**              | Groceries, Travel, Clothing, Health, Salary        | #lisbon-trip-2026, #birthday-mia, #urgent, #rewe                |
+Categories, merchants, locations, journeys and plain tags are all **tags**: one table, told apart by a `kind` column. Only plain tags are shown as `#tag`; every other kind has its own field on the transaction.
 
-**Rule of thumb:** If a transaction should be counted in exactly one bucket for budgeting, it is a category. If you want to slice across buckets, it is a tag.
+| Kind | Question answered | Per transaction | Affects totals | Examples |
+|---|---|---|---|---|
+| **Category** | What kind of spending or income is this? | At least one; several when split, each part with its amounts | Yes. Each amount counts in exactly one category | Food > Groceries, Travel > Flights, Salary, Savings |
+| **Merchant** | Who was paid (or, for a refund, who paid)? | At most one | No | Rewe, Amazon, Lufthansa, Wildberries (synonym WB) |
+| **Location** | Where was the device when paying? | At most one | No | Germany > Berlin > Rewe Alexanderplatz |
+| **Journey** | Which trip or stay was this part of? | At most one | No | Summer 2026 > Lisbon |
+| **Tag** (plain) | What else is this connected to? | Any number | No. Tag totals overlap, and the UI should make this clear | #birthday, #mia, #urgent, #work-from-home |
+
+Every kind except categories belongs to the whole transaction; only categories are split into parts.
+
+**Rule of thumb:** If a transaction should be counted in exactly one bucket for budgeting, it is a category. If you want to slice across buckets, it is one of the other kinds.
 
 ---
 
 ## 2. Decisions
 
-### 2.1 Categories
+### 2.1 Tags
 
-- **Every transaction has at least one category:** expenses, income, and transfers between accounts alike (see 2.4). One rule for every transaction keeps the UI simple and predictable.
+- **One table, five kinds:** category, merchant, location, journey, and plain tag. People (Mia) are plain tags; a "for whom" field may come later. The kinds are fixed in code, new ones arrive only with app updates, and a tag does not change its kind.
+- **Ids:** a short random id of 12 base-62 characters (about 71 bits, for example `4kQ9xZr2BvLm`), so a tag can be renamed. Tags are created rarely and referenced often, so a short id keeps the rows that reference them small. Accounts and account groups get the same kind of id (scheduled in TASKS.md).
+- **Names** are unique among the live tags of the same kind and parent, synonyms included. A location and a journey can both be called Berlin.
+- **Hierarchy:** a tag can have a parent of the same kind. Any level can be used on a transaction: Everyday food and Posh food are subcategories of Food, but an expensive meal during an 8-hour layover is neither, so it is filed under Food itself.
+- **Colour and icon** are inherited from the parent unless the tag sets its own. A new top-level tag gets a random colour from the colour presets and its kind's icon (category: tag, merchant: shop, location: map marker, journey: plane).
+
+### 2.2 Categories
+
+- **Every transaction has at least one category:** expenses, income, and transfers between accounts alike (see 2.8). One rule for every transaction keeps the UI simple and predictable.
 - **Single category:** the full transaction amount is assigned to it automatically.
   - Example: Rewe, 84.30 € → Groceries: 84.30 €
-- **Multiple categories:** each category gets a part of the transaction, with both a *from* and a *to* amount (they differ when the transaction involves two currencies). How the parts are entered is described in 2.2.
+- **Multiple categories:** each category gets a part of the transaction, with both a *from* and a *to* amount (they differ when the transaction involves two currencies). How the parts are entered is described in 2.4.
   - Example: Amazon, 140.00 € → Clothing: 60.00 €, Office: 80.00 €
-- **Reporting:** each transaction's amount is counted once across categories, so category reports always reconcile with actual spending and income.
+- **Reporting:** each transaction's amount is counted once across categories, so category reports always reconcile with actual spending and income. A category's total for a period shows only the expenses when there are only expenses, only the income when there is only income, and the net together with both parts when there are both.
+  - Example: Clothing in July, two orders of 60.00 € and a refund of one of them → −60.00 € (+60.00 €, −120.00 €).
 
-### 2.2 Entering amounts and splits
+### 2.3 Typed and derived values
 
-- **Typed and derived amounts.** Every amount on the form is either typed by the user or derived from the others. Derived amounts are shown in a fainter text colour (about 20% lighter) than typed ones.
+This is a rule for the whole UI, not only for the transaction form.
+
+- Every value on a form is either **typed** by the user or **derived** by the app from something else. Derived values are shown in fainter text (about 20% lighter); hovering over or focusing one names its source ("from the rate of 26 Oct", "from Rewe Alexanderplatz").
+- Derived values follow their source when it changes. Typed values never change on their own.
+- Typing over a derived value makes it typed. A typed value that replaced a derived one offers a small reset button (on hover or focus) that brings the derived value back. Clearing a field counts as typing: the user chose "none".
+- What the transaction form derives:
+  - the second amount, from the day's applied rate (2.4);
+  - category parts, from what is left of the split (2.4);
+  - the location, from the device's position (2.6);
+  - the merchant, from the location's merchant (2.6);
+  - the category, from the merchant's default category (2.6);
+  - the journey, from the active journey (2.7).
+
+### 2.4 Entering amounts and splits
+
 - **Transaction amounts.** The user types one side; the other side is derived at the day's applied rate (`applied_rates`, see the exchange-rates decisions) until the user types it too, usually to match what the bank actually charged. The transaction's own rate is *to* ÷ *from*.
 - **Derived parts** are filled in so that:
   1. each side's parts add up to that side's total, and
@@ -56,18 +83,34 @@
 
 In step 5, Groceries' 200 AMD cannot change (Gifts' 600 AMD and the 800 AMD total are both typed), so Gifts takes the rest of the euros. Groceries now runs at about 333 AMD/€ and Gifts at about 373 AMD/€, so the UI shows the warning, offers to undo the edit, and allows saving.
 
-### 2.3 Tags
+### 2.5 Synonyms, merging and deleting
 
-*Under discussion, see open questions 1 and 2.*
+- **Synonyms** are extra names of a tag (WB for Wildberries). Transactions show the main name; a synonym finds the tag when typing and matches imported text ("REWE MARKT GMBH" → Rewe).
+- **Merging.** Making X a synonym of Y merges X into Y, after a warning:
+  - X's transactions move to Y. When one transaction has both as category parts, the parts are added together (Everyday food 5 € + Groceries 3 € → Groceries 8 €).
+  - X's children move under Y.
+  - X's name and synonyms become synonyms of Y; Y keeps its colour, icon and description.
+  - X is soft-deleted and remembers Y, so a device that used X before it synced the merge is redirected to Y on its next sync.
+  - Merging a tag into one of its own descendants is refused, and the UI shows the path (X > A > Y).
+- **Duplicates** (same kind, parent and name, for example Rewe created on two devices while offline) are highlighted on the Tags page. The users merge them by hand; the app does not offer it.
+- **Loops.** Moving a tag under one of its own descendants is refused. When sync creates a loop (the phone moves Groceries under Food while the laptop, offline, moves Food under Groceries), the later move is undone and the sync result says so.
+- **Deleting** is a soft delete, after a warning that says how many transactions use the tag. A deleted tag is no longer shown on its transactions or suggested, but the transactions keep the reference, so restoring the tag brings it back everywhere. A category in use is merged into another category instead (with a warning), since every transaction needs one. Children of a deleted tag move up one level.
 
-- **Purpose:** context such as trip, person, purpose, or urgency.
-- **Effect on totals:** none. Tags are used for filtering and reporting. Tag totals may overlap, and the UI should make this clear.
-- **Structure:** hierarchical. A parent tag can have child tags.
-  - Example: *Trips* > *Lisbon 2026*. Filtering by *Trips* includes all child tags.
-- **Visual:** each tag can have a color or icon to distinguish tag types (for example, trips in blue, people in green).
-- **Shop / merchant:** kept as a tag (#rewe, #amazon). A separate merchant field can be added later for auto-categorization, but it is not part of the first version.
+### 2.6 Merchants and locations
 
-### 2.4 Transaction kinds
+- **Merchant:** who was paid, or who paid (an Amazon refund). Allowed on every transaction; the UI hides the field on income and transfers by default. A merchant can name a default category (Rewe → Food > Groceries).
+- **Location:** where the device was when paying. Locations form a geographic hierarchy down to single stores (Germany > Berlin > Rewe Alexanderplatz), and a store can link to its merchant: Rewe has many stores, each linked to Rewe. The address, the coordinates and the merchant link live in a side table keyed by the tag id; city and country become parent tags.
+- **Matching the position.** The nearest known location within about 150 m is filled in, and the next few nearby ones are offered as one-tap choices, since GPS drifts in shopping centres. With nothing in range the location stays empty, the transaction keeps the raw position, and the user can create a location from it. The user can also pick a more specific location, or drop it when it does not matter.
+- **Example:** in a shopping centre the position matches "dm Alexa", so the merchant and the category show dm and Drugstore, faint. Picking "Rewe Alexanderplatz" switches them to Rewe and Food > Groceries. Had the user typed the merchant first, it would stay as typed.
+
+### 2.7 Journeys
+
+- **A journey is a trip or a stay** (a vacation, a rental stay): the named time periods of REQUIREMENTS.md. A holiday through several places uses the hierarchy: Summer 2026 > Lisbon, Summer 2026 > Porto.
+- **Dates.** A start and an end date, derived from the first and last transaction of the journey; the user can override them (a plane landing after midnight with no purchase that day). A parent's dates cover its children.
+- **"On a journey" switch:** per device, not synced. Turning it on offers to start a new journey or to join an ongoing or recent one (for example, one started on the other user's phone). While it is on, new transactions get the journey as a derived value. Moving on from Lisbon to Porto switches the active journey; the user turns the switch off by hand.
+- **Reports** for a journey include only the transactions tagged with it: Netflix renewing at home during the trip is not trip spending. The dates serve the timeline and suggestions during import.
+
+### 2.8 Transaction kinds
 
 - There is no transaction type field. Every transaction moves money from somewhere to somewhere, and each side is either one of the users' accounts or the world (no account: `NULL` in `account_id__from` / `account_id__to`). At least one side is an account. The kind follows from the two sides:
 
@@ -83,35 +126,31 @@ In step 5, Groceries' 200 AMD cannot change (Gifts' 600 AMD and the 800 AMD tota
 
 ## 3. Example transactions
 
-| Transaction | Category | Tags | Kind |
-|---|---|---|---|
-| Rewe, 84.30 € | Groceries | #rewe, #weekly-shop | Expense |
-| Lufthansa, 412.00 € | Travel | #trip-lisbon-2026 | Expense |
-| Mia's birthday gift, 45.00 € | Gifts | #birthday, #mia, #urgent | Expense |
-| Dentist co-pay, 25.00 € | Health | #family | Expense |
-| Amazon, 140.00 € | Clothing: 60.00 €, Office: 80.00 € (split) | #work-from-home | Expense |
-| Shop in Armenia, 2.21 € → 800 AMD | Groceries: 0.55 € → 200 AMD, Gifts: 1.66 € → 600 AMD (split) | none | Expense |
-| Salary, 3,200.00 € | Salary | none | Income |
-| Transfer checking → savings, 500.00 € | Savings | none | Transfer, not in spending or income reports |
+| Transaction | Category | Merchant | Location | Journey | #tags | Kind |
+|---|---|---|---|---|---|---|
+| Weekly shop, 84.30 € | Food > Groceries | Rewe | Germany > Berlin > Rewe Alexanderplatz | | #weekly-shop | Expense |
+| Flight to Lisbon, booked from home, 412.00 € | Travel > Flights | Lufthansa | none (dropped) | Summer 2026 > Lisbon | | Expense |
+| Meal during a layover, 38.00 € | Food | | Germany > Frankfurt > Airport | Summer 2026 > Lisbon | | Expense |
+| Taxi in Lisbon, 14.20 € | Transport > Taxi | Uber | Portugal > Lisbon | Summer 2026 > Lisbon | | Expense |
+| Mia's birthday gift, 45.00 € | Gifts | Amazon | none (online) | | #birthday, #mia | Expense |
+| Order, 140.00 € | Clothing: 60.00 €, Office: 80.00 € (split) | Amazon | | | #work-from-home | Expense |
+| Refund of the clothing, 60.00 € | Clothing | Amazon | | | | Income |
+| Shop, 2.21 € → 800 AMD | Food > Groceries: 0.55 € → 200 AMD, Gifts: 1.66 € → 600 AMD (split) | | Armenia > Yerevan | | | Expense |
+| Salary, 3,200.00 € | Salary | | | | | Income |
+| Checking → savings, 500.00 € | Savings | | | | | Transfer |
+| ATM withdrawal, checking → cash, 100.00 € | Cash withdrawal | | Germany > Berlin | | | Transfer |
 
 ---
 
-## 4. Open questions
-
-1. **Tags** (next to discuss): the hierarchy in 2.3 against the current `tags` table, which is keyed by the tag name and has no parent column; tag synonyms (`#wb` = `#wildberries`, see REQUIREMENTS.md), which this doc does not cover yet; colour and icon, which the schema already requires on every tag; attributes that may become tags (recurrence, see 5).
-2. **Merchants and locations** (together with 1): a shop as a tag (2.3) overlaps with the existing `locations` table.
-
----
-
-## 5. TODO (later)
+## 4. TODO (later)
 
 - **Fractional splits:** enter a category's share as a fraction of the transaction (for example, ⅓) instead of as amounts. One fraction covers both the *from* and the *to* amount.
-- **Recurrence:** marking repeating transactions (for example, monthly Netflix), probably as a tag (see open question 1).
+- **Recurrence:** marking repeating transactions (for example, monthly Netflix). Not a tag.
+- **"For whom":** a field for the person a purchase is for. People are plain tags until then.
 
 ---
 
-## 6. Next steps
+## 5. Next steps
 
-- Confirm open questions above.
-- Define the data model (tables and fields) based on these decisions, including how split parts are stored (rounding is display-only, see 2.2).
-- Draft example screens for transaction entry, split view, and tag management.
+- Define the data model (tables and fields) based on these decisions: the `tags` table with `kind` and short ids; side tables for locations (address, coordinates, merchant), merchants (default category) and journeys (dates); category parts with their *from* and *to* amounts and how they are stored (rounding is display-only, see 2.4); how transactions reference the other kinds.
+- Draft example screens for transaction entry, split view, and the Tags page.

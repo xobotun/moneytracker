@@ -22,6 +22,7 @@ Personal money tracker application. Must work as a standalone app on PCs and mob
 ### UI rules
 - **Clickable things look clickable.** Every action is a PrimeVue `Button` (`text` + `severity="secondary"` for low emphasis), so it gets the shared hover and focus states — never a bare icon or plain text with a click handler. Custom pickers (icon tiles, colour swatches) need a visible hover state too.
 - **Icon buttons carry a text label where there is room.** Show the label on wide screens and keep only the icon on narrow ones: `label="Edit"` plus `:pt="{ label: { class: 'hidden sm:inline' } }"`. Always give an `aria-label` that names the target (`Edit Cash`).
+- **Derived values look derived.** A value the app fills in from something else (a rate, the device's position, a split remainder, the active journey…) is shown in fainter text, about 20% lighter than a value the user typed; hover or focus names its source. Derived values follow their source; typed ones never change on their own. Typing over a derived value makes it typed, and a small reset button (on hover or focus) brings the derived value back. See docs/plans/2026-10-26-category-vs-tag-decisions.md §2.3.
 
 ### Data & State
 - **Pinia** for state management — used as a **write-through cache**. SQLite is the source of truth; Pinia stores call repositories to persist changes, then update reactive state. Exception: purely visual preferences (the layout store) save optimistically — show the new value at once, persist, revert and report on failure. Financial data is always write-through.
@@ -64,7 +65,7 @@ See [REQUIREMENTS.md](REQUIREMENTS.md) for the full list. Key domain concepts:
 
 - Multi-account, multi-currency expense/income/transfer tracking.
 - Dual-currency transactions (account currency vs. purchase currency) with exchange rate history.
-- Tags with synonyms, categories, location, date overrides, named time periods.
+- Tags of five kinds (categories, merchants, locations, journeys = named time periods, plain #tags) with hierarchy and synonyms (decided, not built yet); date overrides.
 - Aggregation across many dimensions (time, tags, accounts, currencies, cash/non-cash).
 - Bank statement and push notification import.
 

@@ -12,8 +12,8 @@
 - Each transaction has:
   - **Account currency amount** — what was debited/credited on the account.
   - **Purchase currency amount** — the actual currency of the purchase (e.g., spent 1200 KZT but it was really 900 AMD).
-  - **Categories** (at least one, see Categories) and **tags** with descriptions.
-  - **Datetime + timezone + location** (country/city/geoposition, FIAS-level granularity). Specific venues via tags.
+  - **Categories** (at least one, see Categories), a **merchant**, a **location**, a **journey** and plain **tags**: all of them tags of different kinds (see Tags).
+  - **Datetime + timezone + location**: the device's position, matched to a known location, a hierarchy from country down to a single venue (FIAS-level granularity).
   - **Date override** — logical date can differ from transaction date (e.g., tickets bought in December for a January trip).
   - **Description** — the user's own note, and separately what an import read (OCR, bank API, bank statement, …), kept as JSON.
   - **Cash vs. non-cash** — taken from the account (see Accounts), not stored per transaction.
@@ -27,14 +27,16 @@
 - A transaction can be split across several categories. Each part has both the *from* and the *to* amount; editing one recalculates the other at the transaction's own rate. See [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md).
 
 ### Tags
-- Tags support **synonyms**: `#wildberries` == `#wb`.
+- One tags table for five kinds: **category**, **merchant**, **location**, **journey** and plain **tag**. Only plain tags show as `#tag`; the other kinds have their own fields.
+- Tags form a hierarchy within their kind and can be renamed.
+- Tags support **synonyms**: `#wildberries` == `#wb`. Merging one tag into another makes its name a synonym.
 
 ### Time Periods
-- Named time periods (e.g., vacations, rental stays at a specific apartment) that span date ranges.
+- Named time periods (e.g., vacations, rental stays at a specific apartment) that span date ranges. These are **journeys**: journey tags with start and end dates.
 - Usable as aggregation intervals.
 
 ## Aggregation & Reporting
-- Aggregate by: time intervals (day/month/year/custom periods), categories, tags, accounts, purchase currency, account currency, mapped base currency, cash vs. non-cash.
+- Aggregate by: time intervals (day/month/year/custom periods, journeys), categories, merchants, locations, tags, accounts, purchase currency, account currency, mapped base currency, cash vs. non-cash.
 
 ## Import
 - Import bank statements (format TBD).

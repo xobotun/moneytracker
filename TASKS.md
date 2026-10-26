@@ -326,10 +326,11 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema:
 
-- **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals (Will be done later in the next iterations)
+- **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now, part of the tags refactor below
 - **Cash vs. non-cash flag** on transactions (maybe not needed yet)
 - **Categories** on transactions: at least one per transaction, splittable across several with a *from* and a *to* amount per part. Decided 2026-10-26, see [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md); the tables are not designed yet
-- **Tags** — hierarchy, synonyms, and merchants vs. the `locations` table are still open (same doc, open questions)
+- **Tags refactor** (decided 2026-10-26, same doc; tables not designed yet): one `tags` table with a `kind` (category, merchant, location, journey, tag) and short ids; a hierarchy within each kind (no loops, also after sync); synonyms as extra names and merging (with a redirect for devices that sync later); a soft delete that hides a tag but keeps its references. The `locations` table becomes location tags plus a side table (address, coordinates, merchant); merchants get a default category; journeys get start and end dates and a per-device "on a journey" switch
+- **Short ids** for tags, accounts and account groups: 12 random base-62 characters instead of UUIDv7, since they are created rarely and referenced often. Touches the schema (migration 002 edited in place), `src/db/uuid.ts` (a generator and branded type next to `newId`), `types.ts`, `columnMappers.ts`, the repositories, `src/stores/accounts.ts`, `AccountsView.vue`, the sync descriptors, and the primary-key convention in CLAUDE.md
 - Later: **fractional category splits** (a part given as a fraction of the transaction) and **recurring transactions** (same doc, TODO)
 - Location granularity at FIAS level (current `locations` table covers country/city/lat/lon/address — FIAS-specific structure TBD) (good as is for now)
 
@@ -343,21 +344,21 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### CRUD UI
 
 - Accounts (list, create, edit, delete, reorder: done, see Accounts UI)
-    - Optional home location picker (needs the Locations UI first; the dialog leaves `location_id` untouched)
+    - Optional home location picker (needs location tags first; the dialog leaves `location_id` untouched)
 - Transactions
     - List with filters (by account, by date range, by tag)
     - Create — expense, income, transfer
     - Dual-currency input (account currency + purchase currency)
     - Amounts show the currency symbol where one exists (`currencySymbol`: $, €, ₽), the code otherwise; lists of accounts keep the code
     - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc)
-    - Tag picker with autocomplete (resolve synonyms)
+    - Merchant, location and journey fields (merchant hidden on income and transfers by default); #tag picker with autocomplete (a synonym finds the tag, the main name is shown)
     - Date/time + timezone picker; date-override field
-    - Location picker (existing location, lat/lon pin, or free-form)
+    - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position
+    - "On a journey" switch (per device): start a new journey or join an ongoing / recent one
+    - Typed vs. derived values (the UI rule in CLAUDE.md)
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
-- Categories — list, create, edit, soft-delete
-- Tags — list, create, edit synonyms, soft-delete
-- Locations — list, create, edit, soft-delete
+- Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
 
 ### Exchange rates
 
@@ -385,8 +386,9 @@ Phases 1 and 2 (the app side) are done (see Done above). Next:
 
 - Aggregation by:
     - Time intervals — day / month / year / custom range
-    - Named time periods (once they exist)
-    - Categories (spending and income count only money to or from the world; transfers between own accounts are neither)
+    - Journeys (only the transactions tagged with the journey)
+    - Categories (spending and income count only money to or from the world; transfers between own accounts are neither; a period with both expenses and income shows the net and both parts)
+    - Merchants, locations
     - Tags
     - Accounts
     - Purchase currency
@@ -457,7 +459,7 @@ Known sync defects, postponed (review 2026-10-18):
 - Bank statement import (format TBD — likely CSV / OFX / institution-specific parsers)
 - Push notification import (format TBD — Android notification listener export, parsing rules per bank)
 - Mapping rules from raw entries to transactions, accounts, and tags
-- Dedup against existing transactions
+- Dedup against existing transactions (a statement line that matches a hand-entered transaction fills that transaction's `description__auto` instead of adding a second one)
 
 ### Polish & operational gaps
 
@@ -473,7 +475,7 @@ Known sync defects, postponed (review 2026-10-18):
 
 ### Known defects / open decisions
 
-- A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline
+- A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline. Goes away with tag ids (tags refactor)
 - `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
 - A sync conflict on an `accounts` row (edited on two devices) captures both sides' cached balance in its snapshot; the two may differ for no data reason. Cosmetic — matters only once a conflict viewer exists (strip `DERIVED_COLUMNS` from the snapshots then)
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)
