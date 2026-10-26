@@ -383,6 +383,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
 - Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
+    - Before merge ships: `TagsRepository.merge` refuses to fill the target's empty detail with the source's link to a deleted tag (`DeletedTagError`), and `detailConflicts` does not report it. Spec §2.5: the source's details fill the ones the target lacks — skip the liveness check for a value either tag already has; keep it for a `resolved` value that is on neither side (left open by the tags-and-categories final review)
 
 ### Exchange rates
 
