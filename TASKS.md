@@ -345,8 +345,8 @@ with their upsides and downsides, and the recommendation (per-row base hashes):
 - Revisit `src/sync/__tests__/convergence.spec.ts` "after a redirect whose merged tag comes
   back" and "after a lift whose deleted parent comes back", which rely on today's cutoff
 - Keep `src/sync/__tests__/cornerCases/merges.spec.ts` "keeps a restore when the other device
-  merged the restored tag's parent" passing: repairs rewrite rows without a timestamp bump, so
-  compare rows through the merge-chain map (see the doc, option A)
+  merged the restored tag's parent" passing: the user's merge rewrites the tombstone without a
+  timestamp bump, so compare rows through the merge-chain map (see the doc, option A)
 
 ### Domain model gaps
 

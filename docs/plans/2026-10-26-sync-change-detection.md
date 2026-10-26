@@ -95,14 +95,15 @@ Then the existing rules decide (delete wins → rank → newer → tie by conten
   - One more pass over all rows per sync to hash them (the database hash already does one;
     they can share it).
   - Rewrites without a timestamp bump make a row differ from the other device's base
-    although nobody edited it: the sync repairs' redirect and lift (`bump: false`), and the
-    user's merge on tombstones (a merge does not bump deleted rows, `src/db/tagReferences.ts`).
+    although nobody edited it: the sync repairs' redirect (`bump: false`) and lift (timestamps
+    kept), and the user's merge on tombstones (a merge does not bump deleted rows,
+    `src/db/tagReferences.ts`).
     Counted as changes they are not harmless: a rewritten tombstone meets a concurrent
     restore on the other device as "changed on both sides", and delete-wins drops the
     restore (`src/sync/__tests__/cornerCases/merges.spec.ts`, "keeps a restore when the other
     device merged the restored tag's parent"). So option A must not count them: compare rows
     normalised through the merge-chain map (apply the redirects to the base hashes and to the
-    current rows alike), or record the repairs' rewrites in the base. A lift is no merge
+    current rows alike), or record such rewrites in the base. A lift is no merge
     chain: it needs the second way, or the same normalisation over deleted parents.
 
 ### B. Full base copy (three-way merge)
