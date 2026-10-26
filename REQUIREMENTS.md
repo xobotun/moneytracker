@@ -8,11 +8,11 @@
 - An account is either **cash** (money in hand, like a wallet) or not; this is what reports split cash from non-cash by. An ATM withdrawal is a transfer into a cash account.
 
 ### Transactions
-- Three transaction types: **expense**, **income**, **transfer** (between accounts).
+- Three kinds of transaction: **expense** (account → world), **income** (world → account), **transfer** (between accounts). There is no type field: the kind follows from which sides are accounts.
 - Each transaction has:
   - **Account currency amount** — what was debited/credited on the account.
   - **Purchase currency amount** — the actual currency of the purchase (e.g., spent 1200 KZT but it was really 900 AMD).
-  - **Category** and **tags** with descriptions.
+  - **Categories** (at least one, see Categories) and **tags** with descriptions.
   - **Datetime + timezone + location** (country/city/geoposition, FIAS-level granularity). Specific venues via tags.
   - **Date override** — logical date can differ from transaction date (e.g., tickets bought in December for a January trip).
   - **Description** — the user's own note, and separately what an import read (OCR, bank API, bank statement, …), kept as JSON.
@@ -22,6 +22,10 @@
 - Store exchange rate history.
 - Map any currency used across the entire history to a user-chosen base currency (USD/EUR/etc.).
 
+### Categories
+- Every transaction has at least one category: expenses, income and transfers alike. Each amount counts in exactly one category, so category totals do not overlap (tag totals do).
+- A transaction can be split across several categories. Each part has both the *from* and the *to* amount; editing one recalculates the other at the transaction's own rate. See [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md).
+
 ### Tags
 - Tags support **synonyms**: `#wildberries` == `#wb`.
 
@@ -30,7 +34,7 @@
 - Usable as aggregation intervals.
 
 ## Aggregation & Reporting
-- Aggregate by: time intervals (day/month/year/custom periods), tags, accounts, purchase currency, account currency, mapped base currency, cash vs. non-cash.
+- Aggregate by: time intervals (day/month/year/custom periods), categories, tags, accounts, purchase currency, account currency, mapped base currency, cash vs. non-cash.
 
 ## Import
 - Import bank statements (format TBD).

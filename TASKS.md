@@ -328,7 +328,9 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 - **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals (Will be done later in the next iterations)
 - **Cash vs. non-cash flag** on transactions (maybe not needed yet)
-- **Category field** on transactions (REQUIREMENTS treats category and tags as distinct concepts; current schema only has tags) (decided to go with tags for now)
+- **Categories** on transactions: at least one per transaction, splittable across several with a *from* and a *to* amount per part. Decided 2026-10-26, see [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md); the tables are not designed yet
+- **Tags** — hierarchy, synonyms, and merchants vs. the `locations` table are still open (same doc, open questions)
+- Later: **fractional category splits** (a part given as a fraction of the transaction) and **recurring transactions** (same doc, TODO)
 - Location granularity at FIAS level (current `locations` table covers country/city/lat/lon/address — FIAS-specific structure TBD) (good as is for now)
 
 ### Pinia stores over repositories
@@ -347,11 +349,13 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Create — expense, income, transfer
     - Dual-currency input (account currency + purchase currency)
     - Amounts show the currency symbol where one exists (`currencySymbol`: $, €, ₽), the code otherwise; lists of accounts keep the code
+    - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc)
     - Tag picker with autocomplete (resolve synonyms)
     - Date/time + timezone picker; date-override field
     - Location picker (existing location, lat/lon pin, or free-form)
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
+- Categories — list, create, edit, soft-delete
 - Tags — list, create, edit synonyms, soft-delete
 - Locations — list, create, edit, soft-delete
 
@@ -382,6 +386,7 @@ Phases 1 and 2 (the app side) are done (see Done above). Next:
 - Aggregation by:
     - Time intervals — day / month / year / custom range
     - Named time periods (once they exist)
+    - Categories (spending and income count only money to or from the world; transfers between own accounts are neither)
     - Tags
     - Accounts
     - Purchase currency
