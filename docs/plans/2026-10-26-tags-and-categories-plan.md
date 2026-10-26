@@ -24,7 +24,7 @@ A1 short ids + tags + side tables ─┬─► A2 accounts & groups ─┐      
                                                           D reports (category ±, journeys, merchants) after C
 ```
 
-Waves: **A1 ∥ S**, then **A2 ∥ A3**, then **A4**, then **A5**. Parallel tasks run in separate git worktrees off `tags-and-categories`; the controller merges each into the branch after review.
+Waves: **A1 ∥ S**, then **A2 ∥ A3**, then **A4**, then **A5**, then **A6** (sync corner-case tests) and **A7** (pruning them). Parallel tasks run in separate git worktrees off `tags-and-categories`; the controller merges each into the branch after review.
 
 - **B — Tags page:** a tree per kind; create (random colour preset + kind icon for top-level), rename, move, merge (= make synonym, with warning), soft-delete with usage warning, restore; duplicates highlighted; location / merchant / journey details editors.
 - **C — Transaction form:** the typed / derived UI rule (CLAUDE.md), split view on S, merchant / location / journey fields, nearest-location matching (~150 m, nearby one-tap choices), merchant → default category, the per-device "on a journey" switch (start new / join ongoing or recent).
@@ -288,6 +288,39 @@ Migration `002_domain_schema.ts` is edited in place (no real data yet). Column c
 - [ ] **Step 5:** Commit `feat(sync): repair merged, orphaned and looping tags`.
 
 ---
+
+### Task A6: Sync corner-case tests
+
+Starts after A5 is merged. Tests only: no production code changes.
+
+**Files:**
+- Create: `src/sync/__tests__/syncCornerCases.spec.ts` (split into a few files under `src/sync/__tests__/cornerCases/` if it passes ~600 lines)
+
+**Interfaces:**
+- Consumes: `mergeDatabases`, `repairTags`, `hashDatabase`, `importAllTables` / `exportAllTables`, the repositories, the in-memory fakes in `src/sync/__tests__/fakes.ts` and `helpers.ts`.
+
+**What to write:** scenarios with two (sometimes three) devices that each start from a common database, change it offline, then sync in some order. Every scenario asserts the **convergence invariant** — after every device has synced with the final remote, all databases have the same `hashDatabase` — plus its own expectation. Seed list (add more you find):
+- the same transaction's split edited on both devices (one complete split wins, never a mix);
+- a transaction added to a category that the other device deleted / merged away;
+- X merged into Y on one device while the other merges Y into X; chains X → Y → Z merged on different devices;
+- a tag moved under a parent the other device deleted; three-tag parent loops; a loop combined with a merge;
+- duplicates of a name created on two devices, then one renamed;
+- a soft-deleted tag restored on one device while the other edits it;
+- a child tag whose id sorts before its parent's, through the CSV round trip and through `mergeDatabases`;
+- the account balance cache after merges touching both legs of a transfer;
+- equal timestamps on both sides (clock ties) — the result must still converge;
+- optional text `''` vs NULL, JSON columns with non-ASCII names, through the CSV round trip.
+
+A scenario that exposes a real bug stays in the file as `it.fails(...)` with a `// BUG:` comment saying what goes wrong, and goes into the report's bug list — never "fix" it by weakening the assertion.
+
+- [ ] Write the scenarios; run `npm run test:unit -- --run src/sync/__tests__/`; full unit run, type-check, lint, format.
+- [ ] Commit `test(sync): corner cases of tags, splits and merges`.
+
+### Task A7: Prune the corner-case tests
+
+A reviewer agent reads A6's tests and drops (or merges) the ones that make no sense: duplicates of each other or of existing specs, scenarios the spec rules out, assertions that only restate the implementation, flaky timing. It keeps every `it.fails` bug scenario unless it is wrong about the spec. It reports what it dropped and why, and commits `test(sync): prune corner-case tests`.
+
+The controller triages A6's bug list: each real bug becomes a fix task before the final review.
 
 ### Finish (controller)
 
