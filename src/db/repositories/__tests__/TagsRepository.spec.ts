@@ -3,9 +3,18 @@ import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
-import { DuplicateTagNameError, TagKindMismatchError, TagLoopError } from '../../errors'
+import {
+  CategoryInUseError,
+  DuplicateTagNameError,
+  TagKindMismatchError,
+  TagLoopError,
+} from '../../errors'
 import { asShortId, type ShortId } from '../../shortId'
 import type { TagKind } from '../../types'
+import { localMoment } from '../../LocalMoment'
+import { moneyAmount, zeroMoney } from '../../MoneyAmount'
+import { AccountsRepository } from '../AccountsRepository'
+import { TransactionsRepository } from '../TransactionsRepository'
 import { TagsRepository } from '../TagsRepository'
 
 const AT = '2026-10-01T00:00:00.000Z'
@@ -342,5 +351,189 @@ describe('TagsRepository', () => {
       [aldi1, aldi2],
       [a, b, c],
     ])
+  })
+
+  function wallet(tags: ShortId[] = []) {
+    return new AccountsRepository(db).create({
+      name: 'Wallet',
+      balance: zeroMoney('EUR'),
+      tags,
+      location_id: null,
+      grouping_id: null,
+      colour: '#000000',
+      icon: 'wallet',
+    })
+  }
+
+  /** A 5 € expense from `from`, wholly in `category`. */
+  function spend(
+    from: ShortId,
+    category: ShortId,
+    refs: { tags?: ShortId[]; merchant_id?: ShortId } = {},
+  ) {
+    const eur = moneyAmount(500, 2, 'EUR')
+    return new TransactionsRepository(db).create({
+      account_id__from: from,
+      account_id__to: null,
+      amount__from: eur,
+      amount__to: eur,
+      transaction_at: localMoment('2026-10-25T12:00:00.000+02:00', 'Europe/Berlin'),
+      date_override: null,
+      tags: refs.tags ?? [],
+      categories: [{ category_id: category, amount__from: eur, amount__to: eur }],
+      merchant_id: refs.merchant_id ?? null,
+      location_lat: null,
+      location_lon: null,
+      location_id: null,
+    })
+  }
+
+  it('merges a tag into another: references move, the source remembers the target', async () => {
+    const x = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+    const y = await repo.create({
+      kind: 'merchant',
+      name: 'Rewe',
+      description: 'Supermarket',
+      colour: '#cc0000',
+      icon: 'shop',
+    })
+    const food = await repo.create({ kind: 'category', name: 'Food' })
+    const t = await spend((await wallet()).id, food.id, { merchant_id: x.id })
+
+    await repo.merge(x.id, y.id)
+
+    expect(await repo.findById(x.id)).toBeNull()
+    const merged = (await repo.listAll()).find((tag) => tag.id === x.id)!
+    expect(merged.merged_into_id).toBe(y.id)
+    expect(merged.deleted_at_utc).toBeInstanceOf(Date)
+    expect((await new TransactionsRepository(db).findById(t.id))!.merchant_id).toBe(y.id)
+    // The target keeps its own look.
+    expect(await repo.findById(y.id)).toMatchObject({
+      description: 'Supermarket',
+      colour: '#cc0000',
+      icon: 'shop',
+    })
+    expect(await repo.usageCount(y.id)).toBe(1)
+  })
+
+  it("moves the source's children under the target", async () => {
+    const x = await repo.create({ kind: 'category', name: 'Everyday food' })
+    const y = await repo.create({ kind: 'category', name: 'Groceries' })
+    const snacks = await repo.create({ kind: 'category', name: 'Snacks', parent_id: x.id })
+    const milkX = await repo.create({ kind: 'category', name: 'Milk', parent_id: x.id })
+    const milkY = await repo.create({ kind: 'category', name: 'Milk', parent_id: y.id })
+    const old = await repo.create({ kind: 'category', name: 'Old', parent_id: x.id })
+    await repo.softDelete(old.id)
+
+    await repo.merge(x.id, y.id)
+
+    expect((await repo.findById(snacks.id))!.parent_id).toBe(y.id)
+    expect((await repo.listAll()).find((tag) => tag.id === old.id)!.parent_id).toBe(y.id)
+    // A name clash among the moved children is kept, and shown as a duplicate.
+    expect((await repo.findById(milkX.id))!.parent_id).toBe(y.id)
+    expect(await repo.duplicates()).toEqual([[milkX.id, milkY.id].sort()])
+  })
+
+  it("adds the source's names as synonyms", async () => {
+    const y = await repo.create({
+      kind: 'merchant',
+      name: 'Wildberries',
+      synonyms: ['Wildberries RU'],
+    })
+    const marketplaces = await repo.create({ kind: 'merchant', name: 'Marketplaces' })
+    const x = await repo.create({
+      kind: 'merchant',
+      name: 'WB',
+      parent_id: marketplaces.id,
+      synonyms: ['wb shop', 'WILDBERRIES', 'wildberries ru', 'Вайлдберриз', 'ВАЙЛДБЕРРИЗ'],
+    })
+
+    await repo.merge(x.id, y.id)
+
+    expect((await repo.findById(y.id))!.synonyms).toEqual([
+      'Wildberries RU',
+      'WB',
+      'wb shop',
+      'Вайлдберриз',
+    ])
+    expect((await repo.findByName('merchant', 'wb'))!.id).toBe(y.id)
+
+    // A duplicate from sync adds nothing new.
+    const a = await insertRaw({ id: 'rewe00000001', kind: 'merchant', name: 'Rewe' })
+    const b = await insertRaw({ id: 'rewe00000002', kind: 'merchant', name: 'REWE' })
+    await repo.merge(b, a)
+    expect(await repo.findById(a)).toMatchObject({ name: 'Rewe', synonyms: [] })
+    expect(await repo.findById(a)).toMatchObject({ updated_at_utc: new Date(AT) })
+  })
+
+  it('refuses to merge a tag into its own descendant', async () => {
+    const x = await repo.create({ kind: 'category', name: 'X' })
+    const a = await repo.create({ kind: 'category', name: 'A', parent_id: x.id })
+    const y = await repo.create({ kind: 'category', name: 'Y', parent_id: a.id })
+
+    const error = await repo.merge(x.id, y.id).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(TagLoopError)
+    expect((error as TagLoopError).path).toEqual(['X', 'A', 'Y'])
+    const self = await repo.merge(x.id, x.id).catch((e: unknown) => e)
+    expect((self as TagLoopError).path).toEqual(['X'])
+    expect(await repo.findById(x.id)).toMatchObject({ synonyms: [], merged_into_id: null })
+    expect((await repo.findById(a.id))!.parent_id).toBe(x.id)
+
+    // Into an ancestor is fine: the children move up to it.
+    await repo.merge(a.id, x.id)
+    expect((await repo.findById(y.id))!.parent_id).toBe(x.id)
+  })
+
+  it('refuses to merge across kinds', async () => {
+    const food = await repo.create({ kind: 'category', name: 'Food' })
+    const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+
+    await expect(repo.merge(rewe.id, food.id)).rejects.toThrow(TagKindMismatchError)
+    expect(await repo.findById(rewe.id)).toMatchObject({ merged_into_id: null })
+    expect((await repo.findById(food.id))!.synonyms).toEqual([])
+
+    // Both tags must be live.
+    const gone = await repo.create({ kind: 'merchant', name: 'Gone' })
+    await repo.softDelete(gone.id)
+    await expect(repo.merge(gone.id, rewe.id)).rejects.toThrow(/not found/)
+    await expect(repo.merge(rewe.id, gone.id)).rejects.toThrow(/not found/)
+  })
+
+  it('refuses to delete a category in use', async () => {
+    const food = await repo.create({ kind: 'category', name: 'Food' })
+    const snacks = await repo.create({ kind: 'category', name: 'Snacks', parent_id: food.id })
+    const groceries = await repo.create({ kind: 'category', name: 'Groceries' })
+    const work = await repo.create({ kind: 'tag', name: 'work' })
+    const acc = await wallet()
+    const t = await spend(acc.id, food.id)
+
+    await expect(repo.softDelete(food.id)).rejects.toThrow(CategoryInUseError)
+    expect(await repo.findById(food.id)).not.toBeNull()
+    expect((await repo.findById(snacks.id))!.parent_id).toBe(food.id)
+
+    // Other kinds can be deleted while in use; their references stay.
+    const tagged = await spend(acc.id, groceries.id, { tags: [work.id] })
+    await repo.softDelete(work.id)
+    expect(await repo.findById(work.id)).toBeNull()
+    expect((await new TransactionsRepository(db).findById(tagged.id))!.tags).toEqual([work.id])
+
+    // Once no live transaction uses the category, it can go.
+    await new TransactionsRepository(db).softDelete(t.id)
+    await repo.softDelete(food.id)
+    expect(await repo.findById(food.id)).toBeNull()
+  })
+
+  it('usageCount counts transactions and accounts', async () => {
+    const work = await repo.create({ kind: 'tag', name: 'work' })
+    const food = await repo.create({ kind: 'category', name: 'Food' })
+    const unused = await repo.create({ kind: 'tag', name: 'unused' })
+    const acc = await wallet([work.id])
+    await spend(acc.id, food.id, { tags: [work.id] })
+    const deleted = await spend(acc.id, food.id, { tags: [work.id] })
+    await new TransactionsRepository(db).softDelete(deleted.id)
+
+    expect(await repo.usageCount(work.id)).toBe(2)
+    expect(await repo.usageCount(food.id)).toBe(1)
+    expect(await repo.usageCount(unused.id)).toBe(0)
   })
 })

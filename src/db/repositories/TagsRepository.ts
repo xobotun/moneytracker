@@ -1,7 +1,13 @@
 import type { Database, SqlExecutor } from '../Database'
 import type { Tag, TagKind } from '../types'
 import { newShortId, type ShortId } from '../shortId'
-import { DuplicateTagNameError, TagKindMismatchError, TagLoopError } from '../errors'
+import {
+  CategoryInUseError,
+  DuplicateTagNameError,
+  TagKindMismatchError,
+  TagLoopError,
+} from '../errors'
+import { countTagUsage, redirectTagReferences } from '../tagReferences'
 import {
   instantFromColumn,
   instantFromNullableColumn,
@@ -304,15 +310,76 @@ export class TagsRepository {
   }
 
   /**
+   * Merges the source tag into the target, a live tag of the same kind that is
+   * not the source or one of its descendants (decisions §2.5): every
+   * reference to the source moves to the target (two category parts of one
+   * transaction are summed), the source's children move under it, and the
+   * source's name and synonyms become the target's synonyms. The target keeps
+   * its colour, icon and description. The source is soft-deleted and
+   * remembers the target, so sync redirects what other devices still point at
+   * it. Name clashes among the moved children are kept (shown as duplicates).
+   */
+  async merge(sourceId: ShortId, targetId: ShortId): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      const source = await liveTagOrThrow(tx, sourceId, 'Tag')
+      const target = await liveTagOrThrow(tx, targetId, 'Target tag')
+      if (source.kind !== target.kind) {
+        throw new TagKindMismatchError(
+          `"${source.name}", a ${source.kind}, cannot be merged into "${target.name}", a ${target.kind}`,
+        )
+      }
+      const path = await loopPath(tx, sourceId, targetId)
+      if (path) throw new TagLoopError(path)
+
+      await redirectTagReferences(tx, sourceId, targetId, { bump: true, now })
+
+      const taken = new Set(namesOf(target).map(foldCase))
+      const added: string[] = []
+      for (const name of namesOf(source)) {
+        if (taken.has(foldCase(name))) continue
+        taken.add(foldCase(name))
+        added.push(name)
+      }
+      if (added.length > 0) {
+        await tx.run('UPDATE tags SET synonyms = ?, updated_at_utc = ? WHERE id = ?', [
+          jsonArrayToColumn([...target.synonyms, ...added]),
+          now,
+          targetId,
+        ])
+      }
+      await tx.run(
+        `UPDATE tags SET merged_into_id = ?, deleted_at_utc = ?, updated_at_utc = ?
+         WHERE id = ?`,
+        [targetId, now, now, sourceId],
+      )
+    })
+  }
+
+  /** How many live transactions and accounts use the tag (each counted once). */
+  async usageCount(id: ShortId): Promise<number> {
+    return countTagUsage(this.db, id)
+  }
+
+  /**
    * Soft-deletes the tag. Its live children move up to its parent (or to the
    * top level) in the same transaction. References to it stay, so restoring
-   * the tag brings it back everywhere.
+   * the tag brings it back everywhere. A category in use cannot be deleted
+   * (every transaction needs one): it is merged into another one instead.
    */
   async softDelete(id: ShortId): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
       const tag = await selectTag(tx, id, true)
       if (!tag) return
+      if (tag.kind === 'category') {
+        const uses = await countTagUsage(tx, id)
+        if (uses > 0) {
+          throw new CategoryInUseError(
+            `"${tag.name}" is used by ${uses} transaction${uses === 1 ? '' : 's'}; merge it into another category instead`,
+          )
+        }
+      }
       await tx.run(
         `UPDATE tags SET parent_id = ?, updated_at_utc = ?
          WHERE parent_id = ? AND deleted_at_utc IS NULL`,
