@@ -441,7 +441,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     expect(await hashDatabase(db)).toBe(await hashDatabase(a.db))
     const counts = await rowCounts(db)
     expect(counts.transactions).toBe(2346) // 2,345 from A (one soft-deleted) + 1 from B
-    expect(counts.tags).toBe(4) // 3 from A + added-on-A
+    expect(counts.tags).toBe(6) // 5 from A (incl. the two soft-deleted) + added-on-A
   })
 
   it('a second sync with nothing new is a no-op', async () => {
