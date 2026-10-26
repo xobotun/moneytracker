@@ -320,6 +320,15 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 ---
 
+### Tags and categories — data layer
+
+- Decided in [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md), built per [docs/plans/2026-10-26-tags-and-categories-plan.md](docs/plans/2026-10-26-tags-and-categories-plan.md)
+- One `tags` table for five kinds (category, merchant, location, journey, tag) with short ids, a hierarchy within each kind (no loops), synonyms, merging into another tag (details asked on conflict: `detailConflicts` / `MergeConflictError`), soft delete and restore, duplicates listed; side tables `location_details` (address, coordinates, merchant, nearest-location query), `merchant_details` (default category), `journey_details` (dates; derived ones cover child journeys). The `locations` table is gone
+- Short ids (12 base-62 characters) for tags, accounts and account groups; accounts reference plain tags by id (`useTagsStore`)
+- Transactions: category parts as JSON (`categories`, at least one, adding up exactly to both totals), merchant / location / journey ids, plain-tag ids (`transactionRules.ts`)
+- Split calculator for the form: `src/money/split.ts` (typed vs. derived parts, the spec's worked example)
+- Sync: deferred FKs for self-referencing tags; `repairTags` after every merge (merge cycles, redirects, categories in use, lifts, parent loops); exact ties broken by row content, the same on every device; two-device convergence tests and sync corner-case tests (`src/sync/__tests__/cornerCases/`)
+
 ## To Do
 
 ### Sync: tell which side changed a row without timestamps
@@ -340,11 +349,9 @@ with their upsides and downsides, and the recommendation (per-row base hashes):
 
 Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema:
 
-- **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now, part of the tags refactor below
+- **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now (journey tags with dates; data layer done, see Done)
 - **Cash vs. non-cash flag** on transactions (maybe not needed yet)
-- **Categories** on transactions: at least one per transaction, splittable across several with a *from* and a *to* amount per part. Decided 2026-10-26, see [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md); the tables are not designed yet
-- **Tags refactor** (decided 2026-10-26, same doc; tables not designed yet): one `tags` table with a `kind` (category, merchant, location, journey, tag) and short ids; a hierarchy within each kind (no loops, also after sync); synonyms as extra names and merging (with a redirect for devices that sync later); a soft delete that hides a tag but keeps its references. The `locations` table becomes location tags plus a side table (address, coordinates, merchant); merchants get a default category; journeys get start and end dates and a per-device "on a journey" switch
-- **Short ids** for tags, accounts and account groups: 12 random base-62 characters instead of UUIDv7, since they are created rarely and referenced often. Touches the schema (migration 002 edited in place), `src/db/uuid.ts` (a generator and branded type next to `newId`), `types.ts`, `columnMappers.ts`, the repositories, `src/stores/accounts.ts`, `AccountsView.vue`, the sync descriptors, and the primary-key convention in CLAUDE.md
+- Categories, tags of five kinds and short ids: the data layer is done (see "Tags and categories — data layer" under Done); the Tags page, the transaction form and reports are below
 - Later: **fractional category splits** (a part given as a fraction of the transaction) and **recurring transactions** (same doc, TODO)
 - Location granularity at FIAS level (current `locations` table covers country/city/lat/lon/address — FIAS-specific structure TBD) (good as is for now)
 
@@ -462,10 +469,11 @@ Known sync defects, postponed (review 2026-10-18):
   a device to another device's name is unsupported): a device with a
   duplicate name and a smaller or empty database takes `upload-local`, which
   can drop data and leave stale trailing CSV files.
-- **Clock skew / ties:** the merge cutoff compares timestamps from
-  different devices' clocks, and equal timestamps resolve to the local side
-  (two devices can flip-flop). Accepted for now; concurrent edits expected
-  to be rare.
+- **Clock skew:** the merge cutoff compares timestamps from different
+  devices' clocks. Accepted for now; concurrent edits expected to be rare.
+  (Exact ties no longer flip-flop: they are broken by row content, the same
+  on every device. The cutoff itself is the postponed "Sync: tell which side
+  changed a row without timestamps" above.)
 
 
 ### Import
@@ -489,7 +497,6 @@ Known sync defects, postponed (review 2026-10-18):
 
 ### Known defects / open decisions
 
-- A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline. Goes away with tag ids (tags refactor)
 - `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
 - A sync conflict on an `accounts` row (edited on two devices) captures both sides' cached balance in its snapshot; the two may differ for no data reason. Cosmetic — matters only once a conflict viewer exists (strip `DERIVED_COLUMNS` from the snapshots then)
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)

@@ -32,7 +32,7 @@ Every kind except categories belongs to the whole transaction; only categories a
 - **Ids:** a short random id of 12 base-62 characters (about 71 bits, for example `4kQ9xZr2BvLm`), so a tag can be renamed. Tags are created rarely and referenced often, so a short id keeps the rows that reference them small. Accounts and account groups get the same kind of id (scheduled in TASKS.md).
 - **Names** are unique among the live tags of the same kind and parent, synonyms included. A location and a journey can both be called Berlin.
 - **Hierarchy:** a tag can have a parent of the same kind. Any level can be used on a transaction: Everyday food and Posh food are subcategories of Food, but an expensive meal during an 8-hour layover is neither, so it is filed under Food itself.
-- **Colour and icon** are inherited from the parent unless the tag sets its own. A new top-level tag gets a random colour from the colour presets and its kind's icon (category: tag, merchant: shop, location: map marker, journey: plane).
+- **Colour and icon** are inherited from the parent unless the tag sets its own. A new top-level tag gets a random colour from the colour presets and its kind's icon (category: tag, merchant: shop, location: map marker, journey: globe — PrimeIcons has no plane).
 
 ### 2.2 Categories
 
