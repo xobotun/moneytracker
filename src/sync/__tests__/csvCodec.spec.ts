@@ -12,7 +12,7 @@ import {
 import { SYNC_TABLES } from '../syncTables'
 import { rowsEqual } from '../rows'
 import { newId } from '../../db/uuid'
-import { seedTags } from './helpers'
+import { seedTag, seedTags } from './helpers'
 import Papa from 'papaparse'
 import { hashDatabase } from '../hashDatabase'
 
@@ -309,6 +309,38 @@ describe('csvCodec', () => {
           expect(rowsEqual(srcRows[i]!, dstRows[i]!), `row mismatch on ${t.name}[${i}]`).toBe(true)
         }
       }
+    })
+
+    it('imports a child tag from an earlier CSV file than its parent', async () => {
+      const src = await migratedDb()
+      const dst = await migratedDb()
+      dbs.push(src, dst)
+      // The child's id sorts first, so with one row per file it lands in the
+      // first file and its parent in the second.
+      await seedTag(src, {
+        id: 'b-parent',
+        name: 'Food',
+        kind: 'category',
+        created: CUTOFF,
+        updated: CUTOFF,
+      })
+      await seedTag(src, {
+        id: 'a-child',
+        name: 'Fruit',
+        kind: 'category',
+        parentId: 'b-parent',
+        created: CUTOFF,
+        updated: CUTOFF,
+      })
+      const bundle = await exportAllTables(src, 1)
+      expect(bundle.get('tags')).toHaveLength(2)
+
+      await importAllTables(dst, bundle)
+
+      expect(await dst.exec('SELECT id, parent_id FROM tags ORDER BY id')).toEqual([
+        { id: 'a-child', parent_id: 'b-parent' },
+        { id: 'b-parent', parent_id: null },
+      ])
     })
 
     it('rolls back the destination on an FK violation mid-import', async () => {

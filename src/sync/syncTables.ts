@@ -12,8 +12,9 @@ export interface SyncTable {
  *   - accounts reference tags (location) and account_groupings
  *   - transactions reference accounts and tags (location)
  * `tags` also references itself (parent_id, merged_into_id), which no table
- * order can settle. `applied_rates` has no foreign keys and sits with the
- * other parent-free tables.
+ * order can settle: `mergeDatabases` and `importAllTables` check foreign keys
+ * at COMMIT. `applied_rates` has no foreign keys and sits with the other
+ * parent-free tables.
  *
  * The `settings` and `migrations` tables are intentionally absent: settings are
  * device-local-ish and ride along inside the uploaded blob without row merge;

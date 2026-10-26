@@ -27,20 +27,23 @@ const SINGLE_REFERENCES = [
 /** Tables with a `tags` column: a JSON array of plain-tag ids. */
 const TAG_LIST_TABLES = ['transactions', 'accounts'] as const
 
-/** The ids with `from` replaced by `to`, each kept once, in its first place. */
-function redirectIds(ids: readonly string[], from: ShortId, to: ShortId): string[] {
-  return [...new Set(ids.map((id) => (id === from ? to : id)))]
+/** Where references move: each tag id to the id that replaces it. */
+export type TagRedirects = ReadonlyMap<ShortId, ShortId>
+
+/** The ids, each redirected, each kept once, in its first place. */
+function redirectIds(ids: readonly ShortId[], redirects: TagRedirects): ShortId[] {
+  return [...new Set(ids.map((id) => redirects.get(id) ?? id))]
 }
 
 /**
- * The parts with `from` replaced by `to`. Two parts of one category become
- * one, in the first one's place, each side summed exactly: the transaction's
+ * The parts, each category redirected. Two parts of one category become one,
+ * in the first one's place, each side summed exactly: the transaction's
  * amounts do not change, so the parts still add up to them.
  */
-function redirectParts(parts: readonly CategoryPart[], from: ShortId, to: ShortId): CategoryPart[] {
+function redirectParts(parts: readonly CategoryPart[], redirects: TagRedirects): CategoryPart[] {
   const result: CategoryPart[] = []
   for (const part of parts) {
-    const category_id = part.category_id === from ? to : part.category_id
+    const category_id = redirects.get(part.category_id) ?? part.category_id
     const i = result.findIndex((p) => p.category_id === category_id)
     if (i === -1) {
       result.push({ ...part, category_id })
@@ -75,62 +78,92 @@ export async function redirectTagReferences(
   toId: ShortId,
   opts: { bump: boolean; now?: string },
 ): Promise<void> {
-  if (fromId === toId) return
+  await redirectTagReferencesByMap(tx, new Map([[fromId, toId]]), opts)
+}
+
+/**
+ * `redirectTagReferences` for many tags at once: every reference to a key of
+ * `redirects` moves to its value (the values are final — not redirected
+ * again). Runs the same statements whatever the number of redirects: one per
+ * single-id column, a read and a write per JSON column.
+ *
+ * A row whose JSON column is valid JSON but not a list of ids / parts cannot
+ * be rewritten: it is skipped and left as it is (with a warning), so one
+ * malformed row does not block every merge and sync.
+ */
+export async function redirectTagReferencesByMap(
+  tx: SqlExecutor,
+  redirects: TagRedirects,
+  opts: { bump: boolean; now?: string },
+): Promise<void> {
+  const map = new Map([...redirects].filter(([from, to]) => from !== to))
+  if (map.size === 0) return
   const now = opts.now ?? instantToColumn(new Date())
   const bumpSql = opts.bump ? ', updated_at_utc = ?' : ''
   const bumpParams = opts.bump ? [now] : []
+  // One JSON object { from: to } — `json_each` reads it as rows (key, value).
+  const redirectsJson = JSON.stringify(Object.fromEntries(map))
 
   for (const [table, column] of SINGLE_REFERENCES) {
-    await tx.run(`UPDATE ${table} SET ${column} = ?${bumpSql} WHERE ${column} = ?`, [
-      toId,
-      ...bumpParams,
-      fromId,
-    ])
+    await tx.run(
+      `UPDATE ${table} SET ${column} = redirect.value${bumpSql}
+       FROM json_each(?) AS redirect
+       WHERE ${table}.${column} = redirect.key`,
+      [...bumpParams, redirectsJson],
+    )
   }
 
   // The children move to the target. The target itself is left alone: sync can
   // make it a child of the source (one device moves Y under X, another merges
   // X into Y), and a tag cannot be its own parent. It keeps the merged source
   // as its parent, which the sync repair has to lift.
-  await tx.run(`UPDATE tags SET parent_id = ?${bumpSql} WHERE parent_id = ? AND id <> ?`, [
-    toId,
-    ...bumpParams,
-    fromId,
-    toId,
-  ])
+  await tx.run(
+    `UPDATE tags SET parent_id = redirect.value${bumpSql}
+     FROM json_each(?) AS redirect
+     WHERE tags.parent_id = redirect.key AND tags.id <> redirect.value`,
+    [...bumpParams, redirectsJson],
+  )
 
   // JSON columns: rewritten here, then written back in one statement per
   // column (each awaited call into the database is costly).
-  const writeBack = async (
+  const writeBack = async <R extends { id: string }>(
     table: string,
     column: string,
-    rows: { id: string; value: string }[],
+    rows: R[],
+    rewrite: (row: R) => string,
   ) => {
-    if (rows.length === 0) return
+    const rewritten: { id: string; value: string }[] = []
+    for (const row of rows) {
+      try {
+        rewritten.push({ id: row.id, value: rewrite(row) })
+      } catch (e) {
+        console.warn(`Left ${table}.${column} of ${row.id} as it is: not a valid list.`, e)
+      }
+    }
+    if (rewritten.length === 0) return
     await tx.run(
       `UPDATE ${table} SET ${column} = json_extract(rewritten.value, '$.value')${bumpSql}
        FROM json_each(?) AS rewritten
        WHERE ${table}.id = json_extract(rewritten.value, '$.id')`,
-      [...bumpParams, JSON.stringify(rows)],
+      [...bumpParams, JSON.stringify(rewritten)],
     )
   }
 
   for (const table of TAG_LIST_TABLES) {
     const rows = await tx.exec<{ id: string; tags: string }>(
       `SELECT id, tags FROM ${table}
-       WHERE EXISTS (SELECT 1 FROM json_each(${table}.tags) WHERE value = ?)`,
-      [fromId],
+       WHERE json_type(${table}.tags) = 'array'
+         AND EXISTS (SELECT 1 FROM json_each(${table}.tags) AS element
+                     WHERE element.value IN (SELECT key FROM json_each(?)))`,
+      [redirectsJson],
     )
-    await writeBack(
-      table,
-      'tags',
-      rows.map((row) => ({
-        id: row.id,
-        value: jsonArrayToColumn(redirectIds(jsonArrayFromColumn<string>(row.tags), fromId, toId)),
-      })),
+    await writeBack(table, 'tags', rows, (row) =>
+      jsonArrayToColumn(redirectIds(jsonArrayFromColumn<ShortId>(row.tags), map)),
     )
   }
 
+  // The element-type check keeps json_extract off elements that are not
+  // objects: on a bare string it would fail the whole statement.
   const rows = await tx.exec<{
     id: string
     categories: string
@@ -138,24 +171,22 @@ export async function redirectTagReferences(
     amount_currency__to: string
   }>(
     `SELECT id, categories, amount_currency__from, amount_currency__to FROM transactions
-     WHERE EXISTS (
-       SELECT 1 FROM json_each(transactions.categories)
-       WHERE json_extract(value, '$.category_id') = ?
-     )`,
-    [fromId],
+     WHERE json_type(transactions.categories) = 'array'
+       AND EXISTS (
+         SELECT 1 FROM json_each(transactions.categories) AS element
+         WHERE CASE element.type WHEN 'object' THEN json_extract(element.value, '$.category_id') END
+               IN (SELECT key FROM json_each(?))
+       )`,
+    [redirectsJson],
   )
-  await writeBack(
-    'transactions',
-    'categories',
-    rows.map((row) => {
-      const parts = categoryPartsFromColumn(
-        row.categories,
-        row.amount_currency__from,
-        row.amount_currency__to,
-      )
-      return { id: row.id, value: categoryPartsToColumn(redirectParts(parts, fromId, toId)) }
-    }),
-  )
+  await writeBack('transactions', 'categories', rows, (row) => {
+    const parts = categoryPartsFromColumn(
+      row.categories,
+      row.amount_currency__from,
+      row.amount_currency__to,
+    )
+    return categoryPartsToColumn(redirectParts(parts, map))
+  })
 }
 
 /**

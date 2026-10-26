@@ -164,11 +164,13 @@ export async function exportAllTables(
  * Import every domain table from a Map<name, csv files> in FK order (parents before
  * children, per SYNC_TABLES). Wrapped in a single BEGIN/COMMIT so a mid-
  * import failure (FK violation, malformed CSV, missing entry) rolls back
- * cleanly rather than leaving a partially-populated DB.
+ * cleanly rather than leaving a partially-populated DB. Foreign keys are
+ * checked at COMMIT: a tag's parent can sort after it, into a later file.
  */
 export async function importAllTables(db: Database, bundle: Map<string, string[]>): Promise<void> {
   await loadPapa() // before the lock — see exportAllTables
   await db.transaction(async (tx) => {
+    await tx.run('PRAGMA defer_foreign_keys = ON')
     for (const t of SYNC_TABLES) {
       const csvs = bundle.get(t.name)
       if (csvs === undefined) {

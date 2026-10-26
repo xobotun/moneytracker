@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import type { Database } from '../../db/Database'
 import { mergeDatabases } from '../mergeEngine'
 import { readRows } from '../rows'
@@ -326,5 +326,301 @@ describe('mergeDatabases', () => {
     expect(conflicts).toHaveLength(0)
     const [account] = await readRows(local, 'accounts')
     expect(account).toMatchObject({ balance_value: -100, balance_scale: 2, updated_at_utc: CUTOFF })
+  })
+
+  describe('tag repairs', () => {
+    const T1 = '2026-05-05T00:00:00.000Z'
+    const T2 = '2026-05-06T00:00:00.000Z'
+
+    beforeEach(async () => {
+      local = await newMigratedDb()
+      remote = await newMigratedDb()
+    })
+
+    /** Seeds the same rows on both devices: the state they last synced. */
+    async function common(seed: (db: Database) => Promise<void>): Promise<void> {
+      await seed(local)
+      await seed(remote)
+    }
+
+    /** What `TagsRepository.merge` leaves on the source row. */
+    async function mergeInto(db: Database, from: string, to: string, at: string): Promise<void> {
+      await db.run(
+        'UPDATE tags SET merged_into_id = ?, deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?',
+        [to, at, at, from],
+      )
+    }
+
+    async function move(db: Database, id: string, parentId: string | null, at: string) {
+      await db.run('UPDATE tags SET parent_id = ?, updated_at_utc = ? WHERE id = ?', [
+        parentId,
+        at,
+        id,
+      ])
+    }
+
+    const rowOf = async (table: string, id: string) =>
+      (await local.exec(`SELECT * FROM ${table} WHERE id = ?`, [id]))[0]!
+
+    it('merges a child tag that sorts before its parent', async () => {
+      // The remote holds the child first, as a CSV import in id order leaves
+      // it, so the merge meets the child before its parent.
+      await remote.transaction(async (tx) => {
+        await tx.run('PRAGMA defer_foreign_keys = ON')
+        await seedTag(tx, {
+          id: 'a-child',
+          name: 'Fruit',
+          kind: 'category',
+          parentId: 'b-parent',
+          created: T1,
+          updated: T1,
+        })
+        await seedTag(tx, {
+          id: 'b-parent',
+          name: 'Food',
+          kind: 'category',
+          created: T1,
+          updated: T1,
+        })
+      })
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      expect(await rowOf('tags', 'a-child')).toMatchObject({ parent_id: 'b-parent' })
+    })
+
+    it('keeps duplicate tag names from two devices', async () => {
+      await seedTag(local, {
+        id: 'rewe-local',
+        name: 'Rewe',
+        kind: 'merchant',
+        created: T1,
+        updated: T1,
+      })
+      await seedTag(remote, {
+        id: 'rewe-remote',
+        name: 'Rewe',
+        kind: 'merchant',
+        created: T2,
+        updated: T2,
+      })
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      const live = await local.exec<{ id: string }>(
+        "SELECT id FROM tags WHERE name = 'Rewe' AND deleted_at_utc IS NULL ORDER BY id",
+      )
+      expect(live.map((r) => r.id)).toEqual(['rewe-local', 'rewe-remote'])
+    })
+
+    it('redirects references to a tag merged on another device', async () => {
+      await common(async (db) => {
+        await seedTag(db, { id: 'x', name: 'job', kind: 'tag', created: CUTOFF, updated: CUTOFF })
+        await seedTag(db, { id: 'y', name: 'work', kind: 'tag', created: CUTOFF, updated: CUTOFF })
+        await seedAccount(db, { id: 'acc', name: 'Wallet', created: CUTOFF, updated: CUTOFF })
+      })
+      // Offline, this device tags the account and a new transaction with X…
+      await local.run(`UPDATE accounts SET tags = '["x"]', updated_at_utc = ? WHERE id = 'acc'`, [
+        T1,
+      ])
+      await seedTransaction(local, {
+        id: 'txn',
+        accountFrom: 'acc',
+        tags: ['x'],
+        created: T1,
+        updated: T1,
+      })
+      // …while the other device merges X into Y.
+      await mergeInto(remote, 'x', 'y', T2)
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      expect(await rowOf('transactions', 'txn')).toMatchObject({
+        tags: '["y"]',
+        updated_at_utc: T1,
+      })
+      expect(await rowOf('accounts', 'acc')).toMatchObject({ tags: '["y"]', updated_at_utc: T1 })
+    })
+
+    it('follows a merge chain to its end', async () => {
+      // X merged into Y on this device, Y into Z on the other: a chain, not a cycle.
+      await common(async (db) => {
+        for (const id of ['x', 'y', 'z']) {
+          await seedTag(db, { id, name: id, kind: 'tag', created: CUTOFF, updated: CUTOFF })
+        }
+        await seedAccount(db, { id: 'acc', name: 'Wallet', created: CUTOFF, updated: CUTOFF })
+      })
+      await mergeInto(local, 'x', 'y', T1)
+      await mergeInto(remote, 'y', 'z', T2)
+      // The other device used X before it learned of any merge.
+      await seedTransaction(remote, {
+        id: 'txn',
+        accountFrom: 'acc',
+        tags: ['x'],
+        created: T2,
+        updated: T2,
+      })
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      expect(await rowOf('transactions', 'txn')).toMatchObject({ tags: '["z"]' })
+      // The chain itself is history and stays.
+      expect(await rowOf('tags', 'x')).toMatchObject({ merged_into_id: 'y' })
+      expect(await rowOf('tags', 'y')).toMatchObject({ merged_into_id: 'z' })
+    })
+
+    it('undoes the later merge of a merge cycle', async () => {
+      await common(async (db) => {
+        await seedTag(db, { id: 'x', name: 'job', kind: 'tag', created: CUTOFF, updated: CUTOFF })
+        await seedTag(db, { id: 'y', name: 'work', kind: 'tag', created: CUTOFF, updated: CUTOFF })
+        await seedAccount(db, { id: 'acc', name: 'Wallet', created: CUTOFF, updated: CUTOFF })
+      })
+      // This device merges X into Y; the other one, later, tags a transaction
+      // with X and merges Y into X.
+      await mergeInto(local, 'x', 'y', T1)
+      await seedTransaction(remote, {
+        id: 'txn',
+        accountFrom: 'acc',
+        tags: ['x'],
+        created: T2,
+        updated: T2,
+      })
+      await mergeInto(remote, 'y', 'x', T2)
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      // The earlier merge stands: Y is back, and X stays merged into it.
+      const y = await rowOf('tags', 'y')
+      expect(y).toMatchObject({ deleted_at_utc: null, merged_into_id: null })
+      expect((y.updated_at_utc as string) > T2).toBe(true)
+      expect(await rowOf('tags', 'x')).toMatchObject({ merged_into_id: 'y', deleted_at_utc: T1 })
+      expect(await rowOf('transactions', 'txn')).toMatchObject({
+        tags: '["y"]',
+        updated_at_utc: T2,
+      })
+      expect(conflicts).toEqual([
+        expect.objectContaining({
+          table: 'tags',
+          primaryKey: 'y',
+          resolution: 'loop-undone',
+          winner: 'local',
+          local: expect.objectContaining({ merged_into_id: null }),
+          remote: expect.objectContaining({ merged_into_id: 'x' }),
+        }),
+      ])
+    })
+
+    it('lifts a tag whose parent was deleted on another device', async () => {
+      await common(async (db) => {
+        await seedTag(db, {
+          id: 'food',
+          name: 'Food',
+          kind: 'category',
+          created: CUTOFF,
+          updated: CUTOFF,
+        })
+        await seedTag(db, {
+          id: 'fruit',
+          name: 'Fruit',
+          kind: 'category',
+          parentId: 'food',
+          created: CUTOFF,
+          updated: CUTOFF,
+        })
+      })
+      await seedTag(local, {
+        id: 'apples',
+        name: 'Apples',
+        kind: 'category',
+        parentId: 'fruit',
+        created: T1,
+        updated: T1,
+      })
+      await remote.run(
+        "UPDATE tags SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = 'fruit'",
+        [T2, T2],
+      )
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      expect(await rowOf('tags', 'apples')).toMatchObject({ parent_id: 'food', updated_at_utc: T1 })
+    })
+
+    it('lifts a tag whose parent was merged into it on another device', async () => {
+      // One device merges X into Y; the other, later, moves Y under X. Y cannot
+      // be its own parent, so it goes to X's nearest live ancestor.
+      await common(async (db) => {
+        await seedTag(db, { id: 'g', name: 'G', kind: 'tag', created: CUTOFF, updated: CUTOFF })
+        await seedTag(db, {
+          id: 'x',
+          name: 'X',
+          kind: 'tag',
+          parentId: 'g',
+          created: CUTOFF,
+          updated: CUTOFF,
+        })
+        await seedTag(db, { id: 'y', name: 'Y', kind: 'tag', created: CUTOFF, updated: CUTOFF })
+      })
+      await mergeInto(remote, 'x', 'y', T1)
+      await move(local, 'y', 'x', T2)
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(conflicts).toEqual([])
+      expect(await rowOf('tags', 'y')).toMatchObject({ parent_id: 'g', updated_at_utc: T2 })
+    })
+
+    it('undoes the later move of a parent loop', async () => {
+      await common(async (db) => {
+        await seedTag(db, {
+          id: 'p',
+          name: 'P',
+          kind: 'category',
+          created: CUTOFF,
+          updated: CUTOFF,
+        })
+        await seedTag(db, {
+          id: 'a',
+          name: 'A',
+          kind: 'category',
+          created: CUTOFF,
+          updated: CUTOFF,
+        })
+        await seedTag(db, {
+          id: 'b',
+          name: 'B',
+          kind: 'category',
+          parentId: 'p',
+          created: CUTOFF,
+          updated: CUTOFF,
+        })
+      })
+      // This device moves A under B; the other one, later, moves B under A.
+      await move(local, 'a', 'b', T1)
+      await move(remote, 'b', 'a', T2)
+
+      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+
+      expect(await rowOf('tags', 'a')).toMatchObject({ parent_id: 'b', updated_at_utc: T1 })
+      // B goes back to its parent on this device, not to the top level.
+      const b = await rowOf('tags', 'b')
+      expect(b.parent_id).toBe('p')
+      expect((b.updated_at_utc as string) > T2).toBe(true)
+      expect(conflicts).toEqual([
+        expect.objectContaining({
+          table: 'tags',
+          primaryKey: 'b',
+          resolution: 'loop-undone',
+          winner: 'local',
+          local: expect.objectContaining({ parent_id: 'p' }),
+          remote: expect.objectContaining({ parent_id: 'a' }),
+        }),
+      ])
+    })
   })
 })

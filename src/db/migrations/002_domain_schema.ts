@@ -154,6 +154,10 @@ export const migration: Migration = {
     );
     CREATE INDEX idx_transactions_account_from ON transactions(account_id__from) WHERE deleted_at_utc IS NULL;
     CREATE INDEX idx_transactions_account_to   ON transactions(account_id__to)   WHERE deleted_at_utc IS NULL;
+    -- Tag references. Not partial: redirecting a merged tag rewrites rows of any liveness.
+    CREATE INDEX idx_transactions_merchant     ON transactions(merchant_id);
+    CREATE INDEX idx_transactions_location     ON transactions(location_id);
+    CREATE INDEX idx_transactions_journey      ON transactions(journey_id);
     -- Offset-bearing ISO strings do not sort chronologically as text; julianday()
     -- normalizes them to UTC. The repository's ORDER BY must match these
     -- expressions exactly for SQLite to use the indexes (TRANSACTION_ORDER_BY).
