@@ -7,13 +7,14 @@ import { TransactionsRepository, TRANSACTION_ORDER_BY } from '../TransactionsRep
 import { newId, asUuid, type UUID } from '../../uuid'
 import { moneyAmount } from '../../MoneyAmount'
 import { localMoment } from '../../LocalMoment'
+import { newShortId, asShortId, type ShortId } from '../../shortId'
 
 describe('TransactionsRepository', () => {
   let db: Database
   let repo: TransactionsRepository
   let accountId1: UUID
   let accountId2: UUID
-  let locationId: UUID
+  let locationId: ShortId
 
   beforeEach(async () => {
     db = new Database()
@@ -21,10 +22,10 @@ describe('TransactionsRepository', () => {
     await runMigrations(db, [settingsMigration, domainSchemaMigration])
     repo = new TransactionsRepository(db)
 
-    // Seed test data: two accounts and one location
+    // Seed test data: two accounts and one location tag
     accountId1 = newId()
     accountId2 = newId()
-    locationId = newId()
+    locationId = newShortId()
     const now = new Date().toISOString()
 
     await db.run(
@@ -40,8 +41,8 @@ describe('TransactionsRepository', () => {
     )
 
     await db.run(
-      `INSERT INTO locations (id, name, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', ?, ?, ?)`,
       [locationId, 'Test Location', now, now],
     )
   })
@@ -188,7 +189,7 @@ describe('TransactionsRepository', () => {
       tags: [],
       location_lat: null,
       location_lon: null,
-      location_id: asUuid(locationId),
+      location_id: locationId,
     }
 
     const created = await repo.create(input)
@@ -227,7 +228,7 @@ describe('TransactionsRepository', () => {
       tags: [],
       location_lat: null,
       location_lon: null,
-      location_id: asUuid('nonexistent-location-id'),
+      location_id: asShortId('nonexistent-location-id'),
     }
 
     await expect(repo.create(input)).rejects.toThrow()

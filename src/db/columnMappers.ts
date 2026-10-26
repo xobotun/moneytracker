@@ -1,6 +1,7 @@
 import { type MoneyAmount, moneyAmount } from './MoneyAmount'
 import { type LocalMoment, localMoment } from './LocalMoment'
 import { type UUID, asUuid } from './uuid'
+import { type ShortId, asShortId } from './shortId'
 
 // ---------- MoneyAmount ↔ three columns ----------
 
@@ -141,6 +142,19 @@ export function uuidFromColumn(text: string): UUID {
 
 export function uuidFromNullableColumn(text: string | null): UUID | null {
   return text === null ? null : asUuid(text)
+}
+
+// ---------- ShortId ↔ TEXT column ----------
+//
+// Short random ids (tags) are plain TEXT too; the branded `ShortId` keeps them
+// apart from UUIDs and raw strings at compile time.
+
+export function shortIdFromColumn(text: string): ShortId {
+  return asShortId(text)
+}
+
+export function shortIdFromNullableColumn(text: string | null): ShortId | null {
+  return text === null ? null : asShortId(text)
 }
 
 // ---------- helpers ----------

@@ -4,30 +4,57 @@ import type { Migration } from './index'
 // cannot express (see CLAUDE.md "SQLite Conventions"). Keep the `up` string
 // starting with a statement keyword, not a comment: Database.mutationCounter
 // classifies writes by their leading keyword.
+//
+// `tags` holds categories, merchants, locations, journeys and plain tags, told
+// apart by `kind`; per-kind data lives in the `*_details` side tables. Names
+// are unique among the live tags of one kind and parent, synonyms included,
+// but only the repository checks that: there is no unique index, since two
+// devices creating the same name offline must both survive the sync (the
+// duplicates are shown, and merged by hand).
 export const migration: Migration = {
   version: 2,
   up: `
-    CREATE TABLE locations (
-      id              TEXT PRIMARY KEY,                                  -- UUIDv7
+    CREATE TABLE tags (
+      id              TEXT PRIMARY KEY,                                  -- short id (12 base-62 characters)
+      kind            TEXT NOT NULL CHECK (kind IN ('category', 'merchant', 'location', 'journey', 'tag')),
       name            TEXT NOT NULL,
+      parent_id       TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a tag of the same kind (repository-checked); NULL = top level
       description     TEXT,
+      synonyms        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(synonyms)), -- JSON array of extra names
+      colour          TEXT,                                              -- NULL = inherited from the parent
+      icon            TEXT,                                              -- PrimeIcons name without 'pi-'; NULL = inherited from the parent
+      merged_into_id  TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of the tag this one was merged into (set with deleted_at_utc); NULL = not merged
+      created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      deleted_at_utc  TEXT,                                              -- ISO 8601 UTC instant; NULL = live
+      CHECK (parent_id IS NULL OR parent_id <> id)
+    );
+    CREATE INDEX idx_tags_parent ON tags(parent_id);
+
+    -- Side tables: what only one kind of tag has, keyed by the tag's id.
+    CREATE TABLE location_details (
+      tag_id          TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a location tag
       address         TEXT,
-      city            TEXT,
-      country         TEXT,
       latitude        REAL,                                              -- WGS84 degrees
       longitude       REAL,                                              -- WGS84 degrees
-      tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
+      merchant_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a merchant tag (repository-checked); NULL = none
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
     );
 
-    CREATE TABLE tags (
-      tag             TEXT PRIMARY KEY,                                  -- natural key: the tag name itself
-      description     TEXT,
-      synonyms        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(synonyms)), -- JSON array of strings
-      colour          TEXT NOT NULL,
-      icon            TEXT NOT NULL,
+    CREATE TABLE merchant_details (
+      tag_id              TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a merchant tag
+      default_category_id TEXT REFERENCES tags(id) ON DELETE RESTRICT,   -- short id of a category tag (repository-checked); NULL = none
+      created_at_utc      TEXT NOT NULL,                                 -- ISO 8601 UTC instant
+      updated_at_utc      TEXT NOT NULL,                                 -- ISO 8601 UTC instant
+      deleted_at_utc      TEXT                                           -- ISO 8601 UTC instant; NULL = live
+    );
+
+    CREATE TABLE journey_details (
+      tag_id          TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a journey tag
+      start_date      TEXT,                                              -- 'YYYY-MM-DD' typed by the user; NULL = derived from the journey's transactions
+      end_date        TEXT,                                              -- 'YYYY-MM-DD' typed by the user; NULL = derived from the journey's transactions
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
@@ -52,7 +79,7 @@ export const migration: Migration = {
       balance_scale   INTEGER NOT NULL,                                  -- money: decimal places
       is_cash         INTEGER NOT NULL DEFAULT 0 CHECK (is_cash IN (0, 1)), -- boolean: 1 = cash (money in hand, e.g. a wallet)
       tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
-      location_id     TEXT REFERENCES locations(id) ON DELETE RESTRICT,  -- UUIDv7
+      location_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a location tag; NULL = none
       colour          TEXT NOT NULL,
       icon            TEXT NOT NULL,
       grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- UUIDv7; NULL = not in a group
@@ -111,7 +138,7 @@ export const migration: Migration = {
       tags                     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
       location_lat             REAL,                                     -- WGS84 degrees
       location_lon             REAL,                                     -- WGS84 degrees
-      location_id              TEXT REFERENCES locations(id) ON DELETE RESTRICT, -- UUIDv7
+      location_id              TEXT REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a location tag; NULL = none
       description__user        TEXT,                                     -- the user's free-text note; NULL = none
       description__auto        TEXT CHECK (json_valid(description__auto)), -- JSON object from an import (OCR, bank API, statement, ...); NULL = entered by hand
       created_at_utc           TEXT NOT NULL,                            -- ISO 8601 UTC instant

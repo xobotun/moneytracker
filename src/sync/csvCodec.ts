@@ -33,7 +33,8 @@ async function loadPapa() {
  * files to a few hundred KB, readable and diffable on github.com; only
  * GitHub's 100 MB blob limit binds. For tables with time-ordered UUIDv7 keys, new
  * rows land in the last file and earlier files stay byte-identical (git
- * stores them once); not so for tags (natural key) or applied_rates (UUIDv5).
+ * stores them once); not so for tables keyed by random short ids (tags and
+ * their side tables) or by UUIDv5 (applied_rates).
  *
  * This is a fixed format constant: NEVER change it. Uploads never delete
  * files, so a LARGER value leaves stale trailing files whose rows are also in

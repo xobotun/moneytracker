@@ -6,31 +6,43 @@ describe('SYNC_TABLES', () => {
     const names = SYNC_TABLES.map((t) => t.name)
     expect(new Set(names)).toEqual(
       new Set([
-        'locations',
         'tags',
+        'location_details',
+        'merchant_details',
+        'journey_details',
         'applied_rates',
         'account_groupings',
         'accounts',
         'transactions',
       ]),
     )
-    expect(names).toHaveLength(6)
+    expect(names).toHaveLength(8)
   })
 
   it('orders foreign-key parents before their children', () => {
     const order = SYNC_TABLES.map((t) => t.name)
-    // accounts reference locations and account_groupings; transactions
-    // reference accounts and locations.
-    expect(order.indexOf('locations')).toBeLessThan(order.indexOf('accounts'))
+    // The side tables, accounts and transactions reference tags; accounts
+    // reference account_groupings; transactions reference accounts.
+    for (const child of ['location_details', 'merchant_details', 'journey_details']) {
+      expect(order.indexOf('tags')).toBeLessThan(order.indexOf(child))
+    }
+    expect(order.indexOf('tags')).toBeLessThan(order.indexOf('accounts'))
     expect(order.indexOf('account_groupings')).toBeLessThan(order.indexOf('accounts'))
     expect(order.indexOf('accounts')).toBeLessThan(order.indexOf('transactions'))
-    expect(order.indexOf('locations')).toBeLessThan(order.indexOf('transactions'))
+    expect(order.indexOf('tags')).toBeLessThan(order.indexOf('transactions'))
   })
 
-  it('uses "tag" as the primary key for the tags table and "id" elsewhere', () => {
+  it('keys the side tables by "tag_id" and every other table by "id"', () => {
     const byName = Object.fromEntries(SYNC_TABLES.map((t) => [t.name, t.pk]))
-    expect(byName.tags).toBe('tag')
-    expect(byName.accounts).toBe('id')
-    expect(byName.transactions).toBe('id')
+    expect(byName).toEqual({
+      tags: 'id',
+      location_details: 'tag_id',
+      merchant_details: 'tag_id',
+      journey_details: 'tag_id',
+      applied_rates: 'id',
+      account_groupings: 'id',
+      accounts: 'id',
+      transactions: 'id',
+    })
   })
 })

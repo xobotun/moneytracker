@@ -9,7 +9,7 @@ import { recalculateBalances } from '../db/balances'
 
 /** Index a list of rows by the value of their primary key column. */
 function indexByPk(rows: SyncRow[], pk: string): Map<string, SyncRow> {
-  // Every PK column in SYNC_TABLES is declared TEXT (UUIDv7 or `tags.tag`),
+  // Every PK column in SYNC_TABLES is declared TEXT (UUIDs or short ids),
   // so the value is already a string — no coercion needed.
   const map = new Map<string, SyncRow>()
   for (const row of rows) {
