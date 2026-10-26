@@ -55,6 +55,10 @@ export const EQUALITY_IGNORED_COLUMNS: Record<string, readonly string[]> = {
  * lost to a device that resolved the same day, a found rate never to an empty
  * row from a device that was offline, and a row the resolver improved is not
  * undone by a device with worse data (which would resolve it again, forever).
+ *
+ * A merged tag outranks a plainly deleted one. Only two tombstones get this
+ * far (a live tag is never merged), and the merged one remembers where its
+ * references go (decisions §2.5): a later plain delete must not lose that.
  */
 export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
   applied_rates: (row) =>
@@ -63,6 +67,7 @@ export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
       rate: row.rate as number | null,
       via: row.via as string | null,
     }),
+  tags: (row) => (row.merged_into_id == null ? 0 : 1),
 }
 
 export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
@@ -71,6 +76,7 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'kind', sqlType: 'TEXT', nullable: false },
     { name: 'name', sqlType: 'TEXT', nullable: false },
     { name: 'parent_id', sqlType: 'TEXT', nullable: true },
+    { name: 'moved_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'description', sqlType: 'TEXT', nullable: true },
     { name: 'synonyms', sqlType: 'TEXT', nullable: false },
     { name: 'colour', sqlType: 'TEXT', nullable: true },

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
@@ -47,14 +47,15 @@ describe('TagsRepository', () => {
     mergedInto?: string | null
   }): Promise<ShortId> {
     await db.run(
-      `INSERT INTO tags (id, kind, name, parent_id, synonyms, merged_into_id,
+      `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, synonyms, merged_into_id,
                          created_at_utc, updated_at_utc, deleted_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.kind,
         row.name,
         row.parent ?? null,
+        AT,
         JSON.stringify(row.synonyms ?? []),
         row.mergedInto ?? null,
         AT,
@@ -188,6 +189,45 @@ describe('TagsRepository', () => {
     expect((await repo.findById(snacks.id))!.parent_id).toBeNull()
   })
 
+  it('sets moved_at_utc on create, move and the children a merge moves, and nowhere else', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const at = (day: number) => {
+        const instant = new Date(Date.UTC(2026, 9, day))
+        vi.setSystemTime(instant)
+        return instant
+      }
+      const movedAt = async (id: ShortId) => (await repo.findById(id))!.moved_at_utc
+      const t1 = at(2)
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const fun = await repo.create({ kind: 'category', name: 'Fun' })
+      const snacks = await repo.create({ kind: 'category', name: 'Snacks', parent_id: food.id })
+      const chips = await repo.create({ kind: 'category', name: 'Chips', parent_id: snacks.id })
+      expect(snacks).toMatchObject({ moved_at_utc: t1, created_at_utc: t1 })
+
+      const t2 = at(3)
+      await repo.move(snacks.id, fun.id)
+      expect(await movedAt(snacks.id)).toEqual(t2)
+
+      at(4)
+      await repo.update(snacks.id, { name: 'Snack food' })
+      expect(await movedAt(snacks.id)).toEqual(t2)
+      // A delete lifts the live children, a restore may lift the tag: neither is a move.
+      await repo.softDelete(snacks.id)
+      expect(await repo.findById(chips.id)).toMatchObject({ parent_id: fun.id, moved_at_utc: t1 })
+      await repo.restore(snacks.id)
+      expect(await movedAt(snacks.id)).toEqual(t2)
+
+      const t5 = at(5)
+      await repo.merge(fun.id, food.id)
+      expect(await repo.findById(snacks.id)).toMatchObject({ parent_id: food.id, moved_at_utc: t5 })
+      expect(await repo.findById(chips.id)).toMatchObject({ parent_id: food.id, moved_at_utc: t5 })
+      expect(await movedAt(food.id)).toEqual(t1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rename keeps the id', async () => {
     const tag = await repo.create({ kind: 'tag', name: 'birthday' })
     await new Promise((r) => setTimeout(r, 5))
@@ -304,6 +344,77 @@ describe('TagsRepository', () => {
 
     await repo.softDelete(berlin.id)
     expect(await repo.findByName('location', 'berlin')).toBeNull()
+  })
+
+  describe('findByName through merged tags', () => {
+    // A chain merged on two devices, as sync leaves it: job → work → employment,
+    // with "job" on no live tag (Z took only "work" from Y).
+    let employment: ShortId
+    beforeEach(async () => {
+      employment = await insertRaw({
+        id: 'employment01',
+        kind: 'tag',
+        name: 'employment',
+        synonyms: ['work'],
+      })
+      const work = await insertRaw({
+        id: 'work00000001',
+        kind: 'tag',
+        name: 'work',
+        deleted: AT,
+        mergedInto: employment,
+      })
+      await insertRaw({
+        id: 'job000000001',
+        kind: 'tag',
+        name: 'job',
+        synonyms: ['occupation'],
+        deleted: AT,
+        mergedInto: work,
+      })
+    })
+
+    it('answers a merged name or synonym with the live end of its chain', async () => {
+      expect((await repo.findByName('tag', 'JOB'))?.id).toBe(employment)
+      expect((await repo.findByName('tag', 'occupation', null))?.id).toBe(employment)
+      expect(await repo.findByName('merchant', 'job')).toBeNull()
+      // The merged tag sits at the top level, not under another parent.
+      const other = await insertRaw({ id: 'other0000001', kind: 'tag', name: 'other' })
+      expect(await repo.findByName('tag', 'job', other)).toBeNull()
+    })
+
+    it('prefers a live match', async () => {
+      const gig = await repo.create({ kind: 'tag', name: 'gig', synonyms: ['job'] })
+      expect((await repo.findByName('tag', 'job'))?.id).toBe(gig.id)
+    })
+
+    it('skips a chain that ends at a deleted tag, and a cycle', async () => {
+      const gone = await insertRaw({ id: 'gone00000001', kind: 'tag', name: 'gone', deleted: AT })
+      await insertRaw({
+        id: 'side00000001',
+        kind: 'tag',
+        name: 'side job',
+        deleted: AT,
+        mergedInto: gone,
+      })
+      expect(await repo.findByName('tag', 'side job')).toBeNull()
+
+      // Another merged tag of that name (after it in id order) whose chain ends live answers instead.
+      await insertRaw({
+        id: 'side00000002',
+        kind: 'tag',
+        name: 'Side job',
+        deleted: AT,
+        mergedInto: employment,
+      })
+      expect((await repo.findByName('tag', 'side job'))?.id).toBe(employment)
+
+      // A merge cycle sync brought in (and has not repaired yet) leads nowhere.
+      const a = await insertRaw({ id: 'cycleA000001', kind: 'tag', name: 'loop', deleted: AT })
+      await insertRaw({ id: 'cycleB000001', kind: 'tag', name: 'b', deleted: AT, mergedInto: a })
+      await db.run(`UPDATE tags SET merged_into_id = 'cycleB000001' WHERE id = ?`, [a])
+      expect(await repo.findByName('tag', 'loop')).toBeNull()
+    })
   })
 
   it('lists live tags by name, optionally of one kind; listAll includes deleted and merged', async () => {

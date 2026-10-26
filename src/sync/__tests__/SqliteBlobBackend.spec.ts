@@ -49,9 +49,9 @@ describe('SqliteBlobBackend', () => {
     const local = await migratedDb()
     dbs.push(local)
     await local.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'Home', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     await backend.getMetadata()
     const ok = await backend.tryUpload(
@@ -72,9 +72,9 @@ describe('SqliteBlobBackend', () => {
     const locId = newId()
     const accId = newId()
     await src.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'Home', '[]', ?, ?)`,
-      [locId, CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [locId, CUTOFF, CUTOFF, CUTOFF],
     )
     await src.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,

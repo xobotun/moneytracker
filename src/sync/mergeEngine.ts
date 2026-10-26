@@ -88,8 +88,9 @@ export async function mergeTable(
 
 /**
  * Reconcile every domain table from `remote` into `local` (algorithm steps
- * 6–7), then repair the tags (`repairTags`; its `loop-undone` conflicts are
- * returned with the merge's). Tables are merged parents-before-children, and
+ * 6–7), then repair the tags (`repairTags`; its `loop-undone` and
+ * `delete-undone` conflicts are returned with the merge's). Tables are merged
+ * parents-before-children, and
  * all writes run inside one transaction so a crash or failure cannot leave a
  * half-merged database. Foreign keys are checked when it commits.
  */

@@ -12,6 +12,7 @@ function tag(id: string, over: Partial<Tag> = {}): Tag {
     kind: 'category',
     name: id,
     parent_id: null,
+    moved_at_utc: AT,
     description: null,
     synonyms: [],
     colour: null,

@@ -104,41 +104,36 @@ describe('tag hierarchy on several devices', () => {
     }
   })
 
-  // BUG: the repair undoes the move of the loop's tag with the latest
-  // updated_at_utc (src/sync/repairTags.ts, `latest(cycle, nodes)` in step 3),
-  // which is not always the later move: A moves X under Y (minute 1), B moves
-  // Y under X (minute 2, the later move), and A then renames X (minute 3). The
-  // rename makes X "latest", so A's earlier move is undone and B's later one
-  // kept (§2.5: "the later move is undone"). A merge that adds a synonym to a
-  // tag of the loop does the same.
-  it.fails(
-    'undoes the later move of a loop even when the other tag was renamed after its move',
-    async () => {
-      const [a, b] = (world = await openPair()).devices
-      let p!: ShortId, x!: ShortId, y!: ShortId
-      await start(world, async ({ tags }) => {
-        p = (await tags.create({ kind: 'tag', name: 'p' })).id
-        x = (await tags.create({ kind: 'tag', name: 'x' })).id
-        y = (await tags.create({ kind: 'tag', name: 'y', parent_id: p })).id
-      })
-      at(minute(1))
-      await a.tags.move(x, y)
-      at(minute(2))
-      await b.tags.move(y, x) // the later move
-      at(minute(3))
-      await a.tags.update(x, { name: 'x renamed' })
-      at(minute(4))
-      await a.sync()
-      at(minute(5))
-      await b.sync()
+  // A moves X under Y (minute 1), B moves Y under X (minute 2, the later
+  // move), and A then renames X (minute 3). The rename makes X's row the
+  // newer one, but the loop is undone at the tag moved last (moved_at_utc,
+  // which only a move sets), so B's move is undone (§2.5: "the later move is
+  // undone"). A merge that adds a synonym to a tag of the loop is the same.
+  it('undoes the later move of a loop even when the other tag was renamed after its move', async () => {
+    const [a, b] = (world = await openPair()).devices
+    let p!: ShortId, x!: ShortId, y!: ShortId
+    await start(world, async ({ tags }) => {
+      p = (await tags.create({ kind: 'tag', name: 'p' })).id
+      x = (await tags.create({ kind: 'tag', name: 'x' })).id
+      y = (await tags.create({ kind: 'tag', name: 'y', parent_id: p })).id
+    })
+    at(minute(1))
+    await a.tags.move(x, y)
+    at(minute(2))
+    await b.tags.move(y, x) // the later move
+    at(minute(3))
+    await a.tags.update(x, { name: 'x renamed' })
+    at(minute(4))
+    await a.sync()
+    at(minute(5))
+    await b.sync()
 
-      await settle([a, b], 6)
-      await expectSound([a, b])
-      for (const d of [a, b]) {
-        expect([await parentOf(d, x), await parentOf(d, y)]).toEqual([y, p])
-      }
-    },
-  )
+    await settle([a, b], 6)
+    await expectSound([a, b])
+    for (const d of [a, b]) {
+      expect([await parentOf(d, x), await parentOf(d, y)]).toEqual([y, p])
+    }
+  })
 
   it('lists duplicates made on two devices until one is renamed or merged', async () => {
     const [a, b] = (world = await openPair()).devices

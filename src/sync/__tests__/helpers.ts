@@ -17,6 +17,8 @@ export interface SeedTagInput {
   name: string
   created: string
   updated: string
+  /** When the parent was last set. Default `updated`: the last change was a move. */
+  moved?: string
   deleted?: string | null
   /** Default `location`. */
   kind?: TagKind
@@ -27,14 +29,15 @@ export interface SeedTagInput {
 /** Inserts one tag (by default a top-level `location`) with explicit timestamps. */
 export async function seedTag(db: SqlExecutor, input: SeedTagInput): Promise<void> {
   await db.run(
-    `INSERT INTO tags (id, kind, name, parent_id, merged_into_id,
+    `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, merged_into_id,
                        created_at_utc, updated_at_utc, deleted_at_utc)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.id,
       input.kind ?? 'location',
       input.name,
       input.parentId ?? null,
+      input.moved ?? input.updated,
       input.mergedIntoId ?? null,
       input.created,
       input.updated,
@@ -119,10 +122,11 @@ export async function seedTags(
     description: descriptionFor(i + 1),
   }))
   await db.run(
-    `INSERT INTO tags (id, kind, name, description, synonyms, created_at_utc, updated_at_utc)
+    `INSERT INTO tags (id, kind, name, description, synonyms,
+                       moved_at_utc, created_at_utc, updated_at_utc)
      SELECT json_extract(value, '$.id'), 'location', json_extract(value, '$.name'),
             json_extract(value, '$.description'), '[]',
-            '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'
+            '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'
      FROM json_each(?)`,
     [JSON.stringify(rows)],
   )

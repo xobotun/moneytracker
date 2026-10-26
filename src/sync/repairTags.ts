@@ -2,14 +2,16 @@ import type { SqlExecutor } from '../db/Database'
 import type { SyncConflict, SyncRow } from './types'
 import { asShortId, type ShortId } from '../db/shortId'
 import { instantFromColumn, instantToColumn } from '../db/columnMappers'
-import { redirectTagReferencesByMap } from '../db/tagReferences'
+import { deletedCategoriesInUse, redirectTagReferencesByMap } from '../db/tagReferences'
+import { mergeChainEnd } from '../db/mergeChain'
 import { readRows, rowsEqual, upsertRow } from './rows'
 
 // The row-by-row merge takes each tag row whole from one side, so it can
-// combine changes into states no device produced (decisions §2.5): references
-// to a tag merged on the other device, a live tag under a deleted or merged
-// parent, parent loops, merge cycles. `repairTags` mends them after the table
-// merges, inside the merge's transaction.
+// combine changes into states no device produced (decisions §2.2, §2.5):
+// references to a tag merged on the other device, a live transaction on a
+// deleted category, a live tag under a deleted or merged parent, parent
+// loops, merge cycles. `repairTags` mends them after the table merges, inside
+// the merge's transaction.
 
 /** One side's `tags` rows before a merge, by id. */
 export type TagSnapshot = ReadonlyMap<string, SyncRow>
@@ -21,13 +23,15 @@ interface TagNode {
   mergedIntoId: string | null
   live: boolean
   updatedAt: string
+  /** `moved_at_utc`; once the repair has moved the tag, its move is the latest. */
+  movedAt: string
 }
 
 type Nodes = ReadonlyMap<string, TagNode>
 
 /**
  * Repairs the merged `tags` (in `tx`), given what each side had before the
- * merge, in three steps:
+ * merge, in four steps:
  *
  *  1. **Merge cycles and redirect.** A cycle of merges (X into Y on one
  *     device, Y into X on another) is broken by undoing the later merge: the
@@ -36,19 +40,25 @@ type Nodes = ReadonlyMap<string, TagNode>
  *     stamped one millisecond after that latest change, so every device that
  *     meets the cycle writes the same row. Then every reference to a merged
  *     tag moves to the end of its merge chain.
- *  2. **Lift.** A live tag whose parent is deleted or merged moves to the
+ *  2. **Categories in use.** A category in use cannot be deleted: a deleted,
+ *     unmerged category that a live transaction's parts use (recorded on the
+ *     other device, or moved there by the redirect) is restored, stamped one
+ *     millisecond after its delete — again the same row on every device.
+ *  3. **Lift.** A live tag whose parent is deleted or merged moves to the
  *     parent's nearest live ancestor, or to the top level.
- *  3. **Parent loops.** In each loop, the tag with the latest
- *     `updated_at_utc` goes back to its parent on the other side of the merge
+ *  4. **Parent loops.** In each loop, the tag moved last (the latest
+ *     `moved_at_utc`: only the user's moves set it, so a rename after a move
+ *     does not count) goes back to its parent on the other side of the merge
  *     (the side its row did not come from) — or to the top level when that
  *     side lacked the row, when that parent would keep the loop, or the second
  *     time the tag has to move.
  *
- * Ties on `updated_at_utc` go to the greatest id. Redirect and lift keep
- * timestamps: every device computes the same result from the same rows.
- * Undoing a merge or a move bumps `updated_at_utc` (a move: to now) so it
- * wins later merges, and is returned as a `loop-undone` conflict whose winner
- * is the side the tag went back to.
+ * Ties go to the greatest id. Redirect and lift keep timestamps: every device
+ * computes the same result from the same rows. Undoing a merge, a delete or a
+ * move bumps `updated_at_utc` (a move: to now, so it wins later merges) and
+ * is returned as a conflict — `delete-undone` for a category in use,
+ * `loop-undone` otherwise — whose winner is the side the tag went back to.
+ * No step sets `moved_at_utc`: a repair is not the user's move.
  *
  * Loops among deleted tags only are left: nothing shows them, a restored tag
  * whose parent is not live returns at the top level, and a bump would not
@@ -67,6 +77,7 @@ export async function repairTags(
       mergedIntoId: row.merged_into_id as string | null,
       live: row.deleted_at_utc === null,
       updatedAt: row.updated_at_utc as string,
+      movedAt: row.moved_at_utc as string,
     })
   }
   const ids = [...nodes.keys()].sort()
@@ -78,7 +89,14 @@ export async function repairTags(
     const local = before.local.get(id)
     return local !== undefined && rowsEqual(merged.get(id)!, local) ? 'remote' : 'local'
   }
-  const reportUndo = (id: string, winner: 'local' | 'remote') => {
+  /** The side that had the tag live before the merge, if any. */
+  const liveSide = (id: string) =>
+    (['local', 'remote'] as const).find((side) => before[side].get(id)?.deleted_at_utc === null)
+  const report = (
+    id: string,
+    resolution: 'loop-undone' | 'delete-undone',
+    winner: 'local' | 'remote',
+  ) => {
     if (conflicts.some((c) => c.primaryKey === id)) return
     conflicts.push({
       table: 'tags',
@@ -86,18 +104,16 @@ export async function repairTags(
       local: before.local.get(id) ?? {},
       remote: before.remote.get(id) ?? {},
       winner,
-      resolution: 'loop-undone',
+      resolution,
     })
   }
 
   // 1. Merge cycles, then the redirect.
   for (const cycle of findCycles(ids, (id) => nodes.get(id)?.mergedIntoId ?? null)) {
-    const node = nodes.get(latest(cycle, nodes))!
-    const liveSide = (['local', 'remote'] as const).find(
-      (side) => before[side].get(node.id)?.deleted_at_utc === null,
-    )
+    const node = nodes.get(latest(cycle, (id) => nodes.get(id)!.updatedAt))!
+    const side = liveSide(node.id)
     const restored: SyncRow = {
-      ...(liveSide ? before[liveSide].get(node.id)! : merged.get(node.id)!),
+      ...(side ? before[side].get(node.id)! : merged.get(node.id)!),
       merged_into_id: null,
       deleted_at_utc: null,
       updated_at_utc: oneMillisecondAfter(node.updatedAt),
@@ -107,7 +123,8 @@ export async function repairTags(
     node.mergedIntoId = null
     node.live = true
     node.updatedAt = restored.updated_at_utc as string
-    reportUndo(node.id, liveSide ?? otherSide(node.id))
+    node.movedAt = restored.moved_at_utc as string
+    report(node.id, 'loop-undone', side ?? otherSide(node.id))
   }
   const redirects = chainEnds(nodes)
   if (redirects.size > 0) {
@@ -119,7 +136,26 @@ export async function repairTags(
     for (const row of parents) nodes.get(row.id)!.parentId = row.parent_id
   }
 
-  // 2. Lift. Each walk passes deleted tags only and stops at the first live
+  // 2. Categories in use. Before the lift: a restored category whose parent
+  // is gone is lifted, and its live children stay under it.
+  const restoredAt: Record<string, string> = {}
+  for (const id of await deletedCategoriesInUse(tx)) {
+    const node = nodes.get(id)!
+    node.live = true
+    node.updatedAt = oneMillisecondAfter(merged.get(id)!.deleted_at_utc as string)
+    restoredAt[id] = node.updatedAt
+    report(id, 'delete-undone', liveSide(id) ?? otherSide(id))
+  }
+  if (Object.keys(restoredAt).length > 0) {
+    await tx.run(
+      `UPDATE tags SET deleted_at_utc = NULL, updated_at_utc = restore.value
+       FROM json_each(?) AS restore
+       WHERE tags.id = restore.key`,
+      [JSON.stringify(restoredAt)],
+    )
+  }
+
+  // 3. Lift. Each walk passes deleted tags only and stops at the first live
   // one, so lifting one tag never changes another's result.
   const lifted: Record<string, string | null> = {}
   for (const id of ids) {
@@ -137,7 +173,7 @@ export async function repairTags(
     )
   }
 
-  // 3. Parent loops. After the lift a live tag's parent is live, so a loop
+  // 4. Parent loops. After the lift a live tag's parent is live, so a loop
   // reached from a live tag holds live tags only.
   const parentOf = (id: string) => {
     const node = nodes.get(id)
@@ -146,7 +182,7 @@ export async function repairTags(
   const moved = new Set<string>()
   for (let cycles = findCycles(ids, parentOf); cycles.length > 0; ) {
     for (const cycle of cycles) {
-      const node = nodes.get(latest(cycle, nodes))!
+      const node = nodes.get(latest(cycle, (id) => nodes.get(id)!.movedAt))!
       let parent: string | null = null
       if (!moved.has(node.id)) {
         moved.add(node.id)
@@ -160,12 +196,15 @@ export async function repairTags(
       }
       node.parentId = parent
       node.updatedAt = later(node.updatedAt, now)
+      // Not stored: moved_at_utc records the user's moves only. Within this
+      // repair the undo is the latest move, so a loop it closes undoes it again.
+      node.movedAt = later(node.movedAt, now)
       await tx.run('UPDATE tags SET parent_id = ?, updated_at_utc = ? WHERE id = ?', [
         parent,
         node.updatedAt,
         node.id,
       ])
-      reportUndo(node.id, otherSide(node.id))
+      report(node.id, 'loop-undone', otherSide(node.id))
     }
     cycles = findCycles(ids, parentOf)
   }
@@ -194,11 +233,11 @@ function findCycles(ids: readonly string[], next: (id: string) => string | null)
   return cycles
 }
 
-/** The tag of `ids` with the latest `updated_at_utc`; on a tie, the greatest id. */
-function latest(ids: readonly string[], nodes: Nodes): string {
+/** The id of `ids` with the latest instant `at`; on a tie, the greatest id. */
+function latest(ids: readonly string[], at: (id: string) => string): string {
   return ids.reduce((best, id) => {
-    const a = nodes.get(best)!.updatedAt
-    const b = nodes.get(id)!.updatedAt
+    const a = at(best)
+    const b = at(id)
     return b > a || (b === a && id > best) ? id : best
   })
 }
@@ -206,22 +245,11 @@ function latest(ids: readonly string[], nodes: Nodes): string {
 /** Every merged tag, to the end of its merge chain (the cycles are broken by now). */
 function chainEnds(nodes: Nodes): Map<ShortId, ShortId> {
   const ends = new Map<ShortId, ShortId>()
+  const mergedInto = (id: string) => nodes.get(id)?.mergedIntoId ?? null
   for (const node of nodes.values()) {
     if (node.mergedIntoId === null) continue
-    const path: ShortId[] = []
-    let end = asShortId(node.id)
-    for (;;) {
-      const known = ends.get(end)
-      if (known !== undefined) {
-        end = known
-        break
-      }
-      const next = nodes.get(end)?.mergedIntoId ?? null
-      if (next === null) break
-      path.push(end)
-      end = asShortId(next)
-    }
-    for (const id of path) ends.set(id, end)
+    const end = mergeChainEnd(node.id, mergedInto)
+    if (end !== null) ends.set(asShortId(node.id), asShortId(end))
   }
   return ends
 }

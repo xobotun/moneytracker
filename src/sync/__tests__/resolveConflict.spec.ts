@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resolveConflict } from '../resolveConflict'
+import { ROW_RANK } from '../syncColumns'
 
 const alive = (updated: string) => ({ updated_at_utc: updated, deleted_at_utc: null })
 const deleted = (at: string) => ({ updated_at_utc: at, deleted_at_utc: at })
@@ -48,6 +49,50 @@ describe('resolveConflict', () => {
     it('still lets a delete win over a higher rank', () => {
       const gone = { ...deleted('2026-05-01T00:00:00.000Z'), provider: 'fawazahmed0' }
       expect(resolveConflict(manual('2026-05-09T00:00:00.000Z'), gone, rank)).toEqual({
+        winner: 'remote',
+        resolution: 'delete-wins',
+      })
+    })
+  })
+
+  describe('of a tag (ROW_RANK.tags)', () => {
+    const rank = ROW_RANK.tags!
+    const plainDelete = (at: string) => ({ ...deleted(at), merged_into_id: null })
+    const merged = (at: string, into = 'y') => ({ ...deleted(at), merged_into_id: into })
+    const live = (at: string) => ({ ...alive(at), merged_into_id: null })
+
+    it('keeps a merged tombstone over a later plain delete, from either side', () => {
+      const merge = merged('2026-05-01T00:00:00.000Z')
+      const laterDelete = plainDelete('2026-05-02T00:00:00.000Z')
+      expect(resolveConflict(merge, laterDelete, rank)).toEqual({
+        winner: 'local',
+        resolution: 'rank-wins',
+      })
+      expect(resolveConflict(laterDelete, merge, rank)).toEqual({
+        winner: 'remote',
+        resolution: 'rank-wins',
+      })
+    })
+
+    it('keeps the merged tombstone in an exact tie too', () => {
+      const at = '2026-05-01T00:00:00.000Z'
+      expect(resolveConflict(plainDelete(at), merged(at), rank).winner).toBe('remote')
+    })
+
+    it('lets the later of two merges win', () => {
+      expect(
+        resolveConflict(
+          merged('2026-05-01T00:00:00.000Z', 'y'),
+          merged('2026-05-02T00:00:00.000Z', 'z'),
+          rank,
+        ),
+      ).toEqual({ winner: 'remote', resolution: 'latest-update-wins' })
+    })
+
+    it('decides between live rows by time, and lets a delete win over an edit first', () => {
+      const edit = live('2026-05-02T00:00:00.000Z')
+      expect(resolveConflict(live('2026-05-01T00:00:00.000Z'), edit, rank).winner).toBe('remote')
+      expect(resolveConflict(edit, plainDelete('2026-05-01T00:00:00.000Z'), rank)).toEqual({
         winner: 'remote',
         resolution: 'delete-wins',
       })

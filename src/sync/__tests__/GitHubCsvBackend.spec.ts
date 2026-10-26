@@ -55,9 +55,9 @@ describe('GitHubCsvBackend', () => {
     const local = await migratedDb()
     dbs.push(local)
     await local.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'Home', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const localHash = await backend.hashDatabase(local)
 
@@ -107,9 +107,9 @@ describe('GitHubCsvBackend', () => {
     const locId = newId()
     const accId = newId()
     await src.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'Home', '[]', ?, ?)`,
-      [locId, CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [locId, CUTOFF, CUTOFF, CUTOFF],
     )
     await src.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
@@ -140,9 +140,9 @@ describe('GitHubCsvBackend', () => {
     const src = await migratedDb()
     dbs.push(src)
     await src.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'A', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'A', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const srcHash = await backend.hashDatabase(src)
     await backend.getMetadata()
@@ -176,9 +176,9 @@ describe('GitHubCsvBackend', () => {
     const b = await migratedDb()
     dbs.push(b)
     await b.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'B', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'B', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const ok = await backend.tryUpload(
       b,
@@ -223,9 +223,9 @@ describe('GitHubCsvBackend', () => {
     const src = await migratedDb()
     dbs.push(src)
     await src.run(
-      `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'Home', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     await backend.getMetadata()
     await backend.tryUpload(src, META({ hash: await backend.hashDatabase(src) }), null)
@@ -376,9 +376,9 @@ describe('GitHubCsvBackend', () => {
       const withTag = await migratedDb()
       dbs.push(withTag)
       await withTag.run(
-        `INSERT INTO tags (id, kind, name, colour, icon, created_at_utc, updated_at_utc)
-         VALUES ('old000000001', 'tag', 'old', '#00ff00', 'tag', ?, ?)`,
-        [CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, colour, icon, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES ('old000000001', 'tag', 'old', '#00ff00', 'tag', ?, ?, ?)`,
+        [CUTOFF, CUTOFF, CUTOFF],
       )
       remote.injectForeignCommit([
         { path: 'data/tags.csv', content: (await exportTableToCsvFiles(withTag, tags))[0]! },

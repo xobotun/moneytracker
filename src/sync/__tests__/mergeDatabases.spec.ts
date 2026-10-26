@@ -351,12 +351,12 @@ describe('mergeDatabases', () => {
       )
     }
 
+    /** What `TagsRepository.move` leaves on the row. */
     async function move(db: Database, id: string, parentId: string | null, at: string) {
-      await db.run('UPDATE tags SET parent_id = ?, updated_at_utc = ? WHERE id = ?', [
-        parentId,
-        at,
-        id,
-      ])
+      await db.run(
+        'UPDATE tags SET parent_id = ?, moved_at_utc = ?, updated_at_utc = ? WHERE id = ?',
+        [parentId, at, at, id],
+      )
     }
 
     const rowOf = async (table: string, id: string) =>

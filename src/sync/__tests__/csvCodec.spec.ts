@@ -40,14 +40,14 @@ describe('csvCodec', () => {
       const id1 = '0193ffffffffffffffffffffffffff01'
       const id2 = '0194000000000000000000000000a002'
       await db.run(
-        `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'Two', '[]', ?, ?)`,
-        [id2, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'Two', '[]', ?, ?, ?)`,
+        [id2, CUTOFF, CUTOFF, CUTOFF],
       )
       await db.run(
-        `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'One', '[]', ?, ?)`,
-        [id1, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'One', '[]', ?, ?, ?)`,
+        [id1, CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(db, { name: 'tags', pk: 'id' }))[0]!
       const lines = csv.split('\n').filter((l) => l.length > 0)
@@ -60,9 +60,9 @@ describe('csvCodec', () => {
       const db = await migratedDb()
       dbs.push(db)
       await db.run(
-        `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', ?, '[]', ?, ?)`,
-        [newId(), 'Smith, "Jr."\nNYC', CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', ?, '[]', ?, ?, ?)`,
+        [newId(), 'Smith, "Jr."\nNYC', CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(db, { name: 'tags', pk: 'id' }))[0]!
       // The Name cell should be quoted; the embedded double quote should
@@ -74,9 +74,9 @@ describe('csvCodec', () => {
       const db = await migratedDb()
       dbs.push(db)
       await db.run(
-        `INSERT INTO tags (id, kind, name, description, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'X', NULL, ?, ?)`,
-        [newId(), CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, description, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'X', NULL, ?, ?, ?)`,
+        [newId(), CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(db, { name: 'tags', pk: 'id' }))[0]!
       const dataLine = csv.split('\n')[1]!
@@ -135,9 +135,9 @@ describe('csvCodec', () => {
       const id = newId()
       await src.run(
         `INSERT INTO tags (id, kind, name, description, synonyms, colour, icon,
-                           created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'Home', 'Berlin, DE', '["a","b"]', '#22c55e', 'home', ?, ?)`,
-        [id, CUTOFF, CUTOFF],
+                           moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'Home', 'Berlin, DE', '["a","b"]', '#22c55e', 'home', ?, ?, ?)`,
+        [id, CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, csv)
@@ -154,9 +154,9 @@ describe('csvCodec', () => {
       const tagId = newId()
       for (const db of [src, dst]) {
         await db.run(
-          `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc)
-           VALUES (?, 'location', 'GPS', ?, ?)`,
-          [tagId, CUTOFF, CUTOFF],
+          `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+           VALUES (?, 'location', 'GPS', ?, ?, ?)`,
+          [tagId, CUTOFF, CUTOFF, CUTOFF],
         )
       }
       await src.run(
@@ -181,9 +181,9 @@ describe('csvCodec', () => {
       const dst = await migratedDb()
       dbs.push(src, dst)
       await src.run(
-        `INSERT INTO tags (id, kind, name, description, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'X', NULL, ?, ?)`,
-        [newId(), CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, description, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'X', NULL, ?, ?, ?)`,
+        [newId(), CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, csv)
@@ -196,9 +196,9 @@ describe('csvCodec', () => {
       const dst = await migratedDb()
       dbs.push(src, dst)
       await src.run(
-        `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'X', ?, ?, ?)`,
-        [newId(), '["a","b","c"]', CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'X', ?, ?, ?, ?)`,
+        [newId(), '["a","b","c"]', CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
       await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, csv)
@@ -223,20 +223,33 @@ describe('csvCodec', () => {
       const locId = newId()
       const accId = newId()
       await src.run(
-        `INSERT INTO tags (id, kind, name, synonyms, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'Home', '[]', ?, ?)`,
-        [locId, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+        [locId, CUTOFF, CUTOFF, CUTOFF],
       )
       const foodId = newId()
       const reweId = newId()
       const tripId = newId()
       await src.run(
         `INSERT INTO tags (id, kind, name, description, synonyms, colour, icon,
-                           created_at_utc, updated_at_utc)
-         VALUES (?, 'category', 'Food', NULL, '["Essen"]', '#00ff00', 'tag', ?, ?),
-                (?, 'merchant', 'Rewe', 'Supermarket', '[]', NULL, NULL, ?, ?),
-                (?, 'journey', 'Lisbon', NULL, '[]', NULL, 'globe', ?, ?)`,
-        [foodId, CUTOFF, CUTOFF, reweId, CUTOFF, CUTOFF, tripId, CUTOFF, CUTOFF],
+                           moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'category', 'Food', NULL, '["Essen"]', '#00ff00', 'tag', ?, ?, ?),
+                (?, 'merchant', 'Rewe', 'Supermarket', '[]', NULL, NULL, ?, ?, ?),
+                (?, 'journey', 'Lisbon', NULL, '[]', NULL, 'globe', ?, ?, ?)`,
+        [
+          foodId,
+          CUTOFF,
+          CUTOFF,
+          CUTOFF,
+          reweId,
+          CUTOFF,
+          CUTOFF,
+          CUTOFF,
+          tripId,
+          CUTOFF,
+          CUTOFF,
+          CUTOFF,
+        ],
       )
       await src.run(
         `INSERT INTO location_details (tag_id, address, latitude, longitude, merchant_id,

@@ -33,6 +33,7 @@ export interface Tag {
   kind: TagKind
   name: string // unique among live tags of the same kind and parent, synonyms included (case-insensitive)
   parent_id: ShortId | null // a tag of the same kind; null = top level
+  moved_at_utc: Date // when the user last set parent_id: on create, move, or a merge of the parent; repairs leave it
   description: string | null
   synonyms: string[] // extra names that find the tag; transactions show `name`
   colour: string | null // null = inherited from the parent (see src/tags/look.ts)

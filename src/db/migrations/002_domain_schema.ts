@@ -19,6 +19,7 @@ export const migration: Migration = {
       kind            TEXT NOT NULL CHECK (kind IN ('category', 'merchant', 'location', 'journey', 'tag')),
       name            TEXT NOT NULL,
       parent_id       TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a tag of the same kind (repository-checked); NULL = top level
+      moved_at_utc    TEXT NOT NULL,                                     -- ISO 8601 UTC instant: when parent_id was last set by the user
       description     TEXT,
       synonyms        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(synonyms)), -- JSON array of extra names
       colour          TEXT,                                              -- NULL = inherited from the parent

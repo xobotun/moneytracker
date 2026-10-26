@@ -29,9 +29,15 @@ describe('row helpers', () => {
   it('readRows returns every row of a table', async () => {
     db = await migratedDb()
     await db.run(
-      `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', ?, ?, ?)`,
-      ['loc-1', 'Home', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
+      `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', ?, ?, ?, ?)`,
+      [
+        'loc-1',
+        'Home',
+        '2026-05-01T00:00:00.000Z',
+        '2026-05-01T00:00:00.000Z',
+        '2026-05-01T00:00:00.000Z',
+      ],
     )
     const rows = await readRows(db, 'tags')
     expect(rows).toHaveLength(1)
@@ -111,6 +117,7 @@ describe('row helpers', () => {
       kind: 'location',
       name: 'First',
       parent_id: null,
+      moved_at_utc: '2026-05-01T00:00:00.000Z',
       description: null,
       synonyms: '[]',
       colour: null,

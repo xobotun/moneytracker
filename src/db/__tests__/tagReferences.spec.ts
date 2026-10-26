@@ -38,9 +38,10 @@ describe('tag references', () => {
     opts: { parent?: ShortId; deleted?: boolean } = {},
   ): Promise<ShortId> {
     await db.run(
-      `INSERT INTO tags (id, kind, name, parent_id, created_at_utc, updated_at_utc, deleted_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, kind, name, opts.parent ?? null, AT, AT, opts.deleted ? AT : null],
+      `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc,
+                         created_at_utc, updated_at_utc, deleted_at_utc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, kind, name, opts.parent ?? null, AT, AT, AT, opts.deleted ? AT : null],
     )
     return asShortId(id)
   }
@@ -282,10 +283,72 @@ describe('tag references', () => {
     expect(await updatedAt('accounts', 'id', taggedAccount)).toBe(NOW)
     expect(await updatedAt('tags', 'id', child)).toBe(NOW)
     expect(await updatedAt('location_details', 'tag_id', store)).toBe(NOW)
+    // The moved child was moved by the user's merge.
+    expect((await row('tags', 'id', child)).moved_at_utc).toBe(NOW)
     // Rows that did not change keep their timestamps.
     expect(await updatedAt('transactions', 'id', untouched)).toBe(AT)
     expect(await updatedAt('accounts', 'id', otherAccount)).toBe(AT)
-    expect(await updatedAt('tags', 'id', merchantY)).toBe(AT)
+    expect(await row('tags', 'id', merchantY)).toMatchObject({
+      updated_at_utc: AT,
+      moved_at_utc: AT,
+    })
+  })
+
+  it('rewrites deleted rows without stamping them', async () => {
+    // A stamp would make an old delete look new to sync ("delete wins" would
+    // drop another device's restore of the row).
+    const x = await tag('tagX00000001', 'tag', 'job')
+    const y = await tag('tagY00000001', 'tag', 'work')
+    const merchantX = await tag('merchX000001', 'merchant', 'X')
+    const merchantY = await tag('merchY000001', 'merchant', 'Y')
+    const foodX = await tag('foodX0000001', 'category', 'Everyday food')
+    const foodY = await tag('foodY0000001', 'category', 'Groceries')
+    const oldChild = await tag('child0000001', 'merchant', 'X Express', {
+      parent: merchantX,
+      deleted: true,
+    })
+    const store = await tag('store0000001', 'location', 'X store')
+    await db.run(
+      `INSERT INTO location_details (tag_id, merchant_id, created_at_utc, updated_at_utc,
+                                     deleted_at_utc)
+       VALUES (?, ?, ?, ?, ?)`,
+      [store, merchantX, AT, AT, AT],
+    )
+    const t = await transaction({
+      tags: [x],
+      merchant: merchantX,
+      categories: [[foodX, 100, 2, 100, 2]],
+      deleted: true,
+    })
+    const closed = await account('acc000000001', { tags: [x], deleted: true })
+
+    await db.transaction(async (tx) => {
+      await redirectTagReferences(tx, x, y, { bump: true, now: NOW })
+      await redirectTagReferences(tx, merchantX, merchantY, { bump: true, now: NOW })
+      await redirectTagReferences(tx, foodX, foodY, { bump: true, now: NOW })
+    })
+
+    expect(await row('transactions', 'id', t)).toMatchObject({
+      tags: JSON.stringify([y]),
+      merchant_id: merchantY,
+      updated_at_utc: AT,
+    })
+    expect(JSON.parse((await row('transactions', 'id', t)).categories as string)).toEqual([
+      expect.objectContaining({ category_id: foodY }),
+    ])
+    expect(await row('accounts', 'id', closed)).toMatchObject({
+      tags: JSON.stringify([y]),
+      updated_at_utc: AT,
+    })
+    expect(await row('tags', 'id', oldChild)).toMatchObject({
+      parent_id: merchantY,
+      updated_at_utc: AT,
+      moved_at_utc: AT,
+    })
+    expect(await row('location_details', 'tag_id', store)).toMatchObject({
+      merchant_id: merchantY,
+      updated_at_utc: AT,
+    })
   })
 
   it('leaves timestamps alone without bump', async () => {
@@ -305,7 +368,11 @@ describe('tag references', () => {
       tags: JSON.stringify([y]),
       updated_at_utc: AT,
     })
-    expect(await row('tags', 'id', child)).toMatchObject({ parent_id: y, updated_at_utc: AT })
+    expect(await row('tags', 'id', child)).toMatchObject({
+      parent_id: y,
+      updated_at_utc: AT,
+      moved_at_utc: AT,
+    })
   })
 
   it('never puts the target under itself', async () => {

@@ -43,9 +43,10 @@ describe('domain schema migration', () => {
   describe('tags', () => {
     const insertTag = (id: string, kind: string, parentId: string | null = null, synonyms = '[]') =>
       db.run(
-        `INSERT INTO tags (id, kind, name, parent_id, synonyms, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [id, kind, `Tag ${id}`, parentId, synonyms, AT, AT],
+        `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, synonyms,
+                           created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, kind, `Tag ${id}`, parentId, AT, synonyms, AT, AT],
       )
 
     it('accepts the five kinds', async () => {
@@ -87,9 +88,9 @@ describe('domain schema migration', () => {
 
   it('enforces FK from accounts.location_id to tags.id', async () => {
     await db.run(
-      `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc)
-       VALUES ('loc', 'location', 'Home', ?, ?)`,
-      [AT, AT],
+      `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES ('loc', 'location', 'Home', ?, ?, ?)`,
+      [AT, AT, AT],
     )
     const insertAccount = (id: string, locationId: string) =>
       db.run(

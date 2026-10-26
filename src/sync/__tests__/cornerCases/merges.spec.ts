@@ -19,13 +19,12 @@ describe('tag merges on several devices', () => {
   /** The plain-tag ids of each live transaction. */
   const tagsOnTransactions = async (d: Device) => (await d.transactions.list()).map((t) => t.tags)
 
-  // BUG: A merges X into Y (Y gets X's name as a synonym), B merges Y into Z
-  // (Z gets Y's name). Delete wins on Y, so A's synonym edit of Y is dropped
-  // and X's name ends nowhere live: typing or importing "job" no longer finds
-  // the tag (§2.5: X's name and synonyms become synonyms of the target). The
-  // repair follows the chain for references only (src/sync/repairTags.ts,
-  // chainEnds / redirectTagReferencesByMap), not for names.
-  it.fails('keeps every merged name findable along a merge chain made on two devices', async () => {
+  // A merges X into Y (Y gets X's name as a synonym), B merges Y into Z (Z
+  // gets Y's name). Delete wins on Y, so A's synonym edit of Y is dropped and
+  // no live tag holds X's name "job" (§2.5: X's name and synonyms become
+  // synonyms of the target). Sync does not rewrite synonyms; the lookup finds
+  // the name on X's merged tombstone and follows the merge chain to Z.
+  it('keeps every merged name findable along a merge chain made on two devices', async () => {
     const [a, b] = (world = await openPair()).devices
     let x!: ShortId, y!: ShortId, z!: ShortId
     await start(world, async (d) => {
@@ -99,6 +98,9 @@ describe('tag merges on several devices', () => {
   // `oneMillisecondAfter(node.updatedAt)`, the merged row's time). C's edit
   // of minute 3 then counts as newer and wins: the latest edit of Y, A's
   // rename, is lost on every device.
+  // Deliberately failing until the restore-stamp ruling is revised: "max(cycle's latest, the
+  // restored row's updated_at_utc) + 1 ms" restamps a restore of a restore one millisecond later, so
+  // convergence.spec.ts "after a merge cycle is broken…" no longer converges in one sync (see task-F1-report.md).
   it.fails('keeps a newer edit carried by a merge-cycle restore', async () => {
     const [a, b, c] = (world = await openTrio()).devices
     let x!: ShortId, y!: ShortId
@@ -242,15 +244,13 @@ describe('tag merges on several devices', () => {
     }
   })
 
-  // BUG: X was deleted and synced long ago. A restores it (minute 2); B,
+  // X was deleted and synced long ago. A restores it (minute 2); B,
   // meanwhile, merges X's parent P into Q (minute 1), and the merge moves
-  // X's tombstone under Q with a bumped timestamp. Both rows changed since
-  // the cutoff, B's is deleted, so "delete wins" (src/sync/resolveConflict.ts)
-  // drops A's restore — although nobody deleted X concurrently: the rule is
-  // for a delete against an edit, and B's delete is the old, synced one. The
-  // merge bumps rows of any liveness (src/db/tagReferences.ts, the children
-  // UPDATE in redirectTagReferencesByMap).
-  it.fails('keeps a restore when the other device merged the restored tag’s parent', async () => {
+  // X's tombstone under Q. Were the tombstone bumped, both rows would count
+  // as changed since the cutoff and "delete wins" would drop A's restore —
+  // although nobody deleted X concurrently. A merge bumps live rows only
+  // (src/db/tagReferences.ts), so A's restore is the only change to X.
+  it('keeps a restore when the other device merged the restored tag’s parent', async () => {
     const [a, b] = (world = await openPair()).devices
     let p!: ShortId, q!: ShortId, x!: ShortId
     await start(world, async (d) => {

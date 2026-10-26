@@ -46,9 +46,9 @@ describe('TransactionsRepository', () => {
     )
 
     await db.run(
-      `INSERT INTO tags (id, kind, name, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', ?, ?, ?)`,
-      [locationId, 'Test Location', now, now],
+      `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', ?, ?, ?, ?)`,
+      [locationId, 'Test Location', now, now, now],
     )
 
     // Every transaction needs a category.

@@ -89,8 +89,11 @@ function redirectParts(parts: readonly CategoryPart[], redirects: TagRedirects):
  * references to deleted tags.
  *
  * `bump`: set `updated_at_utc` to `now` (default: the current instant) on the
- * rewritten rows — a merge is a user edit. Without it, timestamps stay, as
- * for sync repairs that every device computes alike.
+ * rewritten live rows — a merge is a user edit — and `moved_at_utc` on the
+ * live children it moves. Deleted rows are rewritten without a stamp: it
+ * would make an old delete look new to sync, and "delete wins" would then
+ * drop another device's restore of the row. Without `bump`, timestamps stay,
+ * as for sync repairs that every device computes alike.
  */
 export async function redirectTagReferences(
   tx: SqlExecutor,
@@ -119,17 +122,29 @@ export async function redirectTagReferencesByMap(
   const map = new Map([...redirects].filter(([from, to]) => from !== to))
   if (map.size === 0) return
   const now = opts.now ?? instantToColumn(new Date())
-  const bumpSql = opts.bump ? ', updated_at_utc = ?' : ''
-  const bumpParams = opts.bump ? [now] : []
+  /** SET items (and their parameters) that stamp `columns` with `now` on a live row of `table`. */
+  const stamp = (table: string, columns: readonly string[] = ['updated_at_utc']) =>
+    opts.bump
+      ? {
+          sql: columns
+            .map(
+              (c) =>
+                `, ${c} = CASE WHEN ${table}.deleted_at_utc IS NULL THEN ? ELSE ${table}.${c} END`,
+            )
+            .join(''),
+          params: columns.map(() => now),
+        }
+      : { sql: '', params: [] }
   // One JSON object { from: to } — `json_each` reads it as rows (key, value).
   const redirectsJson = JSON.stringify(Object.fromEntries(map))
 
   for (const [table, column] of SINGLE_REFERENCES) {
+    const { sql, params } = stamp(table)
     await tx.run(
-      `UPDATE ${table} SET ${column} = redirect.value${bumpSql}
+      `UPDATE ${table} SET ${column} = redirect.value${sql}
        FROM json_each(?) AS redirect
        WHERE ${table}.${column} = redirect.key`,
-      [...bumpParams, redirectsJson],
+      [...params, redirectsJson],
     )
   }
 
@@ -137,11 +152,12 @@ export async function redirectTagReferencesByMap(
   // make it a child of the source (one device moves Y under X, another merges
   // X into Y), and a tag cannot be its own parent. It keeps the merged source
   // as its parent, which the sync repair has to lift.
+  const children = stamp('tags', ['updated_at_utc', 'moved_at_utc'])
   await tx.run(
-    `UPDATE tags SET parent_id = redirect.value${bumpSql}
+    `UPDATE tags SET parent_id = redirect.value${children.sql}
      FROM json_each(?) AS redirect
      WHERE tags.parent_id = redirect.key AND tags.id <> redirect.value`,
-    [...bumpParams, redirectsJson],
+    [...children.params, redirectsJson],
   )
 
   // JSON columns: rewritten here, then written back in one statement per
@@ -161,11 +177,12 @@ export async function redirectTagReferencesByMap(
       }
     }
     if (rewritten.length === 0) return
+    const { sql, params } = stamp(table)
     await tx.run(
-      `UPDATE ${table} SET ${column} = json_extract(rewritten.value, '$.value')${bumpSql}
+      `UPDATE ${table} SET ${column} = json_extract(rewritten.value, '$.value')${sql}
        FROM json_each(?) AS rewritten
        WHERE ${table}.id = json_extract(rewritten.value, '$.id')`,
-      [...bumpParams, JSON.stringify(rewritten)],
+      [...params, JSON.stringify(rewritten)],
     )
   }
 
@@ -221,4 +238,23 @@ export async function countTagUsage(db: SqlExecutor, id: ShortId): Promise<numbe
     [id],
   )
   return rows[0]!.uses
+}
+
+/**
+ * The deleted, unmerged categories that a live transaction's category parts
+ * use, by id — what sync brings together when one device deletes a category
+ * another device still records on (decisions §2.5: a category in use cannot
+ * be deleted). A merged one is left out: its references move to its target.
+ * A malformed categories value (not a list of parts) does not count.
+ */
+export async function deletedCategoriesInUse(db: SqlExecutor): Promise<ShortId[]> {
+  const rows = await db.exec<{ id: ShortId }>(
+    `SELECT c.id FROM tags c
+     WHERE c.kind = 'category' AND c.deleted_at_utc IS NOT NULL AND c.merged_into_id IS NULL
+       AND EXISTS (SELECT 1 FROM transactions t
+                   WHERE t.deleted_at_utc IS NULL
+                     AND ${arrayHas('t.categories', `${PART_CATEGORY_ID} = c.id`)})
+     ORDER BY c.id`,
+  )
+  return rows.map((row) => row.id)
 }

@@ -29,17 +29,23 @@ export interface RemoteState {
 /**
  * How a row-level conflict was resolved. `loop-undone`: the merge combined two
  * changes into a parent loop or a merge cycle of tags, and the later change
- * was undone (see `repairTags`).
+ * was undone. `delete-undone`: the merge left a live transaction on a deleted
+ * category, and the category's delete was undone (see `repairTags`).
  */
-export type ConflictResolution = 'delete-wins' | 'rank-wins' | 'latest-update-wins' | 'loop-undone'
+export type ConflictResolution =
+  | 'delete-wins'
+  | 'rank-wins'
+  | 'latest-update-wins'
+  | 'loop-undone'
+  | 'delete-undone'
 
 /**
  * A row that was modified on both sides since the merge cutoff, or a tag
- * whose later change the post-merge repair undid. `local` / `remote` are the
- * row as each side had it before the merge — an empty object when a side
- * lacked it (only a repair can involve such a row). `winner` is the side whose
- * version was kept; for `loop-undone`, the side whose parent or liveness the
- * tag went back to.
+ * whose change the post-merge repair undid. `local` / `remote` are the row as
+ * each side had it before the merge — an empty object when a side lacked it
+ * (only a repair can involve such a row). `winner` is the side whose version
+ * was kept; for `loop-undone` and `delete-undone`, the side whose parent or
+ * liveness the tag went back to.
  */
 export interface SyncConflict {
   table: string

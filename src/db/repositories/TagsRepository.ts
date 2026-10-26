@@ -1,6 +1,7 @@
 import type { Database, SqlExecutor } from '../Database'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues, TagKind } from '../types'
-import { newShortId, type ShortId } from '../shortId'
+import { asShortId, newShortId, type ShortId } from '../shortId'
+import { mergeChainEnd } from '../mergeChain'
 import {
   CategoryInUseError,
   DuplicateTagNameError,
@@ -31,6 +32,7 @@ export type TagRow = {
   kind: string
   name: string
   parent_id: string | null
+  moved_at_utc: string
   description: string | null
   synonyms: string
   colour: string | null
@@ -65,6 +67,7 @@ export function rowToTag(row: TagRow): Tag {
     kind: row.kind as TagKind, // the CHECK constraint allows only TagKind values
     name: row.name,
     parent_id: shortIdFromNullableColumn(row.parent_id),
+    moved_at_utc: instantFromColumn(row.moved_at_utc),
     description: row.description,
     synonyms: jsonArrayFromColumn<string>(row.synonyms),
     colour: row.colour,
@@ -84,6 +87,15 @@ function foldCase(name: string): string {
 /** Everything a tag is found by: its name and its synonyms. */
 function namesOf(tag: Pick<Tag, 'name' | 'synonyms'>): string[] {
   return [tag.name, ...tag.synonyms]
+}
+
+/** The tags called `key` (case-folded): main names first, then synonyms, each in the given order. */
+function byName(tags: readonly Tag[], key: string): Tag[] {
+  const named = tags.filter((t) => foldCase(t.name) === key)
+  return [
+    ...named,
+    ...tags.filter((t) => !named.includes(t) && t.synonyms.some((s) => foldCase(s) === key)),
+  ]
 }
 
 async function selectTag(ex: SqlExecutor, id: ShortId, liveOnly: boolean): Promise<Tag | null> {
@@ -218,14 +230,15 @@ export class TagsRepository {
       if (parentId !== null) await assertParent(tx, input.kind, parentId)
       await assertNamesFree(tx, input.kind, parentId, [input.name, ...synonyms])
       await tx.run(
-        `INSERT INTO tags (id, kind, name, parent_id, description, synonyms, colour, icon,
-                           created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, description, synonyms, colour,
+                           icon, created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           input.kind,
           input.name,
           parentId,
+          now,
           optionalTextToColumn(input.description),
           jsonArrayToColumn(synonyms),
           optionalTextToColumn(input.colour),
@@ -268,10 +281,39 @@ export class TagsRepository {
    * case. `parentId`: null = top level only; undefined = under any parent.
    * Among several matches (sync duplicates, or other parents) a main name
    * beats a synonym, then the oldest tag wins.
+   *
+   * When no live tag matches, the merged tags of `kind` (under `parentId`)
+   * are matched the same way, and the answer is the live tag at the end of
+   * the first match's merge chain whose end is live. A merge gives the
+   * target the source's names, but sync does not carry them along a chain
+   * merged on two devices (X into Y here, Y into Z there: Z lacks X's names).
    */
   async findByName(kind: TagKind, name: string, parentId?: ShortId | null): Promise<Tag | null> {
+    const key = foldCase(name)
+    const live = byName(await this.selectNamed(kind, 'deleted_at_utc IS NULL', parentId), key)
+    if (live.length > 0) return live[0]!
+    const merged = byName(await this.selectNamed(kind, 'merged_into_id IS NOT NULL', parentId), key)
+    if (merged.length === 0) return null
+    const links = await this.db.exec<{ id: string; merged_into_id: string | null; live: number }>(
+      'SELECT id, merged_into_id, deleted_at_utc IS NULL AS live FROM tags WHERE kind = ?',
+      [kind],
+    )
+    const byId = new Map(links.map((link) => [link.id, link]))
+    for (const tag of merged) {
+      const end = mergeChainEnd(tag.id, (id) => byId.get(id)?.merged_into_id ?? null)
+      if (end !== null && byId.get(end)?.live === 1) return selectTag(this.db, asShortId(end), true)
+    }
+    return null
+  }
+
+  /** Tags of `kind` matching `filter` (SQL), under `parentId` when given, oldest first. */
+  private async selectNamed(
+    kind: TagKind,
+    filter: string,
+    parentId: ShortId | null | undefined,
+  ): Promise<Tag[]> {
     const params: unknown[] = [kind]
-    let where = 'kind = ? AND deleted_at_utc IS NULL'
+    let where = `kind = ? AND ${filter}`
     if (parentId !== undefined) {
       where += ' AND parent_id IS ?'
       params.push(parentId)
@@ -280,13 +322,7 @@ export class TagsRepository {
       `SELECT * FROM tags WHERE ${where} ORDER BY created_at_utc, id`,
       params,
     )
-    const key = foldCase(name)
-    const tags = rows.map(rowToTag)
-    return (
-      tags.find((t) => foldCase(t.name) === key) ??
-      tags.find((t) => t.synonyms.some((s) => foldCase(s) === key)) ??
-      null
-    )
+    return rows.map(rowToTag)
   }
 
   /**
@@ -348,11 +384,10 @@ export class TagsRepository {
         if (path) throw new TagLoopError(path)
       }
       await assertNamesFree(tx, tag.kind, parentId, namesOf(tag), id)
-      await tx.run('UPDATE tags SET parent_id = ?, updated_at_utc = ? WHERE id = ?', [
-        parentId,
-        now,
-        id,
-      ])
+      await tx.run(
+        'UPDATE tags SET parent_id = ?, moved_at_utc = ?, updated_at_utc = ? WHERE id = ?',
+        [parentId, now, now, id],
+      )
     })
   }
 
