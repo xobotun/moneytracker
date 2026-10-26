@@ -148,6 +148,39 @@ describe('ExchangeRatesRepository', () => {
     expect(found).toHaveLength(0)
   })
 
+  describe('save, listBetween, newestDate', () => {
+    const input = {
+      date: '2026-10-20',
+      base_currency: 'EUR',
+      rates: { USD: 1.1 },
+      provider: 'fawazahmed0',
+    }
+
+    it('inserts, then updates the rates, then reports an unchanged save', async () => {
+      expect(await repo.save(input)).toBe(true)
+      expect(await repo.save({ ...input, rates: { USD: 1.2, GBP: 0.9 } })).toBe(true)
+      expect(await repo.save({ ...input, rates: { USD: 1.2, GBP: 0.9 } })).toBe(false)
+      const rows = await repo.findRates('2026-10-20', 'EUR')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.rates).toEqual({ USD: 1.2, GBP: 0.9 })
+    })
+
+    it('lists the rows between two dates, both included', async () => {
+      for (const date of ['2026-10-12', '2026-10-13', '2026-10-20', '2026-10-21']) {
+        await repo.save({ ...input, date })
+      }
+      const rows = await repo.listBetween('2026-10-13', '2026-10-20')
+      expect(rows.map((r) => r.date).sort()).toEqual(['2026-10-13', '2026-10-20'])
+    })
+
+    it('knows the newest date it holds', async () => {
+      expect(await repo.newestDate()).toBeNull()
+      await repo.save({ ...input, date: '2026-10-12' })
+      await repo.save({ ...input, date: '2026-10-21', provider: 'other' })
+      expect(await repo.newestDate()).toBe('2026-10-21')
+    })
+  })
+
   describe('deterministic id from (date, base_currency, provider)', () => {
     const input = {
       date: '2026-05-20',
@@ -156,7 +189,7 @@ describe('ExchangeRatesRepository', () => {
       provider: 'openexchangerates',
     }
 
-    it('gives the same id on two independent databases (devices), so sync merges them as one row', async () => {
+    it('gives the same id for the same key on every database', async () => {
       const otherDb = new Database()
       await otherDb.init()
       try {

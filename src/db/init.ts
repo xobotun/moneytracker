@@ -6,8 +6,12 @@ import { TagsRepository } from './repositories/TagsRepository'
 import { LocationsRepository } from './repositories/LocationsRepository'
 import { AccountsRepository } from './repositories/AccountsRepository'
 import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
+import { AppliedRatesRepository } from './repositories/AppliedRatesRepository'
 import { AccountGroupingsRepository } from './repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from './repositories/TransactionsRepository'
+import { RateService } from '../money/rateService'
+import { PROVIDERS } from '../money/providers'
+import { todayLocal } from '../money/dates'
 import type { SyncBackend } from '../sync/SyncBackend'
 import { buildBackend } from '../sync/backendFactory'
 import { loadProviderConfig, saveSyncError, type ProviderConfig } from '../sync/localState'
@@ -22,8 +26,10 @@ let tagsRepository: TagsRepository | null = null
 let locationsRepository: LocationsRepository | null = null
 let accountsRepository: AccountsRepository | null = null
 let exchangeRatesRepository: ExchangeRatesRepository | null = null
+let appliedRatesRepository: AppliedRatesRepository | null = null
 let accountGroupingsRepository: AccountGroupingsRepository | null = null
 let transactionsRepository: TransactionsRepository | null = null
+let rateService: RateService | null = null
 
 export async function initDatabase(): Promise<void> {
   database = new Database()
@@ -34,8 +40,15 @@ export async function initDatabase(): Promise<void> {
   locationsRepository = new LocationsRepository(database)
   accountsRepository = new AccountsRepository(database)
   exchangeRatesRepository = new ExchangeRatesRepository(database)
+  appliedRatesRepository = new AppliedRatesRepository(database)
   accountGroupingsRepository = new AccountGroupingsRepository(database)
   transactionsRepository = new TransactionsRepository(database)
+  rateService = new RateService({
+    exchangeRates: exchangeRatesRepository,
+    appliedRates: appliedRatesRepository,
+    providers: PROVIDERS,
+    today: () => todayLocal(),
+  })
 
   // Build the sync backend from the stored provider config. null when the
   // user has not configured a provider; Settings.vue's "Sync now" button
@@ -116,6 +129,12 @@ export function getExchangeRatesRepository(): ExchangeRatesRepository {
   return exchangeRatesRepository
 }
 
+export function getAppliedRatesRepository(): AppliedRatesRepository {
+  if (!appliedRatesRepository)
+    throw new Error('Database not initialized. Call initDatabase() first.')
+  return appliedRatesRepository
+}
+
 export function getAccountGroupingsRepository(): AccountGroupingsRepository {
   if (!accountGroupingsRepository)
     throw new Error('Database not initialized. Call initDatabase() first.')
@@ -126,6 +145,12 @@ export function getTransactionsRepository(): TransactionsRepository {
   if (!transactionsRepository)
     throw new Error('Database not initialized. Call initDatabase() first.')
   return transactionsRepository
+}
+
+/** Resolves and refreshes exchange rates (see src/money/rateService.ts). */
+export function getRateService(): RateService {
+  if (!rateService) throw new Error('Database not initialized. Call initDatabase() first.')
+  return rateService
 }
 
 /** Closes the database and resets module-level singletons. Useful for testing. */
@@ -140,6 +165,8 @@ export async function closeDatabase(): Promise<void> {
   locationsRepository = null
   accountsRepository = null
   exchangeRatesRepository = null
+  appliedRatesRepository = null
   accountGroupingsRepository = null
   transactionsRepository = null
+  rateService = null
 }

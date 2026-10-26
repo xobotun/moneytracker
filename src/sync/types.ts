@@ -27,7 +27,7 @@ export interface RemoteState {
 }
 
 /** How a row-level conflict was resolved. */
-export type ConflictResolution = 'delete-wins' | 'latest-update-wins'
+export type ConflictResolution = 'delete-wins' | 'rank-wins' | 'latest-update-wins'
 
 /** A row that was modified on both sides since the merge cutoff. */
 export interface SyncConflict {

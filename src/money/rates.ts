@@ -1,57 +1,37 @@
-import type { ExchangeRate } from '@/db/types'
+import type { AppliedRate } from '@/db/types'
 
-// PLACEHOLDER — how exchange rates are applied is not decided yet (which
-// provider wins, which date counts, whether cross rates are fine, when a rate
-// is too old). Until it is, conversions for display follow these rules:
-//
-//   1. Only the newest date that has any rates is used, for every conversion
-//      ("now" amounts such as account balances).
-//   2. On that date, providers are tried by name, ascending; within a
-//      provider, rows by base currency. The first row that can convert wins.
-//   3. A row converts between any two currencies it lists, through its base:
-//      rates[c] is how much of c one unit of the base buys (the base is 1).
-//   4. Nothing can convert → null; the UI shows that the rate is missing.
+// The rates of one day, for converting amounts on screen. Built from that
+// day's `applied_rates` rows — the rates resolved by the rules in
+// docs/plans/2026-10-25-exchange-rates-decisions.md (see resolveRate.ts and
+// rateService.ts), or the user's overrides.
 //
 // Converted amounts are approximations for display — never stored, never
 // added to the money in an account.
 
+type Lookup = (from: string, to: string) => number | null
+
 export class RateTable {
   private constructor(
-    /** The rows of one date, in the order they are tried. */
-    private readonly rows: readonly ExchangeRate[],
+    /** Units of `to` per one `from`, or null; never asked for one currency. */
+    private readonly rateOf: Lookup,
   ) {}
 
-  static readonly empty = new RateTable([])
+  static readonly empty = new RateTable(() => null)
 
-  /** A table from `rows`, keeping only those of the newest date among them. */
-  static fromRows(rows: readonly ExchangeRate[]): RateTable {
-    const newest = rows.reduce<string | null>(
-      (d, r) => (d === null || r.date > d ? r.date : d),
-      null,
-    )
-    const sameDay = rows.filter((r) => r.date === newest)
-    sameDay.sort((a, b) =>
-      a.provider === b.provider
-        ? a.base_currency.localeCompare(b.base_currency)
-        : a.provider.localeCompare(b.provider),
-    )
-    return new RateTable(sameDay)
+  /** A table over one day's applied rates (pairs stored alphabetically). */
+  static fromApplied(rows: readonly AppliedRate[]): RateTable {
+    const rates = new Map(rows.map((r) => [`${r.currency_a}>${r.currency_b}`, r.rate]))
+    return new RateTable((from, to) => {
+      const rate = from < to ? rates.get(`${from}>${to}`) : rates.get(`${to}>${from}`)
+      if (rate === undefined || rate === null) return null
+      return from < to ? rate : 1 / rate
+    })
   }
 
-  /** The date the rates are from, or null when there are none. */
-  get date(): string | null {
-    return this.rows[0]?.date ?? null
-  }
-
-  /** `value` of `from` in `to`, or null when no row can convert it. */
+  /** `value` of `from` in `to`, or null when there is no rate for the pair. */
   convert(value: number, from: string, to: string): number | null {
     if (from === to) return value
-    for (const row of this.rows) {
-      const rateOf = (c: string) => (c === row.base_currency ? 1 : row.rates[c])
-      const fromRate = rateOf(from)
-      const toRate = rateOf(to)
-      if (fromRate && toRate) return (value / fromRate) * toRate
-    }
-    return null
+    const rate = this.rateOf(from, to)
+    return rate === null ? null : value * rate
   }
 }

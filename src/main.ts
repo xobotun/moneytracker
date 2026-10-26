@@ -12,6 +12,7 @@ import router from './router'
 import { initDatabase } from './db/init'
 import { useLayoutStore } from './stores/layout'
 import { useMoneySettingsStore } from './stores/moneySettings'
+import { useRatesStore } from './stores/rates'
 import { themePresets } from './stores/layout-types'
 import { showStartupError } from './startupScreen'
 
@@ -41,6 +42,12 @@ async function bootstrap(): Promise<void> {
   document.documentElement.classList.toggle('dark', layoutStore.isDark)
 
   app.mount('#app')
+
+  // Fetch the newest exchange rates in the background when the stored ones are
+  // older than yesterday; the app works on whatever it has meanwhile.
+  useRatesStore()
+    .refreshIfStale()
+    .catch((e) => console.warn('Could not refresh the exchange rates.', e))
 }
 
 bootstrap().catch((err) => {

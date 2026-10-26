@@ -70,6 +70,25 @@ export interface ExchangeRate {
   deleted_at_utc: Date | null
 }
 
+/**
+ * The rate the app uses for one day and one currency pair — resolved from the
+ * reference rates (`ExchangeRate`) or entered by hand (provider 'manual').
+ * One row per (date, currency_a, currency_b) with currency_a < currency_b.
+ */
+export interface AppliedRate {
+  id: UUID
+  date: string // 'YYYY-MM-DD' the day the rate applies to
+  currency_a: string
+  currency_b: string
+  rate: number | null // units of currency_b per 1 currency_a; null = none found
+  provider: string | null // 'manual', a provider id, or 'p1+p2' for a cross over two; null = none found
+  via: string | null // the intermediate currency of a cross rate; null = direct
+  reference_date: string | null // 'YYYY-MM-DD' the data comes from; null = none found
+  created_at_utc: Date
+  updated_at_utc: Date
+  deleted_at_utc: Date | null
+}
+
 export interface AccountGrouping {
   id: UUID
   name: string

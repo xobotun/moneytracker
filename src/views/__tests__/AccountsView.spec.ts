@@ -10,7 +10,13 @@ import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRe
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
-import type { ExchangeRate } from '@/db/types'
+import { AppliedRatesRepository } from '@/db/repositories/AppliedRatesRepository'
+import { ExchangeRatesRepository } from '@/db/repositories/ExchangeRatesRepository'
+import { todayLocal } from '@/money/dates'
+import type { ExchangeRateInput } from '@/money/providers'
+import { RateService } from '@/money/rateService'
+import { formatDay } from '@/format/date'
+import { useMoneySettingsStore } from '@/stores/moneySettings'
 import type { UUID } from '@/db/uuid'
 import { formatApprox, formatMoney } from '@/format/currency'
 import AccountsView from '../AccountsView.vue'
@@ -19,11 +25,15 @@ import AccountsView from '../AccountsView.vue'
 // module-level repository registry is replaced.
 let accountsRepo: AccountsRepository
 let groupingsRepo: AccountGroupingsRepository
-let rateRows: ExchangeRate[] = []
+let appliedRepo: AppliedRatesRepository
+let rateService: RateService
+// What the fake rate source publishes; a function may throw (source down).
+let sourceAnswers: ExchangeRateInput[] | (() => ExchangeRateInput[]) = []
 let transactionsRepo: TransactionsRepository
 vi.mock('@/db/init', () => ({
   getAccountsRepository: () => accountsRepo,
-  getExchangeRatesRepository: () => ({ latest: async () => rateRows }),
+  getAppliedRatesRepository: () => appliedRepo,
+  getRateService: () => rateService,
   getAccountGroupingsRepository: () => groupingsRepo,
   getTransactionsRepository: () => transactionsRepo,
 }))
@@ -64,7 +74,7 @@ describe('AccountsView', () => {
   })
 
   beforeEach(async () => {
-    rateRows = []
+    sourceAnswers = []
     pinia = createPinia()
     setActivePinia(pinia)
     db = new Database()
@@ -73,6 +83,20 @@ describe('AccountsView', () => {
     accountsRepo = new AccountsRepository(db)
     groupingsRepo = new AccountGroupingsRepository(db)
     transactionsRepo = new TransactionsRepository(db)
+    appliedRepo = new AppliedRatesRepository(db)
+    rateService = new RateService({
+      exchangeRates: new ExchangeRatesRepository(db),
+      appliedRates: appliedRepo,
+      providers: [
+        {
+          id: 'source',
+          priority: 20,
+          fetchDay: async () =>
+            typeof sourceAnswers === 'function' ? sourceAnswers() : sourceAnswers,
+        },
+      ],
+      today: () => todayLocal(),
+    })
   })
 
   afterEach(async () => {
@@ -479,19 +503,24 @@ describe('AccountsView', () => {
       })
     }
 
-    function eurRates(rates: Record<string, number>) {
-      rateRows = [
-        {
-          id: 'r' as UUID,
-          date: '2026-10-24',
-          base_currency: 'EUR',
-          rates,
-          provider: 'test',
-          created_at_utc: new Date(),
-          updated_at_utc: new Date(),
-          deleted_at_utc: null,
-        },
-      ]
+    /** Today's applied rates EUR → each code, as if resolved earlier. */
+    async function eurRates(rates: Record<string, number>) {
+      const today = todayLocal()
+      for (const [code, rate] of Object.entries(rates)) {
+        await appliedRepo.saveAuto({
+          date: today,
+          x: 'EUR',
+          y: code,
+          resolution: { rate, provider: 'test', via: null, referenceDate: today },
+        })
+      }
+    }
+
+    /** Mounts and waits for the background rate work and its re-render. */
+    async function mountSettled() {
+      const w = await mountView()
+      await settle()
+      return w
     }
 
     const rowText = (w: VueWrapper, name: string) =>
@@ -501,12 +530,12 @@ describe('AccountsView', () => {
         .text()
 
     it('shows each balance natively, and ≈ EUR for another currency', async () => {
-      eurRates({ USD: 2 })
+      await eurRates({ USD: 2 })
       const cash = await accountIn('Cash', 'EUR')
       const card = await accountIn('Card', 'USD')
       await income(cash.id, 1250, 'EUR')
       await income(card.id, 1000, 'USD')
-      const w = await mountView()
+      const w = await mountSettled()
 
       expect(rowText(w, 'Cash')).toContain(formatMoney(moneyAmount(1250, 2, 'EUR')))
       expect(rowText(w, 'Cash')).not.toContain('≈')
@@ -516,12 +545,12 @@ describe('AccountsView', () => {
 
     it('says when there is no rate to the base currency', async () => {
       await accountIn('Card', 'USD')
-      const w = await mountView()
+      const w = await mountSettled()
       expect(rowText(w, 'Card')).toContain('no USD → EUR rate')
     })
 
     it('totals a one-currency group natively, a mixed page in EUR only', async () => {
-      eurRates({ USD: 2 })
+      await eurRates({ USD: 2 })
       const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
       const a = await accountIn('Card A', 'USD', trip.id)
       const b = await accountIn('Card B', 'USD', trip.id)
@@ -529,7 +558,7 @@ describe('AccountsView', () => {
       await income(a.id, 300, 'USD')
       await income(b.id, 100, 'USD')
       await income(cash.id, 1000, 'EUR')
-      const w = await mountView()
+      const w = await mountSettled()
 
       const header = w.find('section[aria-label="Trip"] > div').text()
       expect(header).toContain(formatMoney(moneyAmount(400, 2, 'USD')))
@@ -541,16 +570,76 @@ describe('AccountsView', () => {
     })
 
     it('shows a partial total as a bound, naming the currencies without a rate', async () => {
-      eurRates({ USD: 2 })
+      await eurRates({ USD: 2 })
       const cash = await accountIn('Cash', 'EUR')
       const dubai = await accountIn('Dubai', 'AED')
       await income(cash.id, 1000, 'EUR')
       await income(dubai.id, 500, 'AED')
-      const w = await mountView()
+      const w = await mountSettled()
 
       const total = w.find('[aria-label="Total of all accounts"]').text()
       expect(total).toContain(`≥ ${formatApprox({ value: 10, currency: 'EUR' })}`)
       expect(total).toContain('no AED → EUR rate')
+    })
+
+    const published = (rates: Record<string, number>): ExchangeRateInput[] => [
+      { date: todayLocal(), base_currency: 'EUR', provider: 'source', rates },
+    ]
+
+    it('fetches a missing rate in the background and then shows it', async () => {
+      sourceAnswers = published({ USD: 2 })
+      const card = await accountIn('Card', 'USD')
+      await income(card.id, 1000, 'USD')
+      const w = await mountView()
+
+      await vi.waitFor(() =>
+        expect(rowText(w, 'Card')).toContain(`≈ ${formatApprox({ value: 5, currency: 'EUR' })}`),
+      )
+    })
+
+    it('resolves new pairs when the base currency changes', async () => {
+      sourceAnswers = published({ USD: 2 })
+      const cash = await accountIn('Cash', 'EUR')
+      await income(cash.id, 1250, 'EUR')
+      const w = await mountSettled()
+      expect(rowText(w, 'Cash')).not.toContain('≈')
+
+      useMoneySettingsStore(pinia).baseCurrency = 'USD'
+
+      await vi.waitFor(() =>
+        expect(rowText(w, 'Cash')).toContain(`≈ ${formatApprox({ value: 25, currency: 'USD' })}`),
+      )
+    })
+
+    it('refreshes the rates with the page button and says how new they are', async () => {
+      sourceAnswers = published({ USD: 2 })
+      await accountIn('Card', 'USD')
+      const w = await mountSettled()
+
+      buttonByText('Refresh rates').click()
+
+      await vi.waitFor(() =>
+        expect(w.text()).toContain(
+          `Rates refreshed: the newest are from ${formatDay(todayLocal())}.`,
+        ),
+      )
+    })
+
+    it('refresh failure is reported', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      sourceAnswers = () => {
+        throw new TypeError('Failed to fetch')
+      }
+      await accountIn('Card', 'USD')
+      const w = await mountSettled()
+
+      buttonByText('Refresh rates').click()
+
+      await vi.waitFor(() =>
+        expect(w.text()).toContain(
+          'Could not refresh the rates. None of the rate sources answered.',
+        ),
+      )
     })
 
     it('rebuilds stale balances with the page button and says so', async () => {

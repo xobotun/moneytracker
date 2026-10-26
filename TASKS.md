@@ -257,9 +257,65 @@ exercised end-to-end.
 - Yellow "Recalculate balances" button below the list (all accounts) and
   "Recalculate" next to Delete in the account dialog (that account); both
   say whether anything was off
-- Conversions use the PLACEHOLDER rate rules in `src/money/rates.ts` (see
-  Exchange rates under To Do); the `exchange_rates` table is empty until a
-  fetcher exists, so ≈ amounts show "no … rate" for now
+- Conversions use today's applied exchange rates (see Exchange rates — phase 1)
+
+### Exchange rates — phase 1
+
+Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md):
+
+- Providers in code with a `priority` (`src/money/providers.ts`; equal = one
+  level): `manual` 0, central banks 10 (phase 2), fawazahmed0 20,
+  openexchangerates 30 (phase 3)
+- Pure resolution rules (`src/money/resolveRate.ts`): per level a direct rate
+  (either direction), else a cross through one currency (legs may come from
+  two providers of the level), else the next level; newest rate on or before
+  the day, up to 7 days back; `isFinal` / `isBetter` keep rows from
+  downgrading
+- fawazahmed0 provider: its EUR file only (the other bases are crosses), CDN
+  then the Pages mirror, `latest` for today and yesterday (fetched past the
+  browser cache: jsDelivr marks it cacheable for a week), a 30 s timeout per
+  request, nothing before 2024-03-02, junk codes dropped
+- `applied_rates` (synced): one row per (date, A < B), `rate` (NULL = none
+  found), `provider` (`manual` = override, `p1+p2` = cross over two),
+  `via`, `reference_date`; repository with `saveAuto` (never over a manual
+  row), `setManual`, `removeManual`. Sync: rows devices compute alike are no
+  conflict and no hash difference (`EQUALITY_IGNORED_COLUMNS`); a conflict
+  goes to the higher `ROW_RANK` — manual > direct > cross > none
+- `exchange_rates` is the device-local reference library (out of
+  `SYNC_TABLES`; rides along unmerged in a SQLite-blob upload), with `save`
+  (upsert), `listBetween`, `newestDate`
+- `RateService` (`src/money/rateService.ts`): `ensure` resolves a day's pairs,
+  fetching each provider day once per session (concurrent callers share the
+  request, failures logged as "nothing there"), NULL rows for pairs nothing
+  resolves; `refresh` fetches every provider's newest and re-resolves the last
+  8 days' non-final rows; `isStale`
+- `useRatesStore`: today's `RateTable`; the Accounts page asks for each
+  account currency → base pair in the background and updates when rates
+  arrive; "Refresh rates" button beside "Recalculate balances" with a status
+  line (a refresh also resolves the pairs in use for the current day, so it
+  works across midnight); the app refreshes at start when the newest rate is older than
+  yesterday
+
+### Exchange rates — phase 2 (app side)
+
+- Central banks from the rates repo ([xobotun/exchange-rates](https://github.com/xobotun/exchange-rates),
+  read from `raw.githubusercontent.com`): one provider per bank — `ecb` EUR,
+  `nbg` GEL, `nbk` KZT, `cba` AMD, `cbr` RUB — on level 10, above
+  fawazahmed0 (`src/money/providers/centralBanks.ts`). A bank asks for
+  `latest` only for today (the repo's `latest` is already today's; every
+  earlier day has its own file), nothing before 2019-12-24, and a day the
+  repo does not hold yet (404) is nothing found. fawazahmed0 and the banks
+  share one file reader (`providers/rateFile.ts`: no-store for `latest`, a
+  30 s timeout)
+- Provider levels and one rank formula live in `src/money/levels.ts`
+  (constants only): `isBetter` and the sync conflict rule (`ROW_RANK`) both
+  rank by it — manual, then level, then direct over cross, "none found" last —
+  so a central bank's cross is never undone on sync by an aggregator's direct
+  rate. The db layer takes `MANUAL_PROVIDER` from there
+- Checked in the browser: today's pairs came from the banks in 6 requests
+  (five `latest` files, plus fawazahmed0 for a code no bank knows); RUB from
+  `cbr` directly, not NBK's cross; a refresh upgraded the previous day's
+  fawazahmed0 rows to bank rates
 
 
 ---
@@ -278,7 +334,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Transactions, tags, locations, exchange rates (accounts and account groupings: done, one store — see Accounts UI)
+    - Transactions, tags, locations (accounts and account groupings: done, one store — see Accounts UI; exchange rates: `useRatesStore` holds today's applied rates)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
@@ -301,11 +357,25 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 ### Exchange rates
 
-- **Decide how rates are applied** (provider priority, which date, cross rates, a stale-rate cutoff) and replace the PLACEHOLDER rules in `src/money/rates.ts`: newest date only, providers by name ascending, convert through a row's base, no rate → shown as missing
-- Fetcher pulling from openexchangerates and fawazahmed0
-- Upsert into `exchange_rates` with the correct `provider` tag (`create` rejects an existing (date, base, provider) key, so the fetcher must update the existing row)
-- Refresh strategy — on app start, on demand, scheduled background
-- UI for browsing rates and overriding specific (date, base, target) entries
+Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-exchange-rates-decisions.md)
+(sources checked, priorities, resolution rules, tables, the rates-repo contract).
+Phases 1 and 2 (the app side) are done (see Done above). Next:
+
+2. Rates repo — live at [xobotun/exchange-rates](https://github.com/xobotun/exchange-rates) (its README is the contract; updated twice a day; history is being backfilled one year at a time). The app reads ECB, NBG, NBK, CBA and CBR from it since 2026-10-26 (see Done). Left:
+    - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days)
+    - Backfill history from the year files (`v1/<bank>/years/<YYYY>/…`, one request per bank and year) instead of one day file per date, once reports or a statement import need many past dates
+3. openexchangerates (App ID per device; priority 30)
+4. UI for manual overrides (`setManual` / `removeManual` exist) and the review list (`applied_rates` rows with `via` set or a NULL rate)
+5. Optional: Google Sheet provider; Czech / Polish central banks (direct CZK ↔ PLN)
+- Transaction form (with the Transactions UI): pre-fill the second amount from the applied rate of the transaction's date (`RateService.ensure(date, …)`); the stored amounts stay the truth
+- Reports: convert each transaction at its own date's applied rate (a leg already in the base currency needs no rate)
+- Follow-ups from the phase-1 review (minor):
+    - `isFinal` freezes a fallback row (resolved from the previous day's data) once its date is before yesterday, even when that date's own publication was never fetched — freeze only once the library holds a top-level row dated on or after it (ECB / CBA weekend rows still need a freeze)
+    - The rates store loads the table only after the service's `ensure` (which may wait on the network), and one pair's failure skips the reload (`Promise.all`); load first, or in `finally`
+    - Settings' conflict text ("deletions win, otherwise the latest edit wins") omits `rank-wins`; applied rates two devices resolved at different times of day (different `reference_date`) count as conflicts — don't count machine-written rows, or break ties by the fresher `reference_date`
+    - A failed fetch is remembered as "nothing there" until Refresh or a reload; no `online` listener. `refreshIfStale` does not check `navigator.onLine`
+    - `refresh` can fetch `latest` twice (keyed under today and yesterday) and re-fetch up to 8 dated files to re-check NULL rows; `resolveRate()` is used only by tests (the service has its own level loop)
+    - `CHECK (currency_a < currency_b)` uses SQLite's UTF-8 byte order, the code JS's UTF-16 order: they differ for some pairs of exotic non-ASCII custom codes (an emoji and a U+E000–U+FFFF character)
 
 ### Aggregation & reporting
 

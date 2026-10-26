@@ -10,15 +10,28 @@ export interface ConflictResult {
  * Resolve a row modified on both sides since the merge cutoff
  * (see "Conflict resolution" in the sync scenarios doc):
  *  1. If exactly one side deleted the row, the delete wins — keep the tombstone.
- *  2. Otherwise the side with the latest updated/deleted timestamp wins.
- *  3. An exact tie goes to local, so the result is deterministic.
+ *  2. Given the table's `rank` (see ROW_RANK), the higher-ranked side wins.
+ *  3. Otherwise the side with the latest updated/deleted timestamp wins.
+ *  4. An exact tie goes to local, so the result is deterministic.
  */
-export function resolveConflict(local: SyncRow, remote: SyncRow): ConflictResult {
+export function resolveConflict(
+  local: SyncRow,
+  remote: SyncRow,
+  rank?: (row: SyncRow) => number,
+): ConflictResult {
   const localDeleted = isDeleted(local)
   const remoteDeleted = isDeleted(remote)
 
   if (localDeleted && !remoteDeleted) return { winner: 'local', resolution: 'delete-wins' }
   if (remoteDeleted && !localDeleted) return { winner: 'remote', resolution: 'delete-wins' }
+
+  if (rank) {
+    const localRank = rank(local)
+    const remoteRank = rank(remote)
+    if (localRank !== remoteRank) {
+      return { winner: localRank > remoteRank ? 'local' : 'remote', resolution: 'rank-wins' }
+    }
+  }
 
   const winner = effectiveTimestamp(local) >= effectiveTimestamp(remote) ? 'local' : 'remote'
   return { winner, resolution: 'latest-update-wins' }

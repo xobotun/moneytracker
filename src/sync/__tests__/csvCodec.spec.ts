@@ -235,10 +235,11 @@ describe('csvCodec', () => {
         [accId, locId, groupingId, CUTOFF, CUTOFF],
       )
       await src.run(
-        `INSERT INTO exchange_rates (id, date, base_currency, rates, provider,
-                                     created_at_utc, updated_at_utc)
-         VALUES (?, ?, 'USD', '{"EUR":0.92}', 'oer', ?, ?)`,
-        [newId(), CUTOFF, CUTOFF, CUTOFF],
+        `INSERT INTO applied_rates (id, date, currency_a, currency_b, rate, provider, via,
+                                    reference_date, created_at_utc, updated_at_utc)
+         VALUES (?, '2026-05-01', 'EUR', 'USD', 1.0842, 'fawazahmed0+bank', 'GBP', '2026-04-30', ?, ?),
+                (?, '2026-05-01', 'EUR', 'MILES', NULL, NULL, NULL, NULL, ?, ?)`,
+        [newId(), CUTOFF, CUTOFF, newId(), CUTOFF, CUTOFF],
       )
       await src.run(
         `INSERT INTO transactions

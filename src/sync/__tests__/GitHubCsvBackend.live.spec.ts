@@ -14,7 +14,7 @@ import { moneyAmount } from '../../db/MoneyAmount'
 import { localMoment } from '../../db/LocalMoment'
 import { AccountGroupingsRepository } from '../../db/repositories/AccountGroupingsRepository'
 import { AccountsRepository } from '../../db/repositories/AccountsRepository'
-import { ExchangeRatesRepository } from '../../db/repositories/ExchangeRatesRepository'
+import { AppliedRatesRepository } from '../../db/repositories/AppliedRatesRepository'
 import { LocationsRepository } from '../../db/repositories/LocationsRepository'
 import { TagsRepository } from '../../db/repositories/TagsRepository'
 import { TransactionsRepository } from '../../db/repositories/TransactionsRepository'
@@ -123,7 +123,7 @@ async function rowCounts(db: Database): Promise<Record<string, number>> {
 async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: UUID }> {
   const locations = new LocationsRepository(db)
   const tags = new TagsRepository(db)
-  const rates = new ExchangeRatesRepository(db)
+  const rates = new AppliedRatesRepository(db)
   const accounts = new AccountsRepository(db)
   const groupings = new AccountGroupingsRepository(db)
   const transactions = new TransactionsRepository(db)
@@ -167,12 +167,14 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
   await tags.create({ tag: 'obsolete', colour: '#000000', icon: 'pi-times', synonyms: [] })
   await tags.softDelete('obsolete')
 
-  await rates.create({
+  await rates.saveAuto({
     date: '2026-10-17',
-    base_currency: 'EUR',
-    rates: { USD: 1.0842, RUB: 98.512_3, JPY: 162 },
-    provider: 'ecb',
+    x: 'EUR',
+    y: 'USD',
+    resolution: { rate: 1.0842, provider: 'ecb', via: null, referenceDate: '2026-10-16' },
   })
+  await rates.saveAuto({ date: '2026-10-17', x: 'MILES', y: 'EUR', resolution: null })
+  await rates.setManual('2026-10-17', 'EUR', 'RUB', 98.512_3)
 
   const allMoney = await groupings.create({
     name: 'All "money"',
