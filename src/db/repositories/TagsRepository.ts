@@ -1,12 +1,19 @@
 import type { Database, SqlExecutor } from '../Database'
-import type { Tag, TagKind } from '../types'
+import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues, TagKind } from '../types'
 import { newShortId, type ShortId } from '../shortId'
 import {
   CategoryInUseError,
   DuplicateTagNameError,
+  MergeConflictError,
   TagKindMismatchError,
   TagLoopError,
 } from '../errors'
+import {
+  DETAIL_FIELDS_BY_KIND,
+  assertDetailLinks,
+  readDetailValues,
+  writeDetailValues,
+} from './TagDetailsRepository'
 import { countTagUsage, redirectTagReferences } from '../tagReferences'
 import {
   instantFromColumn,
@@ -91,6 +98,46 @@ async function liveTagOrThrow(ex: SqlExecutor, id: ShortId, role: string): Promi
   const tag = await selectTag(ex, id, true)
   if (!tag) throw new Error(`${role} ${id} not found`)
   return tag
+}
+
+/** Both tags must be live and of one kind; the pair's kind is returned. */
+async function mergePair(
+  ex: SqlExecutor,
+  sourceId: ShortId,
+  targetId: ShortId,
+): Promise<{ source: Tag; target: Tag }> {
+  const source = await liveTagOrThrow(ex, sourceId, 'Tag')
+  const target = await liveTagOrThrow(ex, targetId, 'Target tag')
+  if (source.kind !== target.kind) {
+    throw new TagKindMismatchError(
+      `"${source.name}", a ${source.kind}, cannot be merged into "${target.name}", a ${target.kind}`,
+    )
+  }
+  return { source, target }
+}
+
+function sameDetail(a: TagDetailValues[TagDetailField], b: TagDetailValues[TagDetailField]) {
+  if (a !== null && b !== null && typeof a === 'object' && typeof b === 'object') {
+    return a.latitude === b.latitude && a.longitude === b.longitude
+  }
+  return a === b
+}
+
+/** The fields of the kind where source and target both have a value and the values differ. */
+async function detailConflictsIn(
+  ex: SqlExecutor,
+  source: Tag,
+  target: Tag,
+): Promise<TagDetailConflict[]> {
+  const s = await readDetailValues(ex, source.id, source.kind)
+  const t = await readDetailValues(ex, target.id, target.kind)
+  const conflicts: TagDetailConflict[] = []
+  for (const field of DETAIL_FIELDS_BY_KIND[source.kind]) {
+    if (s[field] !== null && t[field] !== null && !sameDetail(s[field], t[field])) {
+      conflicts.push({ field, source: s[field], target: t[field] } as TagDetailConflict)
+    }
+  }
+  return conflicts
 }
 
 /** The parent must be a live tag of the child's kind. */
@@ -310,6 +357,16 @@ export class TagsRepository {
   }
 
   /**
+   * The detail fields (address, position, merchant, default category, journey
+   * dates) where the source and the target both have a value and the values
+   * differ: a merge needs a decision for each of them.
+   */
+  async detailConflicts(sourceId: ShortId, targetId: ShortId): Promise<TagDetailConflict[]> {
+    const { source, target } = await mergePair(this.db, sourceId, targetId)
+    return detailConflictsIn(this.db, source, target)
+  }
+
+  /**
    * Merges the source tag into the target, a live tag of the same kind that is
    * not the source or one of its descendants (decisions §2.5): every
    * reference to the source moves to the target (two category parts of one
@@ -318,19 +375,42 @@ export class TagsRepository {
    * its colour, icon and description. The source is soft-deleted and
    * remembers the target, so sync redirects what other devices still point at
    * it. Name clashes among the moved children are kept (shown as duplicates).
+   *
+   * The source's details fill the target's empty ones. Where both have
+   * different values, `resolved` must give the value (one of the two, or a
+   * third; null clears it) or a MergeConflictError lists the fields and
+   * nothing is changed. Fields of other kinds in `resolved` are ignored.
    */
-  async merge(sourceId: ShortId, targetId: ShortId): Promise<void> {
+  async merge(
+    sourceId: ShortId,
+    targetId: ShortId,
+    resolved: Partial<TagDetailValues> = {},
+  ): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
-      const source = await liveTagOrThrow(tx, sourceId, 'Tag')
-      const target = await liveTagOrThrow(tx, targetId, 'Target tag')
-      if (source.kind !== target.kind) {
-        throw new TagKindMismatchError(
-          `"${source.name}", a ${source.kind}, cannot be merged into "${target.name}", a ${target.kind}`,
-        )
-      }
+      const { source, target } = await mergePair(tx, sourceId, targetId)
       const path = await loopPath(tx, sourceId, targetId)
       if (path) throw new TagLoopError(path)
+
+      const fields = DETAIL_FIELDS_BY_KIND[target.kind]
+      if (fields.length > 0) {
+        const unresolved = (await detailConflictsIn(tx, source, target)).filter(
+          (c) => resolved[c.field] === undefined,
+        )
+        if (unresolved.length > 0) throw new MergeConflictError(unresolved)
+        const from = await readDetailValues(tx, sourceId, source.kind)
+        const into = await readDetailValues(tx, targetId, target.kind)
+        const next = { ...into }
+        for (const field of fields) {
+          const value =
+            resolved[field] !== undefined ? resolved[field] : (into[field] ?? from[field])
+          ;(next as Record<TagDetailField, unknown>)[field] = value ?? null
+        }
+        await assertDetailLinks(tx, target.kind, next)
+        if (fields.some((field) => !sameDetail(next[field], into[field]))) {
+          await writeDetailValues(tx, targetId, target.kind, next, now)
+        }
+      }
 
       await redirectTagReferences(tx, sourceId, targetId, { bump: true, now })
 

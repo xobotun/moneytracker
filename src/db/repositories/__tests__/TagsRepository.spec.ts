@@ -6,6 +6,7 @@ import { migration as domainMigration } from '../../migrations/002_domain_schema
 import {
   CategoryInUseError,
   DuplicateTagNameError,
+  MergeConflictError,
   TagKindMismatchError,
   TagLoopError,
 } from '../../errors'
@@ -16,6 +17,7 @@ import { moneyAmount, zeroMoney } from '../../MoneyAmount'
 import { AccountsRepository } from '../AccountsRepository'
 import { TransactionsRepository } from '../TransactionsRepository'
 import { TagsRepository } from '../TagsRepository'
+import { TagDetailsRepository } from '../TagDetailsRepository'
 
 const AT = '2026-10-01T00:00:00.000Z'
 
@@ -535,5 +537,203 @@ describe('TagsRepository', () => {
     expect(await repo.usageCount(work.id)).toBe(2)
     expect(await repo.usageCount(food.id)).toBe(1)
     expect(await repo.usageCount(unused.id)).toBe(0)
+  })
+
+  describe('merging details', () => {
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+
+    async function twoLocations() {
+      const a = await repo.create({ kind: 'location', name: 'REWE Mitte' })
+      const b = await repo.create({ kind: 'location', name: 'REWE Markt' })
+      return { a, b }
+    }
+
+    it("fills the target's empty details from the source", async () => {
+      const { a, b } = await twoLocations()
+      const rewe = await repo.create({ kind: 'merchant', name: 'REWE' })
+      await details.setLocation(a.id, {
+        address: 'Weg 1',
+        latitude: 52.5,
+        longitude: 13.4,
+        merchant_id: rewe.id,
+      })
+      await repo.merge(a.id, b.id)
+      expect(await details.getLocation(b.id)).toEqual({
+        tag_id: b.id,
+        address: 'Weg 1',
+        latitude: 52.5,
+        longitude: 13.4,
+        merchant_id: rewe.id,
+      })
+    })
+
+    it('keeps the target value when the source has none, and leaves its row alone', async () => {
+      const { a, b } = await twoLocations()
+      await details.setLocation(b.id, {
+        address: 'Weg 2',
+        latitude: null,
+        longitude: null,
+        merchant_id: null,
+      })
+      const before = await db.exec('SELECT * FROM location_details WHERE tag_id = ?', [b.id])
+      await repo.merge(a.id, b.id)
+      expect(await db.exec('SELECT * FROM location_details WHERE tag_id = ?', [b.id])).toEqual(
+        before,
+      )
+    })
+
+    it('treats equal values as no conflict', async () => {
+      const { a, b } = await twoLocations()
+      const same = { address: 'Weg 1', latitude: 52.5, longitude: 13.4, merchant_id: null }
+      await details.setLocation(a.id, same)
+      await details.setLocation(b.id, same)
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([])
+      await repo.merge(a.id, b.id)
+      expect(await details.getLocation(b.id)).toMatchObject(same)
+    })
+
+    it('counts a half-set position as none', async () => {
+      const { a, b } = await twoLocations()
+      await details.setLocation(a.id, {
+        address: null,
+        latitude: 1,
+        longitude: null,
+        merchant_id: null,
+      })
+      await details.setLocation(b.id, {
+        address: null,
+        latitude: 5,
+        longitude: 6,
+        merchant_id: null,
+      })
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([])
+    })
+
+    it('refuses a conflicting merge without a resolution', async () => {
+      const { a, b } = await twoLocations()
+      await details.setLocation(a.id, {
+        address: 'Weg 1',
+        latitude: 52.5,
+        longitude: 13.4,
+        merchant_id: null,
+      })
+      await details.setLocation(b.id, {
+        address: 'Weg 2',
+        latitude: 48.1,
+        longitude: 11.6,
+        merchant_id: null,
+      })
+      const error = await repo.merge(a.id, b.id).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(MergeConflictError)
+      expect((error as MergeConflictError).conflicts.map((c) => c.field)).toEqual([
+        'address',
+        'position',
+      ])
+      expect(await repo.findById(a.id)).toMatchObject({ merged_into_id: null })
+      expect(await details.getLocation(b.id)).toMatchObject({ address: 'Weg 2', latitude: 48.1 })
+    })
+
+    it('stores a resolved third value, or the source side, or null', async () => {
+      const { a, b } = await twoLocations()
+      await details.setLocation(a.id, {
+        address: 'Weg 1',
+        latitude: 52.5,
+        longitude: 13.4,
+        merchant_id: null,
+      })
+      await details.setLocation(b.id, {
+        address: 'Weg 2',
+        latitude: 48.1,
+        longitude: 11.6,
+        merchant_id: null,
+      })
+      await repo.merge(a.id, b.id, {
+        address: 'Weg 3',
+        position: { latitude: 52.5, longitude: 13.4 },
+      })
+      expect(await details.getLocation(b.id)).toMatchObject({
+        address: 'Weg 3',
+        latitude: 52.5,
+        longitude: 13.4,
+      })
+    })
+
+    it('lets a resolution clear a field; ignores fields of other kinds', async () => {
+      const { a, b } = await twoLocations()
+      await details.setLocation(a.id, {
+        address: 'Weg 1',
+        latitude: null,
+        longitude: null,
+        merchant_id: null,
+      })
+      await details.setLocation(b.id, {
+        address: 'Weg 2',
+        latitude: null,
+        longitude: null,
+        merchant_id: null,
+      })
+      await repo.merge(a.id, b.id, { address: null, start_date: '2026-01-01' })
+      expect(await details.getLocation(b.id)).toMatchObject({ address: null })
+      expect(await db.exec('SELECT * FROM journey_details')).toEqual([])
+    })
+
+    it('creates the target row when missing, for merchants and journeys too', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const m2 = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(m1.id, { default_category_id: food.id })
+      await repo.merge(m1.id, m2.id)
+      expect(await details.getMerchant(m2.id)).toEqual({
+        tag_id: m2.id,
+        default_category_id: food.id,
+      })
+
+      const j1 = await repo.create({ kind: 'journey', name: 'Rome' })
+      const j2 = await repo.create({ kind: 'journey', name: 'Roma' })
+      await details.setJourney(j1.id, { start_date: '2026-05-01', end_date: '2026-05-09' })
+      await details.setJourney(j2.id, { start_date: '2026-05-02', end_date: null })
+      expect((await repo.detailConflicts(j1.id, j2.id)).map((c) => c.field)).toEqual(['start_date'])
+      await repo.merge(j1.id, j2.id, { start_date: '2026-05-01' })
+      expect(await details.getJourney(j2.id)).toMatchObject({
+        start_date: '2026-05-01',
+        end_date: '2026-05-09',
+      })
+    })
+
+    it('requires a resolved link to be a live tag of the right kind', async () => {
+      const { a, b } = await twoLocations()
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      await expect(repo.merge(a.id, b.id, { merchant_id: food.id })).rejects.toThrow(
+        TagKindMismatchError,
+      )
+      expect(await repo.findById(a.id)).toMatchObject({ merged_into_id: null })
+    })
+
+    it('detailConflicts lists the differing fields and refuses dead or mixed-kind tags', async () => {
+      const { a, b } = await twoLocations()
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      await details.setLocation(a.id, {
+        address: 'Weg 1',
+        latitude: null,
+        longitude: null,
+        merchant_id: null,
+      })
+      await details.setLocation(b.id, {
+        address: 'Weg 2',
+        latitude: null,
+        longitude: null,
+        merchant_id: null,
+      })
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'address', source: 'Weg 1', target: 'Weg 2' },
+      ])
+      await expect(repo.detailConflicts(a.id, food.id)).rejects.toThrow(TagKindMismatchError)
+      await expect(repo.detailConflicts(a.id, asShortId('nonexistent1'))).rejects.toThrow(
+        /not found/,
+      )
+    })
   })
 })
