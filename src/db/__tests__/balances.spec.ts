@@ -3,7 +3,8 @@ import { Database } from '../Database'
 import { ALL_MIGRATIONS, runMigrations } from '../migrations'
 import { AccountsRepository } from '../repositories/AccountsRepository'
 import { moneyAmount, zeroMoney, type MoneyAmount } from '../MoneyAmount'
-import { newId, type UUID } from '../uuid'
+import { newId } from '../uuid'
+import type { ShortId } from '../shortId'
 import { recalculateBalances } from '../balances'
 
 describe('recalculateBalances', () => {
@@ -36,8 +37,8 @@ describe('recalculateBalances', () => {
   // Raw inserts keep these tests independent of TransactionsRepository, which
   // itself refreshes balances.
   async function tx(
-    from: UUID | null,
-    to: UUID | null,
+    from: ShortId | null,
+    to: ShortId | null,
     out: MoneyAmount,
     in_: MoneyAmount,
     deleted = false,
@@ -66,7 +67,7 @@ describe('recalculateBalances', () => {
     )
   }
 
-  const balanceOf = async (id: UUID) => (await accounts.findById(id))!.balance
+  const balanceOf = async (id: ShortId) => (await accounts.findById(id))!.balance
 
   it('sums income, spending and transfers in the account currency', async () => {
     const cash = await account('Cash')

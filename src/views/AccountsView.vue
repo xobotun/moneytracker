@@ -12,23 +12,33 @@ import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
 import { groupTints } from '@/components/accounts/groupTint'
 import { usePointerDrag } from './usePointerDrag'
 import { useAccountsStore, type AccountSection } from '@/stores/accounts'
+import { useTagsStore } from '@/stores/tags'
 import { useMoneySettingsStore } from '@/stores/moneySettings'
 import { useRatesStore } from '@/stores/rates'
 import { formatDay } from '@/format/date'
 import { balanceView, totalView } from '@/money/totals'
 import type { Account, AccountGrouping } from '@/db/types'
-import type { UUID } from '@/db/uuid'
+import type { ShortId } from '@/db/shortId'
 
 const store = useAccountsStore()
+const tagsStore = useTagsStore()
 const loadError = ref<string | null>(null)
 
 onMounted(async () => {
   try {
-    await store.load()
+    await Promise.all([store.load(), tagsStore.load()])
   } catch (e) {
     loadError.value = `Could not load the accounts. ${(e as Error).message}`
   }
 })
+
+/** The account's live tags, by their current names. */
+function shownTags(account: Account) {
+  return account.tags.flatMap((id) => {
+    const tag = tagsStore.byId.get(id)
+    return tag && tag.deleted_at_utc === null ? [tag] : []
+  })
+}
 
 const isEmpty = computed(() => store.accounts.length === 0 && store.groupings.length === 0)
 
@@ -139,7 +149,7 @@ async function runMove(move: () => Promise<void>, announce: () => string) {
   }
 }
 
-function describeAccountPlace(id: UUID): string {
+function describeAccountPlace(id: ShortId): string {
   const section = store.sections.find((s) => s.accounts.some((a) => a.id === id))
   if (!section) return ''
   const position = section.accounts.findIndex((a) => a.id === id) + 1
@@ -151,7 +161,7 @@ function describeAccountPlace(id: UUID): string {
   return `${where}, position ${position} of ${section.accounts.length}`
 }
 
-async function moveAccountTo(account: Account, groupingId: UUID | null, index: number) {
+async function moveAccountTo(account: Account, groupingId: ShortId | null, index: number) {
   await runMove(
     () => store.moveAccount(account.id, groupingId, index),
     () => `${account.name} moved${describeAccountPlace(account.id)}.`,
@@ -181,7 +191,7 @@ async function stepGrouping(grouping: AccountGrouping, index: number, step: -1 |
 // back on the same arrow, or on the other one once the row reaches an end.
 // A row moved to another group is a new element, and the old one lingers for
 // a frame in its leave transition (class v-leave-active) — skip that one.
-async function refocus(attribute: string, id: UUID, step: -1 | 1) {
+async function refocus(attribute: string, id: ShortId, step: -1 | 1) {
   await nextTick()
   const first = step === -1 ? 'up' : 'down'
   for (const dir of [first, first === 'up' ? 'down' : 'up']) {
@@ -234,9 +244,9 @@ async function dropOn(key: string) {
     const index = section.accounts.findIndex((a) => a.id === id)
     await moveAccountTo(item.account, section.grouping?.id ?? null, index)
   } else if (type === 'header') {
-    await moveAccountTo(item.account, id as UUID, 0)
+    await moveAccountTo(item.account, id as ShortId, 0)
   } else if (type === 'empty') {
-    await moveAccountTo(item.account, id === 'ungrouped' ? null : (id as UUID), 0)
+    await moveAccountTo(item.account, id === 'ungrouped' ? null : (id as ShortId), 0)
   }
 }
 
@@ -505,11 +515,11 @@ function tintStyle(grouping: AccountGrouping) {
                     <span v-if="!reordering" class="flex flex-wrap items-center gap-1">
                       <Tag :value="account.balance.currency" severity="secondary" />
                       <span
-                        v-for="tag in account.tags"
-                        :key="tag"
+                        v-for="tag in shownTags(account)"
+                        :key="tag.id"
                         class="text-xs text-gray-500 dark:text-gray-400"
                       >
-                        #{{ tag }}
+                        #{{ tag.name }}
                       </span>
                     </span>
                   </span>

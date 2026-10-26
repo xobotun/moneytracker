@@ -8,7 +8,6 @@ import { TransactionsRepository } from '@/db/repositories/TransactionsRepository
 import { TagsRepository } from '@/db/repositories/TagsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
-import type { UUID } from '@/db/uuid'
 import type { ShortId } from '@/db/shortId'
 import { useAccountsStore } from '../accounts'
 
@@ -227,7 +226,7 @@ describe('useAccountsStore', () => {
   })
 
   describe('balances', () => {
-    const income = (to: UUID, cents: number) =>
+    const income = (to: ShortId, cents: number) =>
       transactionsRepo.create({
         account_id__from: null,
         account_id__to: to,

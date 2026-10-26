@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { moneyAmount } from '@/db/MoneyAmount'
-import { asUuid } from '@/db/uuid'
+import { asShortId } from '@/db/shortId'
 import type { Account } from '@/db/types'
 import {
   ACCOUNT_COLOURS,
@@ -18,12 +18,16 @@ import {
 } from '../accountForm'
 import { PRIME_ICONS } from '../primeIcons'
 
+const DAILY = asShortId('TagDaily0001')
+const TAG_NAMES: Record<string, string> = { TagDaily0001: 'daily' }
+const tagName = (id: string) => TAG_NAMES[id] ?? null
+
 function account(over: Partial<Account> = {}): Account {
   return {
-    id: asUuid('0190a000-0000-7000-8000-000000000001'),
+    id: asShortId('AccountAAAA1'),
     name: 'Cash',
     balance: moneyAmount(0, 2, 'EUR'),
-    tags: ['daily'],
+    tags: [DAILY],
     is_cash: true,
     location_id: null,
     colour: '#22c55e',
@@ -107,46 +111,63 @@ describe('normaliseDraft', () => {
   })
 })
 
+describe('draftFromAccount', () => {
+  it('edits tags by name and leaves out deleted or unknown ones', () => {
+    const a = account({ tags: [DAILY, asShortId('TagGone00001')] })
+    expect(draftFromAccount(a, tagName).tags).toEqual(['daily'])
+  })
+})
+
 describe('patchFromDraft', () => {
   it('is empty when nothing changed', () => {
     const a = account()
-    expect(patchFromDraft(a, draftFromAccount(a))).toEqual({})
+    expect(patchFromDraft(a, draftFromAccount(a, tagName), [DAILY])).toEqual({})
   })
 
   it('contains only the changed fields', () => {
     const a = account()
-    const patch = patchFromDraft(a, {
-      ...draftFromAccount(a),
-      name: 'Pocket',
-      tags: ['daily', 'x'],
-    })
-    expect(patch).toEqual({ name: 'Pocket', tags: ['daily', 'x'] })
+    const patch = patchFromDraft(
+      a,
+      {
+        ...draftFromAccount(a, tagName),
+        name: 'Pocket',
+        tags: ['daily', 'x'],
+      },
+      [DAILY, asShortId('TagX00000001')],
+    )
+    expect(patch).toEqual({ name: 'Pocket', tags: [DAILY, 'TagX00000001'] })
   })
 
   it('carries a changed cash flag', () => {
     const a = account()
-    expect(patchFromDraft(a, { ...draftFromAccount(a), is_cash: false })).toEqual({
-      is_cash: false,
-    })
+    expect(patchFromDraft(a, { ...draftFromAccount(a, tagName), is_cash: false }, [DAILY])).toEqual(
+      {
+        is_cash: false,
+      },
+    )
   })
 
   it('changes the currency but keeps the stored amount', () => {
     const a = account({ balance: moneyAmount(1234, 2, 'EUR') })
-    const patch = patchFromDraft(a, { ...draftFromAccount(a), currency: 'USD' })
+    const patch = patchFromDraft(a, { ...draftFromAccount(a, tagName), currency: 'USD' }, [DAILY])
     expect(patch.balance).toEqual(moneyAmount(1234, 2, 'USD'))
   })
 })
 
 describe('createInputFromDraft', () => {
   it('starts the account at a zero balance in its currency', () => {
-    const input = createInputFromDraft({
-      name: 'Card',
-      currency: 'GBP',
-      icon: 'credit-card',
-      colour: '#3b82f6',
-      tags: [],
-      is_cash: true,
-    })
+    const input = createInputFromDraft(
+      {
+        name: 'Card',
+        currency: 'GBP',
+        icon: 'credit-card',
+        colour: '#3b82f6',
+        tags: [],
+        is_cash: true,
+      },
+      [DAILY],
+    )
+    expect(input.tags).toEqual([DAILY])
     expect(input.balance).toEqual(moneyAmount(0, 2, 'GBP'))
     expect(input.location_id).toBeNull()
     expect(input.is_cash).toBe(true)

@@ -18,7 +18,8 @@ import { AppliedRatesRepository } from '../../db/repositories/AppliedRatesReposi
 import { TagDetailsRepository } from '../../db/repositories/TagDetailsRepository'
 import { TagsRepository } from '../../db/repositories/TagsRepository'
 import { TransactionsRepository } from '../../db/repositories/TransactionsRepository'
-import { newId, type UUID } from '../../db/uuid'
+import { newId } from '../../db/uuid'
+import type { ShortId } from '../../db/shortId'
 import { exportAllTables } from '../csvCodec'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
 import { gitBlobSha } from '../gitBlobSha'
@@ -120,7 +121,7 @@ async function rowCounts(db: Database): Promise<Record<string, number>> {
  * escape (quotes, commas, newlines), NULLs and empty strings, negative and large amounts,
  * fractional coordinates, JSON columns, a non-Berlin zone and soft deletes.
  */
-async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: UUID }> {
+async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount: ShortId }> {
   const tags = new TagsRepository(db)
   const tagDetails = new TagDetailsRepository(db)
   const rates = new AppliedRatesRepository(db)
@@ -195,7 +196,7 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
   const eur = await accounts.create({
     name: 'Girokonto',
     balance: moneyAmount(-12_345, 2, 'EUR'),
-    tags: ['bank'],
+    tags: [food.id],
     location_id: cafe.id,
     colour: '#112233',
     icon: 'pi-wallet',
@@ -332,7 +333,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
   let b: Device
   /** A device that checked the empty branch together with A, but uploads after A. */
   let late: Device
-  let accountsOfA: { eurAccount: UUID; rubAccount: UUID }
+  let accountsOfA: { eurAccount: ShortId; rubAccount: ShortId }
 
   /** A device that has never synced: its own backend, no cached HEAD. */
   async function downloadFresh(): Promise<{ meta: SyncMetadata | null; db: Database }> {

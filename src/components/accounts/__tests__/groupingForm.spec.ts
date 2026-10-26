@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { asUuid } from '@/db/uuid'
+import { asShortId } from '@/db/shortId'
 import type { AccountGrouping } from '@/db/types'
 import { ACCOUNT_COLOURS } from '../accountForm'
 import {
@@ -12,7 +12,7 @@ import {
 
 function grouping(over: Partial<AccountGrouping> = {}): AccountGrouping {
   return {
-    id: asUuid('0190a000-0000-7000-8000-0000000000aa'),
+    id: asShortId('GroupingAAAA'),
     name: 'Trip',
     colour: '#3b82f6',
     icon: 'car',

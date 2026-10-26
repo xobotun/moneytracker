@@ -12,10 +12,9 @@ import {
   moneyFromRow,
   moneyToColumns,
   shortIdFromNullableColumn,
-  uuidFromColumn,
-  uuidFromNullableColumn,
+  shortIdFromColumn,
 } from '../columnMappers'
-import { newId, type UUID } from '../uuid'
+import { newShortId, type ShortId } from '../shortId'
 
 type AccountRow = {
   id: string
@@ -48,7 +47,7 @@ export type AccountUpdateInput = Partial<AccountCreateInput>
 
 function rowToAccount(row: AccountRow): Account {
   return {
-    id: uuidFromColumn(row.id),
+    id: shortIdFromColumn(row.id),
     name: row.name,
     balance: moneyFromRow('balance', {
       balance_value: row.balance_value,
@@ -56,11 +55,11 @@ function rowToAccount(row: AccountRow): Account {
       balance_currency: row.currency,
     }),
     is_cash: booleanFromColumn(row.is_cash),
-    tags: jsonArrayFromColumn<string>(row.tags),
+    tags: jsonArrayFromColumn<ShortId>(row.tags),
     location_id: shortIdFromNullableColumn(row.location_id),
     colour: row.colour,
     icon: row.icon,
-    grouping_id: uuidFromNullableColumn(row.grouping_id),
+    grouping_id: shortIdFromNullableColumn(row.grouping_id),
     sort_order: row.sort_order,
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
@@ -72,7 +71,7 @@ export class AccountsRepository {
   constructor(private db: Database) {}
 
   async create(input: AccountCreateInput): Promise<Account> {
-    const id = newId()
+    const id = newShortId()
     const now = instantToColumn(new Date())
     const moneyColumns = moneyToColumns('balance', input.balance)
     const tagsJson = jsonArrayToColumn(input.tags)
@@ -104,7 +103,7 @@ export class AccountsRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: UUID): Promise<Account | null> {
+  async findById(id: ShortId): Promise<Account | null> {
     const rows = await this.db.exec<AccountRow>(
       'SELECT * FROM accounts WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -127,7 +126,7 @@ export class AccountsRepository {
    * actually changes are written, so a move touches as few rows as possible —
    * fewer rows for the sync merge to reconcile.
    */
-  async arrange(groupingId: UUID | null, ids: readonly UUID[]): Promise<void> {
+  async arrange(groupingId: ShortId | null, ids: readonly ShortId[]): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
       await Promise.all(
@@ -142,7 +141,7 @@ export class AccountsRepository {
     })
   }
 
-  async update(id: UUID, patch: AccountUpdateInput): Promise<void> {
+  async update(id: ShortId, patch: AccountUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
 
@@ -204,11 +203,11 @@ export class AccountsRepository {
    * Rebuilds the cached balance of `ids` (all accounts when omitted) from the
    * transactions; returns how many changed. See `recalculateBalances`.
    */
-  async recalculateBalances(ids?: readonly UUID[]): Promise<number> {
+  async recalculateBalances(ids?: readonly ShortId[]): Promise<number> {
     return this.db.transaction((tx) => recalculateBalances(tx, ids))
   }
 
-  async softDelete(id: UUID): Promise<void> {
+  async softDelete(id: ShortId): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.run('UPDATE accounts SET deleted_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
       now,
