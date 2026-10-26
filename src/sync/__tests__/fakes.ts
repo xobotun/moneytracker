@@ -38,25 +38,8 @@ export class FakeSyncBackend implements SyncBackend {
   async downloadDatabase(): Promise<Database> {
     if (!this.remoteDb) throw new Error('FakeSyncBackend: no remote database')
     // Return a *clone* so the orchestrator's mutations don't leak back into
-    // the simulated remote. The cheapest correct clone is: export every row
-    // into a fresh migrated DB.
-    const clone = new Database()
-    await clone.init()
-    await runMigrations(clone, [settingsMigration, domainMigration])
-    // Copy rows in FK order via the merge engine's helpers. For test
-    // simplicity, just re-import via a direct SELECT/INSERT loop per table.
-    for (const t of SYNC_TABLES) {
-      const rows = await this.remoteDb.exec<Record<string, unknown>>(`SELECT * FROM ${t.name}`)
-      for (const row of rows) {
-        const cols = Object.keys(row)
-        const placeholders = cols.map(() => '?').join(', ')
-        await clone.run(
-          `INSERT INTO ${t.name} (${cols.join(', ')}) VALUES (${placeholders})`,
-          cols.map((c) => row[c]),
-        )
-      }
-    }
-    return clone
+    // the simulated remote.
+    return cloneDatabase(this.remoteDb)
   }
 
   async hashDatabase(db: Database): Promise<string> {
@@ -79,20 +62,7 @@ export class FakeSyncBackend implements SyncBackend {
 
     // Accept the upload: clone localDb into the remote slot the same way
     // downloadDatabase does, so the next download returns a fresh clone too.
-    const clone = new Database()
-    await clone.init()
-    await runMigrations(clone, [settingsMigration, domainMigration])
-    for (const t of SYNC_TABLES) {
-      const rows = await localDb.exec<Record<string, unknown>>(`SELECT * FROM ${t.name}`)
-      for (const row of rows) {
-        const cols = Object.keys(row)
-        const placeholders = cols.map(() => '?').join(', ')
-        await clone.run(
-          `INSERT INTO ${t.name} (${cols.join(', ')}) VALUES (${placeholders})`,
-          cols.map((c) => row[c]),
-        )
-      }
-    }
+    const clone = await cloneDatabase(localDb)
     if (this.remoteDb) await this.remoteDb.close()
     this.remoteDb = clone
     this.remoteMeta = metadata
@@ -109,6 +79,33 @@ export class FakeSyncBackend implements SyncBackend {
     this.remoteDb = null
     this.remoteMeta = null
   }
+}
+
+/**
+ * A fresh migrated database holding every synced row of `source`: the
+ * cheapest correct clone, a direct SELECT/INSERT loop per table. Foreign keys
+ * are checked at COMMIT, as the CSV import does: a tag can come before its
+ * parent in row order.
+ */
+async function cloneDatabase(source: Database): Promise<Database> {
+  const clone = new Database()
+  await clone.init()
+  await runMigrations(clone, [settingsMigration, domainMigration])
+  await clone.transaction(async (tx) => {
+    await tx.run('PRAGMA defer_foreign_keys = ON')
+    for (const t of SYNC_TABLES) {
+      const rows = await source.exec<Record<string, unknown>>(`SELECT * FROM ${t.name}`)
+      for (const row of rows) {
+        const cols = Object.keys(row)
+        const placeholders = cols.map(() => '?').join(', ')
+        await tx.run(
+          `INSERT INTO ${t.name} (${cols.join(', ')}) VALUES (${placeholders})`,
+          cols.map((c) => row[c]),
+        )
+      }
+    }
+  })
+  return clone
 }
 
 /** Git's blob id (as `git hash-object`), computed independently of the

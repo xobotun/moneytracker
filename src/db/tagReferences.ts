@@ -27,6 +27,26 @@ const SINGLE_REFERENCES = [
 /** Tables with a `tags` column: a JSON array of plain-tag ids. */
 const TAG_LIST_TABLES = ['transactions', 'accounts'] as const
 
+// The JSON columns are valid JSON (a CHECK), but nothing guarantees their
+// shape. These guards keep one malformed row from being misread or failing a
+// whole statement.
+
+/**
+ * SQL: the JSON array in `column` has an element (`element`) passing `test`.
+ * A value that is not an array has none — json_each would walk an object's
+ * members as if they were the list.
+ */
+function arrayHas(column: string, test: string): string {
+  return `(json_type(${column}) = 'array'
+           AND EXISTS (SELECT 1 FROM json_each(${column}) AS element WHERE ${test}))`
+}
+
+/**
+ * SQL: the category id of the part `element`; NULL when the element is not an
+ * object (json_extract on a bare string fails the whole statement).
+ */
+const PART_CATEGORY_ID = `CASE element.type WHEN 'object' THEN json_extract(element.value, '$.category_id') END`
+
 /** Where references move: each tag id to the id that replaces it. */
 export type TagRedirects = ReadonlyMap<ShortId, ShortId>
 
@@ -152,9 +172,7 @@ export async function redirectTagReferencesByMap(
   for (const table of TAG_LIST_TABLES) {
     const rows = await tx.exec<{ id: string; tags: string }>(
       `SELECT id, tags FROM ${table}
-       WHERE json_type(${table}.tags) = 'array'
-         AND EXISTS (SELECT 1 FROM json_each(${table}.tags) AS element
-                     WHERE element.value IN (SELECT key FROM json_each(?)))`,
+       WHERE ${arrayHas(`${table}.tags`, 'element.value IN (SELECT key FROM json_each(?))')}`,
       [redirectsJson],
     )
     await writeBack(table, 'tags', rows, (row) =>
@@ -162,8 +180,6 @@ export async function redirectTagReferencesByMap(
     )
   }
 
-  // The element-type check keeps json_extract off elements that are not
-  // objects: on a bare string it would fail the whole statement.
   const rows = await tx.exec<{
     id: string
     categories: string
@@ -171,12 +187,7 @@ export async function redirectTagReferencesByMap(
     amount_currency__to: string
   }>(
     `SELECT id, categories, amount_currency__from, amount_currency__to FROM transactions
-     WHERE json_type(transactions.categories) = 'array'
-       AND EXISTS (
-         SELECT 1 FROM json_each(transactions.categories) AS element
-         WHERE CASE element.type WHEN 'object' THEN json_extract(element.value, '$.category_id') END
-               IN (SELECT key FROM json_each(?))
-       )`,
+     WHERE ${arrayHas('transactions.categories', `${PART_CATEGORY_ID} IN (SELECT key FROM json_each(?))`)}`,
     [redirectsJson],
   )
   await writeBack('transactions', 'categories', rows, (row) => {
@@ -192,7 +203,8 @@ export async function redirectTagReferencesByMap(
 /**
  * How many live transactions and live accounts use the tag, in any field
  * (merchant, location, journey, plain tags, category parts). Each row counts
- * once, however many of its fields hold the tag.
+ * once, however many of its fields hold the tag. A malformed tags or
+ * categories value (not a list) does not count.
  */
 export async function countTagUsage(db: SqlExecutor, id: ShortId): Promise<number> {
   const rows = await db.exec<{ uses: number }>(
@@ -200,12 +212,11 @@ export async function countTagUsage(db: SqlExecutor, id: ShortId): Promise<numbe
        (SELECT COUNT(*) FROM transactions t
         WHERE t.deleted_at_utc IS NULL
           AND (t.merchant_id = ?1 OR t.location_id = ?1 OR t.journey_id = ?1
-               OR EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ?1)
-               OR EXISTS (SELECT 1 FROM json_each(t.categories)
-                          WHERE json_extract(value, '$.category_id') = ?1)))
+               OR ${arrayHas('t.tags', 'element.value = ?1')}
+               OR ${arrayHas('t.categories', `${PART_CATEGORY_ID} = ?1`)}))
      + (SELECT COUNT(*) FROM accounts a
         WHERE a.deleted_at_utc IS NULL
-          AND (a.location_id = ?1 OR EXISTS (SELECT 1 FROM json_each(a.tags) WHERE value = ?1)))
+          AND (a.location_id = ?1 OR ${arrayHas('a.tags', 'element.value = ?1')}))
        AS uses`,
     [id],
   )

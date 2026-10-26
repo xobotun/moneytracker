@@ -72,12 +72,45 @@ describe('resolveConflict', () => {
     })
   })
 
-  it('breaks an exact timestamp tie in favour of local, deterministically', () => {
-    const local = alive('2026-05-01T00:00:00.000Z')
-    const remote = alive('2026-05-01T00:00:00.000Z')
-    expect(resolveConflict(local, remote)).toEqual({
-      winner: 'local',
-      resolution: 'latest-update-wins',
+  describe('on an exact timestamp tie', () => {
+    const at = '2026-05-01T00:00:00.000Z'
+
+    it('keeps the row whose content sorts greater, on whichever device decides', () => {
+      // Two devices hold different copies with one timestamp (a sync repair
+      // that kept it). Each device sees its own copy as local: both must pick
+      // the same copy, or they keep their own forever.
+      const underD = { ...alive(at), id: 'c', parent_id: 'd' }
+      const underG = { ...alive(at), id: 'c', parent_id: 'g' }
+      expect(resolveConflict(underD, underG)).toEqual({
+        winner: 'remote',
+        resolution: 'latest-update-wins',
+      })
+      expect(resolveConflict(underG, underD)).toEqual({
+        winner: 'local',
+        resolution: 'latest-update-wins',
+      })
+    })
+
+    it('compares columns in name order and BLOBs by their bytes', () => {
+      const row = (a: number, blob: number[]) => ({ ...alive(at), a, z: new Uint8Array(blob) })
+      // The first differing column in name order decides, whatever the key order.
+      expect(resolveConflict({ z: 'b', ...alive(at), a: 1 }, row(2, [0])).winner).toBe('remote')
+      expect(resolveConflict(row(1, [2]), row(1, [1, 9])).winner).toBe('local')
+    })
+
+    it('leaves out the columns the merge ignores', () => {
+      // A device-computed cache may differ between the copies: it must not decide.
+      const local = { ...alive(at), balance_value: 900, name: 'A' }
+      const remote = { ...alive(at), balance_value: 100, name: 'B' }
+      expect(resolveConflict(local, remote, undefined, ['balance_value']).winner).toBe('remote')
+      expect(resolveConflict(remote, local, undefined, ['balance_value']).winner).toBe('local')
+    })
+
+    it('keeps local when the rows are the same', () => {
+      expect(resolveConflict(alive(at), alive(at))).toEqual({
+        winner: 'local',
+        resolution: 'latest-update-wins',
+      })
     })
   })
 })

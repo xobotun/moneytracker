@@ -235,16 +235,22 @@ describe('repairTags', () => {
     await tag('z', { mergedInto: 'x', deleted: T2 })
     await tag('child', { parent: 'z' })
     await txn('t1', { tags: ['x', 'z'], merchant: 'z', categories: [part('x')] })
-    // This device merged Y into Z; the remote did not.
+    // This device merged Y into Z; on the remote Y is live, and got X's name
+    // as a synonym when X was merged into it there.
     const remote = await side({
-      y: { merged_into_id: null, deleted_at_utc: null, updated_at_utc: CUT },
+      y: { merged_into_id: null, deleted_at_utc: null, updated_at_utc: CUT, synonyms: '["x"]' },
     })
 
     const conflicts = await repair(await side(), remote)
 
-    const y = await tagRow('y')
-    expect(y).toMatchObject({ merged_into_id: null, deleted_at_utc: null })
-    expect((y.updated_at_utc as string) > T3).toBe(true)
+    // Y comes back as the remote had it, one millisecond after the cycle's
+    // latest change — the same row on every device that restores it.
+    expect(await tagRow('y')).toMatchObject({
+      merged_into_id: null,
+      deleted_at_utc: null,
+      synonyms: '["x"]',
+      updated_at_utc: '2026-05-07T00:00:00.001Z',
+    })
     expect(await tagRow('x')).toMatchObject({ merged_into_id: 'y' })
     expect(await tagRow('z')).toMatchObject({ merged_into_id: 'x' })
     expect(await tagRow('child')).toMatchObject({ parent_id: 'y' })
@@ -254,6 +260,21 @@ describe('repairTags', () => {
     expect(conflicts).toEqual([
       expect.objectContaining({ primaryKey: 'y', resolution: 'loop-undone', winner: 'remote' }),
     ])
+  })
+
+  it('restores the merged row of a cycle’s tag that no side had live', async () => {
+    await tag('x', { mergedInto: 'y', deleted: T1 })
+    await tag('y', { mergedInto: 'x', deleted: T2 })
+    await db.run(`UPDATE tags SET synonyms = '["kept"]' WHERE id = 'y'`)
+
+    await repair(await side(), await side())
+
+    expect(await tagRow('y')).toMatchObject({
+      merged_into_id: null,
+      deleted_at_utc: null,
+      synonyms: '["kept"]',
+      updated_at_utc: '2026-05-06T00:00:00.001Z',
+    })
   })
 
   it('redirects any number of merged tags in the same number of statements', async () => {

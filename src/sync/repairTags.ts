@@ -3,7 +3,7 @@ import type { SyncConflict, SyncRow } from './types'
 import { asShortId, type ShortId } from '../db/shortId'
 import { instantFromColumn, instantToColumn } from '../db/columnMappers'
 import { redirectTagReferencesByMap } from '../db/tagReferences'
-import { readRows, rowsEqual } from './rows'
+import { readRows, rowsEqual, upsertRow } from './rows'
 
 // The row-by-row merge takes each tag row whole from one side, so it can
 // combine changes into states no device produced (decisions §2.5): references
@@ -31,8 +31,11 @@ type Nodes = ReadonlyMap<string, TagNode>
  *
  *  1. **Merge cycles and redirect.** A cycle of merges (X into Y on one
  *     device, Y into X on another) is broken by undoing the later merge: the
- *     tag in it with the latest `updated_at_utc` is restored. Then every
- *     reference to a merged tag moves to the end of its merge chain.
+ *     tag in it with the latest `updated_at_utc` is restored — as the side
+ *     where it was live had it (with the names the surviving merge gave it),
+ *     stamped one millisecond after that latest change, so every device that
+ *     meets the cycle writes the same row. Then every reference to a merged
+ *     tag moves to the end of its merge chain.
  *  2. **Lift.** A live tag whose parent is deleted or merged moves to the
  *     parent's nearest live ancestor, or to the top level.
  *  3. **Parent loops.** In each loop, the tag with the latest
@@ -43,8 +46,9 @@ type Nodes = ReadonlyMap<string, TagNode>
  *
  * Ties on `updated_at_utc` go to the greatest id. Redirect and lift keep
  * timestamps: every device computes the same result from the same rows.
- * Undoing a merge or a move is a new edit — it bumps `updated_at_utc` so it
- * wins later merges — and is returned as a `loop-undone` conflict.
+ * Undoing a merge or a move bumps `updated_at_utc` (a move: to now) so it
+ * wins later merges, and is returned as a `loop-undone` conflict whose winner
+ * is the side the tag went back to.
  *
  * Loops among deleted tags only are left: nothing shows them, a restored tag
  * whose parent is not live returns at the top level, and a bump would not
@@ -74,14 +78,14 @@ export async function repairTags(
     const local = before.local.get(id)
     return local !== undefined && rowsEqual(merged.get(id)!, local) ? 'remote' : 'local'
   }
-  const reportUndo = (id: string) => {
+  const reportUndo = (id: string, winner: 'local' | 'remote') => {
     if (conflicts.some((c) => c.primaryKey === id)) return
     conflicts.push({
       table: 'tags',
       primaryKey: id,
       local: before.local.get(id) ?? {},
       remote: before.remote.get(id) ?? {},
-      winner: otherSide(id),
+      winner,
       resolution: 'loop-undone',
     })
   }
@@ -89,15 +93,21 @@ export async function repairTags(
   // 1. Merge cycles, then the redirect.
   for (const cycle of findCycles(ids, (id) => nodes.get(id)?.mergedIntoId ?? null)) {
     const node = nodes.get(latest(cycle, nodes))!
+    const liveSide = (['local', 'remote'] as const).find(
+      (side) => before[side].get(node.id)?.deleted_at_utc === null,
+    )
+    const restored: SyncRow = {
+      ...(liveSide ? before[liveSide].get(node.id)! : merged.get(node.id)!),
+      merged_into_id: null,
+      deleted_at_utc: null,
+      updated_at_utc: oneMillisecondAfter(node.updatedAt),
+    }
+    await upsertRow(tx, 'tags', 'id', restored)
+    node.parentId = restored.parent_id as string | null
     node.mergedIntoId = null
     node.live = true
-    node.updatedAt = later(node.updatedAt, now)
-    await tx.run(
-      `UPDATE tags SET merged_into_id = NULL, deleted_at_utc = NULL, updated_at_utc = ?
-       WHERE id = ?`,
-      [node.updatedAt, node.id],
-    )
-    reportUndo(node.id)
+    node.updatedAt = restored.updated_at_utc as string
+    reportUndo(node.id, liveSide ?? otherSide(node.id))
   }
   const redirects = chainEnds(nodes)
   if (redirects.size > 0) {
@@ -155,7 +165,7 @@ export async function repairTags(
         node.updatedAt,
         node.id,
       ])
-      reportUndo(node.id)
+      reportUndo(node.id, otherSide(node.id))
     }
     cycles = findCycles(ids, parentOf)
   }
@@ -234,6 +244,9 @@ function nearestLive(nodes: Nodes, start: string, self: string): string | null {
 
 /** `now`, or a millisecond after `previous` when the clock is behind it: a bump always moves forward. */
 function later(previous: string, now: string): string {
-  if (now > previous) return now
-  return instantToColumn(new Date(instantFromColumn(previous).getTime() + 1))
+  return now > previous ? now : oneMillisecondAfter(previous)
+}
+
+function oneMillisecondAfter(instant: string): string {
+  return instantToColumn(new Date(instantFromColumn(instant).getTime() + 1))
 }

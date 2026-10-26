@@ -116,6 +116,9 @@ the remote side since the merge cutoff.
 - If the two versions are byte-identical, it is not a real conflict — pick either.
 - If one side deleted the row and the other updated it, **the delete wins** — keep the tombstone.
 - Otherwise, the row with the latest `updated_at_utc` / `deleted_at_utc` wins.
+- On an exact tie, the version whose content sorts greater wins (columns in name order, the merge's
+  ignored columns left out), so every device picks the same one — never "local", which would let two
+  devices keep their own copies forever.
 
 Every conflicting row (the chosen winner and the discarded loser) is collected and included in an **email to the user** 
 so the discarded change is never lost silently. Email sending is deferred — it needs a Supabase Edge Function and will

@@ -494,9 +494,11 @@ describe('mergeDatabases', () => {
       const conflicts = await mergeDatabases(local, remote, CUTOFF)
 
       // The earlier merge stands: Y is back, and X stays merged into it.
-      const y = await rowOf('tags', 'y')
-      expect(y).toMatchObject({ deleted_at_utc: null, merged_into_id: null })
-      expect((y.updated_at_utc as string) > T2).toBe(true)
+      expect(await rowOf('tags', 'y')).toMatchObject({
+        deleted_at_utc: null,
+        merged_into_id: null,
+        updated_at_utc: '2026-05-06T00:00:00.001Z', // the later merge's time + 1 ms
+      })
       expect(await rowOf('tags', 'x')).toMatchObject({ merged_into_id: 'y', deleted_at_utc: T1 })
       expect(await rowOf('transactions', 'txn')).toMatchObject({
         tags: '["y"]',

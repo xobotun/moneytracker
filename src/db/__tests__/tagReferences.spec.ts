@@ -338,4 +338,25 @@ describe('tag references', () => {
     expect(await countTagUsage(db, cat)).toBe(1)
     expect(await countTagUsage(db, unused)).toBe(0)
   })
+
+  it('counts past malformed tags and categories values', async () => {
+    const cat = await tag('cat000000001', 'category', 'Food')
+    await transaction({ categories: [[cat, 100, 2, 100, 2]] })
+    // Valid JSON, but not the lists the columns should hold.
+    const malformed = [
+      ['tags', JSON.stringify({ first: cat })],
+      ['categories', JSON.stringify([cat])],
+      ['categories', JSON.stringify({ category_id: cat })],
+    ]
+    for (const [column, value] of malformed) {
+      const id = await transaction({})
+      await db.run(`UPDATE transactions SET ${column} = ? WHERE id = ?`, [value, id])
+    }
+    await account('acc000000001')
+    await db.run(`UPDATE accounts SET tags = ? WHERE id = 'acc000000001'`, [
+      JSON.stringify({ first: cat }),
+    ])
+
+    expect(await countTagUsage(db, cat)).toBe(1)
+  })
 })

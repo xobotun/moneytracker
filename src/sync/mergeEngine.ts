@@ -36,6 +36,7 @@ export async function mergeTable(
   const localRows = indexByPk(await readRows(local, table.name), table.pk)
   const remoteRows = indexByPk(await readRows(remote, table.name), table.pk)
   const conflicts: SyncConflict[] = []
+  const ignored = EQUALITY_IGNORED_COLUMNS[table.name] ?? []
 
   for (const [key, remoteRow] of remoteRows) {
     const localRow = localRows.get(key)
@@ -47,7 +48,7 @@ export async function mergeTable(
     }
 
     // Same row on both sides → nothing to do.
-    if (rowsEqual(localRow, remoteRow, EQUALITY_IGNORED_COLUMNS[table.name])) continue
+    if (rowsEqual(localRow, remoteRow, ignored)) continue
 
     const localChanged = changedSince(localRow, cutoff)
     const remoteChanged = changedSince(remoteRow, cutoff)
@@ -62,7 +63,12 @@ export async function mergeTable(
     if (localChanged && !remoteChanged) continue
 
     // Both moved (or neither did but the rows differ) → conflict.
-    const { winner, resolution } = resolveConflict(localRow, remoteRow, ROW_RANK[table.name])
+    const { winner, resolution } = resolveConflict(
+      localRow,
+      remoteRow,
+      ROW_RANK[table.name],
+      ignored,
+    )
     if (winner === 'remote') {
       await upsertRow(local, table.name, table.pk, remoteRow)
     }
