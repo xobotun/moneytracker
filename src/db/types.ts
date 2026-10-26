@@ -65,6 +65,22 @@ export interface JourneyDetails {
   end_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
 }
 
+/** A tag's details as one value set; a field its kind does not have stays null. */
+export interface TagDetailValues {
+  address: string | null
+  position: { latitude: number; longitude: number } | null // the two coordinates as one value
+  merchant_id: ShortId | null
+  default_category_id: ShortId | null
+  start_date: string | null
+  end_date: string | null
+}
+export type TagDetailField = keyof TagDetailValues
+export interface TagDetailConflict<F extends TagDetailField = TagDetailField> {
+  field: F
+  source: TagDetailValues[F]
+  target: TagDetailValues[F]
+}
+
 export interface Account {
   id: ShortId
   name: string

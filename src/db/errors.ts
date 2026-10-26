@@ -1,3 +1,5 @@
+import type { TagDetailConflict } from './types'
+
 // Errors the repositories throw when a write would break a domain rule. The UI
 // tells them apart by class.
 
@@ -42,5 +44,13 @@ export class PartsSumError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'PartsSumError'
+  }
+}
+
+/** A merge where source and target have different values for the same detail; the caller must resolve them. */
+export class MergeConflictError extends Error {
+  constructor(readonly conflicts: TagDetailConflict[]) {
+    super(`Merging needs a decision for: ${conflicts.map((c) => c.field).join(', ')}`)
+    this.name = 'MergeConflictError'
   }
 }

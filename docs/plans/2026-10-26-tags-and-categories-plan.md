@@ -262,6 +262,41 @@ Migration `002_domain_schema.ts` is edited in place (no real data yet). Column c
 
 ---
 
+### Task A4b: Merging tag details
+
+Added after A4 at the user's decision (spec §2.5, details bullet). Runs in parallel with A5 (disjoint files).
+
+**Files:**
+- Modify: `src/db/types.ts` (detail types), `src/db/errors.ts` (`MergeConflictError`), `src/db/repositories/TagsRepository.ts` (`merge`, `detailConflicts`) + spec
+
+**Interfaces:**
+- Consumes: A1 `TagDetailsRepository` tables, A4 `merge`.
+- Produces:
+  ```ts
+  export interface TagDetailValues {
+    address: string | null
+    position: { latitude: number; longitude: number } | null // the two coordinates as one value
+    merchant_id: ShortId | null
+    default_category_id: ShortId | null
+    start_date: string | null
+    end_date: string | null
+  }
+  export type TagDetailField = keyof TagDetailValues
+  export interface TagDetailConflict<F extends TagDetailField = TagDetailField> { field: F; source: TagDetailValues[F]; target: TagDetailValues[F] }
+  export class MergeConflictError extends Error { constructor(readonly conflicts: TagDetailConflict[]) }
+  // TagsRepository
+  detailConflicts(sourceId: ShortId, targetId: ShortId): Promise<TagDetailConflict[]>
+  merge(sourceId: ShortId, targetId: ShortId, resolved?: Partial<TagDetailValues>): Promise<void>
+  ```
+- Fields by kind: location → `address`, `position`, `merchant_id`; merchant → `default_category_id`; journey → `start_date`, `end_date`. Other kinds have none.
+- Per field: a value in `resolved` wins (it may be a third value, or `null`); otherwise the target's value if it has one and the source's is equal or absent; otherwise the source's. Both present and different, and not in `resolved` → `merge` throws `MergeConflictError` with every such field before changing anything. The target's details row is created if missing and written in the merge's transaction (`updated_at_utc` bumped).
+
+- [ ] **Step 1: Write failing tests**: `fills the target's empty details from the source`; `treats equal values as no conflict`; `refuses a conflicting merge without a resolution` (MergeConflictError lists `address` and `position`, nothing changed); `stores a resolved third value`; `detailConflicts lists the differing fields`.
+- [ ] **Step 2:** Run — FAIL. **Step 3:** Implement. **Step 4:** Full unit run, type-check, lint — green.
+- [ ] **Step 5:** Commit `feat(tags): merging tag details asks on conflict`.
+
+---
+
 ### Task A5: Sync repairs for tags
 
 **Files:**

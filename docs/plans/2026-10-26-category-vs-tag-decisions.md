@@ -90,6 +90,7 @@ In step 5, Groceries' 200 AMD cannot change (Gifts' 600 AMD and the 800 AMD tota
   - X's transactions move to Y. When one transaction has both as category parts, the parts are added together (Everyday food 5 € + Groceries 3 € → Groceries 8 €).
   - X's children move under Y.
   - X's name and synonyms become synonyms of Y; Y keeps its colour, icon and description.
+  - X's details (a location's address, coordinates and merchant; a merchant's default category; a journey's dates) fill the ones Y lacks. Where both have a value and the values differ, the merge asks the user which to keep, or lets them type a third value. A merge only ever happens on the user's initiative, never automatically.
   - X is soft-deleted and remembers Y, so a device that used X before it synced the merge is redirected to Y on its next sync.
   - Merging a tag into one of its own descendants is refused, and the UI shows the path (X > A > Y).
 - **Duplicates** (same kind, parent and name, for example Rewe created on two devices while offline) are highlighted on the Tags page. The users merge them by hand; the app does not offer it.
