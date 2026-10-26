@@ -247,7 +247,7 @@ describe('TransactionsRepository', () => {
     await expect(repo.create(input)).rejects.toThrow()
   })
 
-  it('throws on FK violation: bad location_id', async () => {
+  it('rejects a location_id that is no tag', async () => {
     const input = {
       account_id__from: accountId1,
       account_id__to: accountId2,
@@ -262,7 +262,7 @@ describe('TransactionsRepository', () => {
       location_id: asShortId('nonexistent-location-id'),
     }
 
-    await expect(repo.create(input)).rejects.toThrow()
+    await expect(repo.create(input)).rejects.toThrow(/Location: tag .* not found/)
   })
 
   it('list() returns non-deleted transactions only', async () => {
@@ -740,6 +740,18 @@ describe('TransactionsRepository', () => {
     it('rejects the same category twice', async () => {
       const twice = [part(groceries, eur(100), amd(400)), part(groceries, eur(101), amd(400))]
       await expect(repo.create(shop(twice))).rejects.toThrow(/Groceries.*twice/)
+    })
+
+    it('rejects the same plain tag twice', async () => {
+      const birthday = await tags.create({ kind: 'tag', name: 'birthday' })
+      const twice = { ...shop(groceriesOnly()), tags: [birthday.id, birthday.id] }
+      await expect(repo.create(twice)).rejects.toThrow(/birthday.*twice/)
+
+      const t = await repo.create({ ...shop(groceriesOnly()), tags: [birthday.id] })
+      await expect(repo.update(t.id, { tags: [birthday.id, birthday.id] })).rejects.toThrow(
+        /birthday.*twice/,
+      )
+      expect((await repo.findById(t.id))!.tags).toEqual([birthday.id])
     })
 
     it('rejects parts that do not add up', async () => {

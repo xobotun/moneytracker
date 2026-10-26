@@ -173,10 +173,12 @@ export class TagDetailsRepository {
 
   /**
    * A journey's start and end dates ('YYYY-MM-DD'): each the date the user
-   * typed (`*Typed`), else derived from the live transactions of the journey
-   * and of every journey below it — the local calendar date of the earliest
-   * and of the latest one, by their date override when they have one. Null
-   * when there is neither.
+   * typed (`*Typed`), else derived — the first and the last of the local
+   * calendar dates of the journey's live transactions (by their date
+   * override when they have one) and of its live journeys below it, including
+   * the dates typed on those, so a parent covers its children (decisions
+   * §2.7). A deleted journey and everything under it no longer count. Null
+   * when there is nothing to derive from.
    */
   async journeyDates(id: ShortId): Promise<{
     start: string | null
@@ -185,25 +187,29 @@ export class TagDetailsRepository {
     endTyped: boolean
   }> {
     const typed = await this.getJourney(id)
-    // Offset-bearing local moments do not sort as text: the earliest and the
-    // latest are picked by julianday(), and their own local date is taken.
+    // Each transaction counts by its own local date, so the range contains
+    // every one of them even when their offsets differ ('YYYY-MM-DD' text
+    // sorts as dates; the full offset-bearing moments would not).
     const rows = await this.db.exec<{ first_date: string | null; last_date: string | null }>(
       `WITH RECURSIVE journey(id) AS (
          SELECT ?
          UNION
          SELECT t.id FROM tags t JOIN journey j ON t.parent_id = j.id
+         WHERE t.deleted_at_utc IS NULL
        ),
-       moments AS (
-         SELECT id, COALESCE(date_override_local, transaction_at_local) AS local
+       dates(d) AS (
+         SELECT substr(COALESCE(date_override_local, transaction_at_local), 1, 10)
          FROM transactions
          WHERE deleted_at_utc IS NULL AND journey_id IN (SELECT id FROM journey)
+         UNION ALL
+         SELECT start_date FROM journey_details
+         WHERE deleted_at_utc IS NULL AND tag_id <> ? AND tag_id IN (SELECT id FROM journey)
+         UNION ALL
+         SELECT end_date FROM journey_details
+         WHERE deleted_at_utc IS NULL AND tag_id <> ? AND tag_id IN (SELECT id FROM journey)
        )
-       SELECT
-         (SELECT substr(local, 1, 10) FROM moments ORDER BY julianday(local) ASC, id ASC LIMIT 1)
-           AS first_date,
-         (SELECT substr(local, 1, 10) FROM moments ORDER BY julianday(local) DESC, id DESC LIMIT 1)
-           AS last_date`,
-      [id],
+       SELECT MIN(d) AS first_date, MAX(d) AS last_date FROM dates`,
+      [id, id, id],
     )
     const derived = rows[0]!
     const start = typed?.start_date ?? null

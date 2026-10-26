@@ -101,7 +101,7 @@ function referencesOf(t: TransactionRuleFields, stored: TransactionRuleFields | 
  * Every referenced tag must exist and be of its field's kind, and be live
  * unless the stored row already refers to it there: a deleted tag stays on
  * its transactions (restoring it brings it back), but nothing new can use it.
- * A category takes one part only.
+ * A category takes one part only, and a plain tag is listed once.
  */
 async function assertReferences(
   ex: SqlExecutor,
@@ -131,15 +131,19 @@ async function assertReferences(
       throw new Error(`${ref.role}: "${tag.name}" is deleted`)
     }
   }
-  const seen = new Set<ShortId>()
-  for (const { category_id } of t.categories) {
-    if (seen.has(category_id)) {
-      throw new Error(
-        `Category: "${tags.get(category_id)!.name}" is there twice; a category takes one part`,
-      )
+  const once = (ids: ShortId[], role: string, why: string) => {
+    const seen = new Set<ShortId>()
+    for (const id of ids) {
+      if (seen.has(id)) throw new Error(`${role}: "${tags.get(id)!.name}" is there twice; ${why}`)
+      seen.add(id)
     }
-    seen.add(category_id)
   }
+  once(
+    t.categories.map((part) => part.category_id),
+    'Category',
+    'a category takes one part',
+  )
+  once(t.tags, 'Tag', 'a tag is on a transaction once')
 }
 
 /**
