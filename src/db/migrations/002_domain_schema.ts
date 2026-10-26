@@ -50,6 +50,7 @@ export const migration: Migration = {
       currency        TEXT NOT NULL,                                     -- money currency of balance_* (ISO 4217 or custom)
       balance_value   INTEGER NOT NULL,                                  -- money: unscaled value
       balance_scale   INTEGER NOT NULL,                                  -- money: decimal places
+      is_cash         INTEGER NOT NULL DEFAULT 0 CHECK (is_cash IN (0, 1)), -- boolean: 1 = cash (money in hand, e.g. a wallet)
       tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
       location_id     TEXT REFERENCES locations(id) ON DELETE RESTRICT,  -- UUIDv7
       colour          TEXT NOT NULL,
@@ -111,6 +112,8 @@ export const migration: Migration = {
       location_lat             REAL,                                     -- WGS84 degrees
       location_lon             REAL,                                     -- WGS84 degrees
       location_id              TEXT REFERENCES locations(id) ON DELETE RESTRICT, -- UUIDv7
+      description__user        TEXT,                                     -- the user's free-text note; NULL = none
+      description__auto        TEXT CHECK (json_valid(description__auto)), -- JSON object from an import (OCR, bank API, statement, ...); NULL = entered by hand
       created_at_utc           TEXT NOT NULL,                            -- ISO 8601 UTC instant
       updated_at_utc           TEXT NOT NULL,                            -- ISO 8601 UTC instant
       deleted_at_utc           TEXT,                                     -- ISO 8601 UTC instant; NULL = live

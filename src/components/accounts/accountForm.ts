@@ -68,6 +68,7 @@ export interface AccountDraft {
   icon: string
   colour: string
   tags: string[]
+  is_cash: boolean
 }
 
 export interface AccountDraftErrors {
@@ -125,6 +126,7 @@ export function newAccountDraft(existing: readonly Account[]): AccountDraft {
     icon: DEFAULT_ACCOUNT_ICON,
     colour: ACCOUNT_COLOURS[existing.length % ACCOUNT_COLOURS.length]!,
     tags: [],
+    is_cash: false,
   }
 }
 
@@ -135,6 +137,7 @@ export function draftFromAccount(account: Account): AccountDraft {
     icon: account.icon,
     colour: account.colour,
     tags: [...account.tags],
+    is_cash: account.is_cash,
   }
 }
 
@@ -153,6 +156,7 @@ export function normaliseDraft(draft: AccountDraft): AccountDraft {
     icon: draft.icon,
     colour: draft.colour,
     tags: [...new Set(draft.tags.map((t) => t.trim()).filter((t) => t !== ''))],
+    is_cash: draft.is_cash,
   }
 }
 
@@ -164,6 +168,7 @@ export function createInputFromDraft(draft: AccountDraft): AccountCreateInput {
   return {
     name: draft.name,
     balance: zeroMoney(draft.currency),
+    is_cash: draft.is_cash,
     tags: draft.tags,
     location_id: null,
     colour: draft.colour,
@@ -181,6 +186,7 @@ export function patchFromDraft(account: Account, draft: AccountDraft): AccountUp
   }
   if (draft.icon !== account.icon) patch.icon = draft.icon
   if (draft.colour !== account.colour) patch.colour = draft.colour
+  if (draft.is_cash !== account.is_cash) patch.is_cash = draft.is_cash
   if (draft.tags.join('\u0000') !== account.tags.join('\u0000')) patch.tags = draft.tags
   return patch
 }

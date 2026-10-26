@@ -24,6 +24,7 @@ function account(over: Partial<Account> = {}): Account {
     name: 'Cash',
     balance: moneyAmount(0, 2, 'EUR'),
     tags: ['daily'],
+    is_cash: true,
     location_id: null,
     colour: '#22c55e',
     icon: 'wallet',
@@ -49,6 +50,7 @@ describe('newAccountDraft', () => {
       icon: 'wallet',
       colour: ACCOUNT_COLOURS[3],
       tags: [],
+      is_cash: false,
     })
   })
 
@@ -59,7 +61,14 @@ describe('newAccountDraft', () => {
 })
 
 describe('validateDraft', () => {
-  const valid = { name: 'Cash', currency: 'EUR', icon: 'wallet', colour: '#000000', tags: [] }
+  const valid = {
+    name: 'Cash',
+    currency: 'EUR',
+    icon: 'wallet',
+    colour: '#000000',
+    tags: [],
+    is_cash: true,
+  }
 
   it('accepts a complete draft', () => {
     expect(validateDraft(valid)).toEqual({})
@@ -85,6 +94,7 @@ describe('normaliseDraft', () => {
         icon: 'wallet',
         colour: '#000000',
         tags: [' daily', 'daily', '', 'trip '],
+        is_cash: true,
       }),
     ).toEqual({
       name: 'Cash',
@@ -92,6 +102,7 @@ describe('normaliseDraft', () => {
       icon: 'wallet',
       colour: '#000000',
       tags: ['daily', 'trip'],
+      is_cash: true,
     })
   })
 })
@@ -112,6 +123,13 @@ describe('patchFromDraft', () => {
     expect(patch).toEqual({ name: 'Pocket', tags: ['daily', 'x'] })
   })
 
+  it('carries a changed cash flag', () => {
+    const a = account()
+    expect(patchFromDraft(a, { ...draftFromAccount(a), is_cash: false })).toEqual({
+      is_cash: false,
+    })
+  })
+
   it('changes the currency but keeps the stored amount', () => {
     const a = account({ balance: moneyAmount(1234, 2, 'EUR') })
     const patch = patchFromDraft(a, { ...draftFromAccount(a), currency: 'USD' })
@@ -127,9 +145,11 @@ describe('createInputFromDraft', () => {
       icon: 'credit-card',
       colour: '#3b82f6',
       tags: [],
+      is_cash: true,
     })
     expect(input.balance).toEqual(moneyAmount(0, 2, 'GBP'))
     expect(input.location_id).toBeNull()
+    expect(input.is_cash).toBe(true)
   })
 })
 

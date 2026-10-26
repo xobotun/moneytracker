@@ -173,4 +173,73 @@ describe('domain schema migration', () => {
       ),
     ).rejects.toThrow(/CHECK constraint failed/)
   })
+
+  describe('transactions.description__auto', () => {
+    const insert = (descriptionAuto: string | null) =>
+      db.run(
+        `INSERT INTO transactions (id,
+                                   amount_value__from, amount_scale__from, amount_currency__from,
+                                   amount_value__to, amount_scale__to, amount_currency__to,
+                                   transaction_at_local, transaction_at_zone,
+                                   description__auto, created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          't1',
+          100,
+          2,
+          'USD',
+          100,
+          2,
+          'USD',
+          '2026-05-20T12:00:00.000+02:00',
+          'Europe/Berlin',
+          descriptionAuto,
+          '2026-05-20T00:00:00.000Z',
+          '2026-05-20T00:00:00.000Z',
+        ],
+      )
+
+    it('rejects malformed JSON (json_valid CHECK)', async () => {
+      await expect(insert('not json')).rejects.toThrow(/CHECK constraint failed/)
+    })
+
+    it('accepts NULL (entered by hand) and a JSON object', async () => {
+      await insert(null)
+      await db.run('DELETE FROM transactions')
+      await insert('{"source":"ocr","raw":"KAFFEE 3,50"}')
+      const rows = await db.exec<{ d: string }>('SELECT description__auto AS d FROM transactions')
+      expect(rows).toEqual([{ d: '{"source":"ocr","raw":"KAFFEE 3,50"}' }])
+    })
+  })
+
+  describe('accounts.is_cash', () => {
+    const insert = (isCash?: number) =>
+      db.run(
+        `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, colour, icon,
+                               ${isCash === undefined ? '' : 'is_cash,'} created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ${isCash === undefined ? '' : '?,'} ?, ?)`,
+        [
+          'a1',
+          'Acc',
+          'USD',
+          0,
+          2,
+          '#FFFFFF',
+          'wallet',
+          ...(isCash === undefined ? [] : [isCash]),
+          '2026-05-20T00:00:00.000Z',
+          '2026-05-20T00:00:00.000Z',
+        ],
+      )
+
+    it('defaults to 0 (not cash)', async () => {
+      await insert()
+      const rows = await db.exec<{ is_cash: number }>('SELECT is_cash FROM accounts')
+      expect(rows).toEqual([{ is_cash: 0 }])
+    })
+
+    it('rejects anything but 0 and 1', async () => {
+      await expect(insert(2)).rejects.toThrow(/CHECK constraint failed/)
+    })
+  })
 })

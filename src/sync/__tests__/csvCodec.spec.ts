@@ -229,9 +229,9 @@ describe('csvCodec', () => {
         [groupingId, CUTOFF, CUTOFF],
       )
       await src.run(
-        `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
+        `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, is_cash, location_id,
                                colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
-         VALUES (?, 'Checking', 'USD', 0, 2, ?, '#000000', 'wallet', ?, 7, ?, ?)`,
+         VALUES (?, 'Checking', 'USD', 0, 2, 1, ?, '#000000', 'wallet', ?, 7, ?, ?)`,
         [accId, locId, groupingId, CUTOFF, CUTOFF],
       )
       await src.run(
@@ -247,10 +247,18 @@ describe('csvCodec', () => {
             amount_value__from, amount_scale__from, amount_currency__from,
             amount_value__to, amount_scale__to, amount_currency__to,
             transaction_at_local, transaction_at_zone,
+            description__user, description__auto,
             created_at_utc, updated_at_utc)
          VALUES (?, ?, NULL, 100, 2, 'USD', 100, 2, 'USD',
-                 '2026-05-01T09:00:00.000+00:00', 'UTC', ?, ?)`,
-        [newId(), accId, CUTOFF, CUTOFF],
+                 '2026-05-01T09:00:00.000+00:00', 'UTC', ?, ?, ?, ?)`,
+        [
+          newId(),
+          accId,
+          'Lunch, "the usual"\nwith Anna',
+          '{"source":"ocr","raw":"MENU 1,00\\n\\"Bar\\""}',
+          CUTOFF,
+          CUTOFF,
+        ],
       )
       const bundle = await exportAllTables(src)
       for (const t of SYNC_TABLES) {
@@ -284,7 +292,7 @@ describe('csvCodec', () => {
       const txnHeader = bundle.get('transactions')![0]!
       bundle.set('transactions', [
         txnHeader +
-          `${newId()},missing-account,,100,2,USD,100,2,USD,2026-05-01T09:00:00.000+00:00,UTC,,,[],,,,${CUTOFF},${CUTOFF},\n`,
+          `${newId()},missing-account,,100,2,USD,100,2,USD,2026-05-01T09:00:00.000+00:00,UTC,,,[],,,,,,${CUTOFF},${CUTOFF},\n`,
       ])
       await expect(importAllTables(dst, bundle)).rejects.toThrow()
       // Other tables also imported nothing — everything rolled back.

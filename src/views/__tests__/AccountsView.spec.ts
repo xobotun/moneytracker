@@ -217,6 +217,26 @@ describe('AccountsView', () => {
     expect(listedNames(w)).toEqual(['Pocket money'])
   })
 
+  it('marks an account as cash in the editor', async () => {
+    await seed('Wallet')
+    const w = await mountView()
+    await w.find('button[aria-label="Edit Wallet"]').trigger('click')
+    await settle()
+
+    const cash = document.getElementById('account-is-cash') as HTMLInputElement
+    expect(cash.checked).toBe(false)
+    cash.click()
+    await settle()
+    buttonByText('Save').click()
+    await settle()
+
+    const [saved] = await accountsRepo.list()
+    expect(saved!.is_cash).toBe(true)
+    await w.find('button[aria-label="Edit Wallet"]').trigger('click')
+    await settle()
+    expect((document.getElementById('account-is-cash') as HTMLInputElement).checked).toBe(true)
+  })
+
   it('has a real Edit button whose text hides on narrow screens', async () => {
     await seed('Cash')
     const w = await mountView()

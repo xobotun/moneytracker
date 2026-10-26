@@ -48,6 +48,7 @@ export interface Account {
   id: UUID
   name: string
   balance: MoneyAmount
+  is_cash: boolean // money in hand (a wallet), not in a bank; reports split cash from non-cash by it
   tags: string[]
   location_id: UUID | null
   colour: string
@@ -112,6 +113,8 @@ export interface Transaction {
   location_lat: number | null
   location_lon: number | null
   location_id: UUID | null
+  description__user: string | null // the user's free-text note
+  description__auto: Record<string, unknown> | null // what an import read (OCR, bank API, statement, ...); null = entered by hand
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null

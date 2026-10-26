@@ -96,6 +96,26 @@ describe('AccountsRepository', () => {
     expect(found?.tags).toEqual(['savings', 'emergency'])
   })
 
+  it('is not cash unless told, and round-trips is_cash', async () => {
+    const input = {
+      name: 'Wallet',
+      balance: moneyAmount(0, 2, 'EUR'),
+      tags: [],
+      location_id: null,
+      grouping_id: null,
+      colour: '#0F0',
+      icon: 'wallet',
+    }
+    const bank = await repo.create(input)
+    expect(bank.is_cash).toBe(false)
+
+    const wallet = await repo.create({ ...input, is_cash: true })
+    expect((await repo.findById(wallet.id))?.is_cash).toBe(true)
+
+    await repo.update(wallet.id, { is_cash: false })
+    expect((await repo.findById(wallet.id))?.is_cash).toBe(false)
+  })
+
   it('list() returns all non-deleted accounts', async () => {
     await repo.create({
       name: 'Account A',
