@@ -46,7 +46,7 @@ export function currencyName(code: string): string | null {
 }
 
 /** How many decimals a currency usually shows (2; JPY 0); 2 for a code Intl does not know. */
-function usualDecimals(currency: string): number {
+export function usualDecimals(currency: string): number {
   try {
     return (
       new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions()
