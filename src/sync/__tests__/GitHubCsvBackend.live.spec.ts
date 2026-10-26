@@ -149,7 +149,7 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
   })
   await tags.softDelete(nowhere.id)
 
-  await tags.create({
+  const food = await tags.create({
     kind: 'tag',
     name: 'food',
     colour: '#ff8800',
@@ -157,7 +157,7 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     synonyms: ['еда', 'Essen'],
     description: '',
   })
-  await tags.create({
+  const travel = await tags.create({
     kind: 'tag',
     name: 'travel ✈️',
     colour: '#0088ff',
@@ -172,6 +172,10 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     icon: 'pi-times',
   })
   await tags.softDelete(obsolete.id)
+  const eating = await tags.create({ kind: 'category', name: 'Food' })
+  const savings = await tags.create({ kind: 'category', name: 'Savings, "rainy day"' })
+  const kiez = await tags.create({ kind: 'merchant', name: 'Kiezkaffee' })
+  const moscow = await tags.create({ kind: 'journey', name: 'Москва 2026' })
 
   await rates.saveAuto({
     date: '2026-10-17',
@@ -215,7 +219,15 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     amount__to: moneyAmount(450, 2, 'EUR'),
     transaction_at: localMoment('2026-10-17T08:15:00.000+02:00', 'Europe/Berlin'),
     date_override: null,
-    tags: ['food', 'coffee'],
+    tags: [food.id, travel.id],
+    categories: [
+      {
+        category_id: eating.id,
+        amount__from: moneyAmount(450, 2, 'EUR'),
+        amount__to: moneyAmount(450, 2, 'EUR'),
+      },
+    ],
+    merchant_id: kiez.id,
     location_lat: 52.499_1,
     location_lon: 13.418_9,
     location_id: cafe.id,
@@ -229,9 +241,17 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     transaction_at: localMoment('2026-10-16T23:59:59.999+03:00', 'Europe/Moscow'),
     date_override: null,
     tags: [],
+    categories: [
+      {
+        category_id: savings.id,
+        amount__from: moneyAmount(1_000_000, 2, 'RUB'),
+        amount__to: moneyAmount(1_000_000, 2, 'RUB'),
+      },
+    ],
     location_lat: null,
     location_lon: null,
     location_id: null,
+    journey_id: moscow.id,
   })
   // Cross-currency transfer with a date override in another zone.
   await transactions.create({
@@ -241,7 +261,20 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     amount__to: moneyAmount(985_123, 2, 'RUB'),
     transaction_at: localMoment('2026-10-15T12:00:00.000+02:00', 'Europe/Berlin'),
     date_override: localMoment('2026-10-14T18:30:00.000-04:00', 'America/New_York'),
-    tags: ['travel ✈️'],
+    tags: [travel.id],
+    // Split at extra precision: 66.6667 € + 33.3333 € and 6,567.4867 + 3,283.7433 RUB.
+    categories: [
+      {
+        category_id: savings.id,
+        amount__from: moneyAmount(666_667, 4, 'EUR'),
+        amount__to: moneyAmount(65_674_867, 4, 'RUB'),
+      },
+      {
+        category_id: eating.id,
+        amount__from: moneyAmount(333_333, 4, 'EUR'),
+        amount__to: moneyAmount(32_837_433, 4, 'RUB'),
+      },
+    ],
     location_lat: null,
     location_lon: null,
     location_id: null,
@@ -255,6 +288,13 @@ async function populate(db: Database): Promise<{ eurAccount: UUID; rubAccount: U
     transaction_at: localMoment('2026-10-17T09:00:00.000+02:00', 'Europe/Berlin'),
     date_override: null,
     tags: [],
+    categories: [
+      {
+        category_id: eating.id,
+        amount__from: moneyAmount(1, 0, 'EUR'),
+        amount__to: moneyAmount(1, 0, 'EUR'),
+      },
+    ],
     location_lat: null,
     location_lon: null,
     location_id: null,
@@ -390,14 +430,20 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     b = newDevice(db, cfg, 'live-test-device-B')
     b.lastKnown = { device: meta!.device, uploadedAtUtc: meta!.uploadedAtUtc, hash: meta!.hash }
 
+    // B uses the tags it downloaded from A.
+    const tagsOfB = new TagsRepository(b.db)
+    const food = (await tagsOfB.findByName('tag', 'food'))!
+    const eating = (await tagsOfB.findByName('category', 'Food'))!
+    const amount = moneyAmount(25_000, 2, 'RUB')
     await new TransactionsRepository(b.db).create({
       account_id__from: accountsOfA.rubAccount,
       account_id__to: null,
-      amount__from: moneyAmount(25_000, 2, 'RUB'),
-      amount__to: moneyAmount(25_000, 2, 'RUB'),
+      amount__from: amount,
+      amount__to: amount,
       transaction_at: localMoment('2026-10-18T10:00:00.000+03:00', 'Europe/Moscow'),
       date_override: null,
-      tags: ['food'],
+      tags: [food.id],
+      categories: [{ category_id: eating.id, amount__from: amount, amount__to: amount }],
       location_lat: null,
       location_lon: null,
       location_id: null,
@@ -441,7 +487,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
     expect(await hashDatabase(db)).toBe(await hashDatabase(a.db))
     const counts = await rowCounts(db)
     expect(counts.transactions).toBe(2346) // 2,345 from A (one soft-deleted) + 1 from B
-    expect(counts.tags).toBe(6) // 5 from A (incl. the two soft-deleted) + added-on-A
+    expect(counts.tags).toBe(10) // 9 from A (incl. the two soft-deleted) + added-on-A
   })
 
   it('a second sync with nothing new is a no-op', async () => {

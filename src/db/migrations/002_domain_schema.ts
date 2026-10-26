@@ -135,10 +135,16 @@ export const migration: Migration = {
       transaction_at_zone      TEXT NOT NULL,                            -- civil moment: IANA zone name
       date_override_local      TEXT,                                     -- civil moment: offset-bearing ISO 8601
       date_override_zone       TEXT,                                     -- civil moment: IANA zone name
-      tags                     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
+      tags                     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of short ids of plain tags (kind 'tag'; repository-checked)
+      -- JSON array of category parts, each {"category_id", "amount_value__from", "amount_scale__from",
+      -- "amount_value__to", "amount_scale__to"} in the transaction's currencies. At least one part,
+      -- each category once, each side adding up exactly to the transaction's amount (repository-checked).
+      categories               TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(categories)),
+      merchant_id              TEXT REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a merchant tag (repository-checked); NULL = none
       location_lat             REAL,                                     -- WGS84 degrees
       location_lon             REAL,                                     -- WGS84 degrees
-      location_id              TEXT REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a location tag; NULL = none
+      location_id              TEXT REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a location tag (repository-checked); NULL = none
+      journey_id               TEXT REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a journey tag (repository-checked); NULL = none
       description__user        TEXT,                                     -- the user's free-text note; NULL = none
       description__auto        TEXT CHECK (json_valid(description__auto)), -- JSON object from an import (OCR, bank API, statement, ...); NULL = entered by hand
       created_at_utc           TEXT NOT NULL,                            -- ISO 8601 UTC instant

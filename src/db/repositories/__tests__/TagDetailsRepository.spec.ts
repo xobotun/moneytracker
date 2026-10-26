@@ -6,6 +6,8 @@ import { migration as domainMigration } from '../../migrations/002_domain_schema
 import { TagKindMismatchError } from '../../errors'
 import { TagsRepository } from '../TagsRepository'
 import { TagDetailsRepository } from '../TagDetailsRepository'
+import { newId } from '../../uuid'
+import type { ShortId } from '../../shortId'
 
 // Metres per degree of latitude on the mean Earth radius (6 371 008.8 m).
 const METRES_PER_DEGREE = (Math.PI / 180) * 6_371_008.8
@@ -147,5 +149,108 @@ describe('TagDetailsRepository', () => {
     expect((await repo.nearestLocations(BASE.lat, BASE.lon, 500, 10)).map((f) => f.tag.id)).toEqual(
       [near.id, middle.id, far.id],
     )
+  })
+
+  /**
+   * A raw transaction on journey `journeyId`, in Lisbon time unless the moment
+   * says otherwise (raw SQL: the rules of TransactionsRepository are not under test).
+   */
+  async function spendOn(
+    journeyId: ShortId | null,
+    local: string,
+    opts: { override?: string; deleted?: boolean } = {},
+  ) {
+    const now = '2026-10-26T10:00:00.000Z'
+    await db.run(
+      `INSERT INTO transactions (id,
+         amount_value__from, amount_scale__from, amount_currency__from,
+         amount_value__to, amount_scale__to, amount_currency__to,
+         transaction_at_local, transaction_at_zone, date_override_local, date_override_zone,
+         journey_id, created_at_utc, updated_at_utc, deleted_at_utc)
+       VALUES (?, 100, 2, 'EUR', 100, 2, 'EUR', ?, 'Europe/Lisbon', ?, ?, ?, ?, ?, ?)`,
+      [
+        newId(),
+        local,
+        opts.override ?? null,
+        opts.override === undefined ? null : 'Europe/Lisbon',
+        journeyId,
+        now,
+        now,
+        opts.deleted ? now : null,
+      ],
+    )
+  }
+
+  it('journeyDates derives from the earliest and latest transaction of the journey and its children', async () => {
+    const summer = await tags.create({ kind: 'journey', name: 'Summer 2026' })
+    const lisbon = await tags.create({ kind: 'journey', name: 'Lisbon', parent_id: summer.id })
+    const sintra = await tags.create({ kind: 'journey', name: 'Sintra', parent_id: lisbon.id })
+    const porto = await tags.create({ kind: 'journey', name: 'Porto', parent_id: summer.id })
+    const winter = await tags.create({ kind: 'journey', name: 'Winter' })
+
+    await spendOn(summer.id, '2026-07-05T12:00:00.000+01:00')
+    await spendOn(lisbon.id, '2026-07-03T12:00:00.000+01:00')
+    await spendOn(sintra.id, '2026-07-01T09:30:00.000+01:00') // a grandchild of Summer: the earliest
+    await spendOn(porto.id, '2026-07-14T23:30:00.000+01:00') // the latest
+    // Paid on the 20th, booked to the 12th: the override is what counts.
+    await spendOn(porto.id, '2026-07-20T12:00:00.000+01:00', {
+      override: '2026-07-12T12:00:00.000+01:00',
+    })
+    await spendOn(lisbon.id, '2026-06-20T12:00:00.000+01:00', { deleted: true })
+    await spendOn(winter.id, '2026-12-01T12:00:00.000+00:00')
+    await spendOn(null, '2026-08-01T12:00:00.000+01:00')
+
+    const derived = (start: string | null, end: string | null) => ({
+      start,
+      end,
+      startTyped: false,
+      endTyped: false,
+    })
+    expect(await repo.journeyDates(summer.id)).toEqual(derived('2026-07-01', '2026-07-14'))
+    expect(await repo.journeyDates(lisbon.id)).toEqual(derived('2026-07-01', '2026-07-03'))
+    expect(await repo.journeyDates(porto.id)).toEqual(derived('2026-07-12', '2026-07-14'))
+
+    const someday = await tags.create({ kind: 'journey', name: 'Someday' })
+    expect(await repo.journeyDates(someday.id)).toEqual(derived(null, null))
+  })
+
+  it('journeyDates prefers stored dates', async () => {
+    const lisbon = await tags.create({ kind: 'journey', name: 'Lisbon' })
+    await spendOn(lisbon.id, '2026-07-01T09:30:00.000+01:00')
+    await spendOn(lisbon.id, '2026-07-10T18:00:00.000+01:00')
+
+    // Landed after midnight, with nothing bought that day.
+    await repo.setJourney(lisbon.id, { start_date: '2026-06-30', end_date: null })
+    expect(await repo.journeyDates(lisbon.id)).toEqual({
+      start: '2026-06-30',
+      end: '2026-07-10',
+      startTyped: true,
+      endTyped: false,
+    })
+
+    await repo.setJourney(lisbon.id, { start_date: null, end_date: '2026-07-11' })
+    expect(await repo.journeyDates(lisbon.id)).toEqual({
+      start: '2026-07-01',
+      end: '2026-07-11',
+      startTyped: false,
+      endTyped: true,
+    })
+
+    await repo.setJourney(lisbon.id, { start_date: '2026-06-30', end_date: '2026-07-11' })
+    expect(await repo.journeyDates(lisbon.id)).toEqual({
+      start: '2026-06-30',
+      end: '2026-07-11',
+      startTyped: true,
+      endTyped: true,
+    })
+
+    // A deleted details row holds no dates.
+    await db.run('UPDATE journey_details SET deleted_at_utc = ?', ['2026-10-26T11:00:00.000Z'])
+    expect(await repo.journeyDates(lisbon.id)).toEqual({
+      start: '2026-07-01',
+      end: '2026-07-10',
+      startTyped: false,
+      endTyped: false,
+    })
   })
 })

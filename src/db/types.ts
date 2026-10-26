@@ -122,6 +122,17 @@ export interface AccountGrouping {
   deleted_at_utc: Date | null
 }
 
+/**
+ * One category's share of a transaction: its part of each side's amount, in
+ * the transaction's currencies. Parts may carry more decimals than the
+ * currency shows (1.005000 €); rounding is display-only.
+ */
+export interface CategoryPart {
+  category_id: ShortId // a `category` tag
+  amount__from: MoneyAmount
+  amount__to: MoneyAmount
+}
+
 export interface Transaction {
   id: UUID
   account_id__from: UUID | null
@@ -130,10 +141,13 @@ export interface Transaction {
   amount__to: MoneyAmount
   transaction_at: LocalMoment
   date_override: LocalMoment | null
-  tags: string[]
+  tags: ShortId[] // plain tags (kind `tag`)
+  categories: CategoryPart[] // at least one, each category once; each side adds up exactly to the transaction's amount
+  merchant_id: ShortId | null // a `merchant` tag
   location_lat: number | null
   location_lon: number | null
   location_id: ShortId | null // a `location` tag
+  journey_id: ShortId | null // a `journey` tag
   description__user: string | null // the user's free-text note
   description__auto: Record<string, unknown> | null // what an import read (OCR, bank API, statement, ...); null = entered by hand
   created_at_utc: Date

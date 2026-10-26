@@ -172,6 +172,51 @@ export class TagDetailsRepository {
   }
 
   /**
+   * A journey's start and end dates ('YYYY-MM-DD'): each the date the user
+   * typed (`*Typed`), else derived from the live transactions of the journey
+   * and of every journey below it — the local calendar date of the earliest
+   * and of the latest one, by their date override when they have one. Null
+   * when there is neither.
+   */
+  async journeyDates(id: ShortId): Promise<{
+    start: string | null
+    end: string | null
+    startTyped: boolean
+    endTyped: boolean
+  }> {
+    const typed = await this.getJourney(id)
+    // Offset-bearing local moments do not sort as text: the earliest and the
+    // latest are picked by julianday(), and their own local date is taken.
+    const rows = await this.db.exec<{ first_date: string | null; last_date: string | null }>(
+      `WITH RECURSIVE journey(id) AS (
+         SELECT ?
+         UNION
+         SELECT t.id FROM tags t JOIN journey j ON t.parent_id = j.id
+       ),
+       moments AS (
+         SELECT id, COALESCE(date_override_local, transaction_at_local) AS local
+         FROM transactions
+         WHERE deleted_at_utc IS NULL AND journey_id IN (SELECT id FROM journey)
+       )
+       SELECT
+         (SELECT substr(local, 1, 10) FROM moments ORDER BY julianday(local) ASC, id ASC LIMIT 1)
+           AS first_date,
+         (SELECT substr(local, 1, 10) FROM moments ORDER BY julianday(local) DESC, id DESC LIMIT 1)
+           AS last_date`,
+      [id],
+    )
+    const derived = rows[0]!
+    const start = typed?.start_date ?? null
+    const end = typed?.end_date ?? null
+    return {
+      start: start ?? derived.first_date,
+      end: end ?? derived.last_date,
+      startTyped: start !== null,
+      endTyped: end !== null,
+    }
+  }
+
+  /**
    * Live locations with coordinates within `radiusMetres` of the point,
    * nearest first, at most `limit`. Distances are computed here over all of
    * them: the set of known locations is small.

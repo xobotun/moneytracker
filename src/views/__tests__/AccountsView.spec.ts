@@ -8,6 +8,8 @@ import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
+import { TagsRepository } from '@/db/repositories/TagsRepository'
+import type { ShortId } from '@/db/shortId'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
 import { AppliedRatesRepository } from '@/db/repositories/AppliedRatesRepository'
@@ -507,16 +509,23 @@ describe('AccountsView', () => {
       })
     }
 
+    let salary: ShortId // every transaction needs a category
+    beforeEach(async () => {
+      salary = (await new TagsRepository(db).create({ kind: 'category', name: 'Salary' })).id
+    })
+
     // Income: the transaction write refreshes the account's cached balance.
     function income(to: UUID, value: number, currency: string) {
+      const amount = moneyAmount(value, 2, currency)
       return transactionsRepo.create({
         account_id__from: null,
         account_id__to: to,
-        amount__from: moneyAmount(value, 2, currency),
-        amount__to: moneyAmount(value, 2, currency),
+        amount__from: amount,
+        amount__to: amount,
         transaction_at: localMoment('2026-10-01T12:00:00.000+02:00', 'Europe/Berlin'),
         date_override: null,
         tags: [],
+        categories: [{ category_id: salary, amount__from: amount, amount__to: amount }],
         location_lat: null,
         location_lon: null,
         location_id: null,

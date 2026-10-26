@@ -2,6 +2,7 @@ import { type MoneyAmount, moneyAmount } from './MoneyAmount'
 import { type LocalMoment, localMoment } from './LocalMoment'
 import { type UUID, asUuid } from './uuid'
 import { type ShortId, asShortId } from './shortId'
+import type { CategoryPart } from './types'
 
 // ---------- MoneyAmount ↔ three columns ----------
 
@@ -82,6 +83,48 @@ export function jsonObjectToNullableColumn<V>(obj: Record<string, V> | null): st
 
 export function jsonObjectFromNullableColumn<V>(text: string | null): Record<string, V> | null {
   return text === null ? null : jsonObjectFromColumn<V>(text)
+}
+
+// ---------- CategoryPart[] ↔ JSON array column ----------
+//
+// A transaction's category parts live in its `categories` column. Each part
+// keeps its two amounts as value + scale; the currencies are the
+// transaction's own and are not repeated. The key order is fixed, so the same
+// parts are always the same text (the database hash and the CSV compare it).
+
+type CategoryPartJson = {
+  category_id: string
+  amount_value__from: number
+  amount_scale__from: number
+  amount_value__to: number
+  amount_scale__to: number
+}
+
+export function categoryPartsToColumn(parts: CategoryPart[]): string {
+  return jsonArrayToColumn(
+    parts.map(
+      (p): CategoryPartJson => ({
+        category_id: p.category_id,
+        amount_value__from: p.amount__from.value,
+        amount_scale__from: p.amount__from.scale,
+        amount_value__to: p.amount__to.value,
+        amount_scale__to: p.amount__to.scale,
+      }),
+    ),
+  )
+}
+
+/** Reads the parts back, in the transaction's currencies `currencyFrom` / `currencyTo`. */
+export function categoryPartsFromColumn(
+  text: string,
+  currencyFrom: string,
+  currencyTo: string,
+): CategoryPart[] {
+  return jsonArrayFromColumn<CategoryPartJson>(text).map((p) => ({
+    category_id: asShortId(p.category_id),
+    amount__from: moneyAmount(p.amount_value__from, p.amount_scale__from, currencyFrom),
+    amount__to: moneyAmount(p.amount_value__to, p.amount_scale__to, currencyTo),
+  }))
 }
 
 // ---------- boolean ↔ INTEGER 0/1 column ----------
