@@ -357,6 +357,23 @@ A reviewer agent reads A6's tests and drops (or merges) the ones that make no se
 
 The controller triages A6's bug list: each real bug becomes a fix task before the final review.
 
+### Task F1: Fix the sync corner-case bugs
+
+From A6's bug list as triaged by A7 and the controller. The cutoff bug (`cutoff.spec.ts`) is postponed — see [2026-10-26-sync-change-detection.md](2026-10-26-sync-change-detection.md); leave its two `it.fails` alone.
+
+**Files:** `src/sync/repairTags.ts`, `src/sync/syncColumns.ts` (`ROW_RANK`), `src/db/tagReferences.ts`, `src/db/repositories/TagsRepository.ts`, `src/db/migrations/002_domain_schema.ts` + `syncColumns.ts` + `types.ts` (`moved_at_utc`), the seven `it.fails` below (turned into `it`), unit specs for each rule.
+
+Each fix turns its `it.fails` into a passing `it`:
+1. `categories.spec.ts:30`, `:59` — a live transaction must never end with no live category (§2.2, §2.5 "a category in use cannot be deleted"). New repair step after the redirect and before the lift: every deleted, unmerged category that a live transaction references is restored (`deleted_at_utc = NULL`), stamped `updated_at_utc = its deleted_at_utc + 1 ms` (deterministic, so every device writes the same row), and reported as a `SyncConflict` (`resolution: 'delete-undone'`).
+2. `categories.spec.ts:121` — a merged tombstone outranks a plain one: `ROW_RANK.tags = row => row.merged_into_id == null ? 0 : 1` (delete-wins still runs first; this decides only between two tombstones).
+3. `merges.spec.ts:102` — a merge-cycle restore is stamped `max(cycle's latest updated_at_utc, the live-side row's updated_at_utc) + 1 ms`.
+4. `merges.spec.ts:253` — a user merge (`redirectTagReferences` with `bump: true`) rewrites deleted rows without bumping them; only live rows are bumped.
+5. `merges.spec.ts:28` (spec question, ruled) — names merged along a chain stay findable: `TagsRepository.findByName` also matches the name and synonyms of merged tombstones and returns the live end of their merge chain. Stored synonyms are not rewritten by sync (so a synonym the user removed later is not resurrected). Adjust the test's final assertion to the lookup if it asserts the stored synonym list.
+6. `hierarchy.spec.ts:114` (spec question, ruled) — a parent loop is undone at the tag **moved** last: new column `tags.moved_at_utc TEXT NOT NULL -- ISO 8601 UTC instant: when parent_id was last set by the user`, set on create (= `created_at_utc`), on `move`, and on children re-parented by `merge`; repairs (redirect, lift, loop undo) leave it alone. The loop rule picks the greatest `moved_at_utc` (ties: greatest id).
+
+- [ ] Turn each `it.fails` into `it`, see it fail, fix, see it pass; unit tests for the new rule pieces; full unit run, type-check, lint, format.
+- [ ] Commit `fix(sync): repair categories in use, merged tombstones, restore stamps, move order` (with the migration-edit sentence).
+
 ### Finish (controller)
 
 - Update CLAUDE.md SQLite conventions (short ids, `tags` keyed by id, the `categories` JSON column, new sync tables), TASKS.md (A done; B, C, D ahead), the decisions doc (journey icon `globe`).
