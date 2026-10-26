@@ -120,7 +120,12 @@ describe('split calculator', () => {
   it('warns when typed parts do not add up', () => {
     let s = typeTotal(emptySplit('EUR', 'AMD'), 'to', amd(80000))
     s = typeTotal(s, 'from', eur(221))
-    s = typePart(typePart(addPart(addPart(s, 'a'), 'b'), 'a', 'from', eur(100)), 'b', 'from', eur(100))
+    s = typePart(
+      typePart(addPart(addPart(s, 'a'), 'b'), 'a', 'from', eur(100)),
+      'b',
+      'from',
+      eur(100),
+    )
     const { warnings } = solve(s)
     expect(warnings).toContainEqual({ kind: 'sum-mismatch', side: 'from', difference: eur(21) })
     expect(warnings.filter((w) => w.kind === 'sum-mismatch')).toHaveLength(1)

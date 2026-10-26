@@ -297,7 +297,11 @@ export function recompute(
     const sum = s.parts.reduce((acc, p) => acc + units(p.amounts[side], scale), 0n)
     const difference = units(total[side], scale) - sum
     if (difference !== 0n) {
-      warnings.push({ kind: 'sum-mismatch', side, difference: toAmount(difference, scale, total[side].currency) })
+      warnings.push({
+        kind: 'sum-mismatch',
+        side,
+        difference: toAmount(difference, scale, total[side].currency),
+      })
     }
   }
   return { state, warnings }
