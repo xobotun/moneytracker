@@ -34,6 +34,10 @@ describe('rankOf', () => {
 })
 
 describe('PROVIDER_LEVELS', () => {
+  it('covers the providers the app asks: the five central banks, then fawazahmed0', () => {
+    expect(PROVIDERS.map((p) => p.id)).toEqual(['ecb', 'nbg', 'nbk', 'cba', 'cbr', 'fawazahmed0'])
+  })
+
   it('is where every provider the app asks takes its priority from', () => {
     for (const p of PROVIDERS) expect(p.priority, p.id).toBe(PROVIDER_LEVELS[p.id])
   })

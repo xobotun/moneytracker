@@ -1,4 +1,5 @@
 import type { ExchangeRate } from '@/db/types'
+import { CENTRAL_BANKS, createCentralBank } from './providers/centralBanks'
 import { createFawazahmed0 } from './providers/fawazahmed0'
 import { MANUAL_PROVIDER } from './levels'
 
@@ -36,8 +37,14 @@ export function levelOf(provider: string | null, providers: readonly RateProvide
   return providers.find((p) => p.id === first)?.priority ?? Infinity
 }
 
-/** The providers the app asks, in any order (their priorities order them). */
-export const PROVIDERS: readonly RateProvider[] = [createFawazahmed0()]
+/**
+ * The providers the app asks (their priorities order them; within a level,
+ * this order breaks a tie between two equally fresh direct rates).
+ */
+export const PROVIDERS: readonly RateProvider[] = [
+  ...CENTRAL_BANKS.map((bank) => createCentralBank(bank)),
+  createFawazahmed0(),
+]
 
 /** The best level the providers offer (manual aside). */
 export function topLevel(providers: readonly RateProvider[]): number {
