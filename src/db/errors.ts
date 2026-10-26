@@ -3,6 +3,25 @@ import type { TagDetailConflict } from './types'
 // Errors the repositories throw when a write would break a domain rule. The UI
 // tells them apart by class.
 
+/** An id that is no tag at all (not even a deleted one). */
+export class TagNotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TagNotFoundError'
+  }
+}
+
+/**
+ * A deleted tag where a live one is required: newly referenced, newly linked
+ * from a detail, merged, moved or renamed — or a merged tag being restored.
+ */
+export class DeletedTagError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DeletedTagError'
+  }
+}
+
 /** A tag was used where another kind is required (a parent, a detail's link). */
 export class TagKindMismatchError extends Error {
   constructor(message: string) {
@@ -39,11 +58,43 @@ export class CategoryInUseError extends Error {
   }
 }
 
+/** A transaction without category parts: every transaction needs at least one. */
+export class NoCategoryError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NoCategoryError'
+  }
+}
+
+/** The same category or plain tag twice on one row. */
+export class DuplicateReferenceError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DuplicateReferenceError'
+  }
+}
+
+/** A category part in another currency than the transaction's amount on that side. */
+export class CurrencyMismatchError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CurrencyMismatchError'
+  }
+}
+
 /** A transaction's category parts do not add up exactly to its amounts. */
 export class PartsSumError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'PartsSumError'
+  }
+}
+
+/** Malformed tag details: a lone coordinate, a journey date that is no calendar date, an end before the start. */
+export class InvalidTagDetailsError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InvalidTagDetailsError'
   }
 }
 

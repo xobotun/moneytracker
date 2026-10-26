@@ -10,7 +10,15 @@ import { newId } from '../../uuid'
 import { moneyAmount, zeroMoney, type MoneyAmount } from '../../MoneyAmount'
 import { localMoment } from '../../LocalMoment'
 import { newShortId, asShortId, type ShortId } from '../../shortId'
-import { PartsSumError, TagKindMismatchError } from '../../errors'
+import {
+  CurrencyMismatchError,
+  DeletedTagError,
+  DuplicateReferenceError,
+  NoCategoryError,
+  PartsSumError,
+  TagKindMismatchError,
+  TagNotFoundError,
+} from '../../errors'
 import type { Account, CategoryPart, Tag } from '../../types'
 
 describe('TransactionsRepository', () => {
@@ -729,6 +737,7 @@ describe('TransactionsRepository', () => {
     }
 
     it('requires at least one category', async () => {
+      await expect(repo.create(shop([]))).rejects.toThrow(NoCategoryError)
       await expect(repo.create(shop([]))).rejects.toThrow(/at least one category/)
       expect(await repo.list()).toEqual([])
 
@@ -739,12 +748,14 @@ describe('TransactionsRepository', () => {
 
     it('rejects the same category twice', async () => {
       const twice = [part(groceries, eur(100), amd(400)), part(groceries, eur(101), amd(400))]
+      await expect(repo.create(shop(twice))).rejects.toThrow(DuplicateReferenceError)
       await expect(repo.create(shop(twice))).rejects.toThrow(/Groceries.*twice/)
     })
 
     it('rejects the same plain tag twice', async () => {
       const birthday = await tags.create({ kind: 'tag', name: 'birthday' })
       const twice = { ...shop(groceriesOnly()), tags: [birthday.id, birthday.id] }
+      await expect(repo.create(twice)).rejects.toThrow(DuplicateReferenceError)
       await expect(repo.create(twice)).rejects.toThrow(/birthday.*twice/)
 
       const t = await repo.create({ ...shop(groceriesOnly()), tags: [birthday.id] })
@@ -783,12 +794,12 @@ describe('TransactionsRepository', () => {
 
     it("rejects parts in another currency than the transaction's", async () => {
       const inUsd = [part(groceries, moneyAmount(201, 2, 'USD'), amd(800))]
-      await expect(repo.create(shop(inUsd))).rejects.toThrow(PartsSumError)
+      await expect(repo.create(shop(inUsd))).rejects.toThrow(CurrencyMismatchError)
 
       // A currency change needs parts in the new currency too.
       const t = await repo.create(shop(groceriesOnly()))
       await expect(repo.update(t.id, { amount__to: moneyAmount(201, 2, 'USD') })).rejects.toThrow(
-        PartsSumError,
+        CurrencyMismatchError,
       )
     })
 
@@ -880,7 +891,7 @@ describe('TransactionsRepository', () => {
 
       await expect(
         repo.create({ ...shop(split()), tags: [asShortId('NoSuchTag123')] }),
-      ).rejects.toThrow(/not found/)
+      ).rejects.toThrow(TagNotFoundError)
       expect(await repo.list()).toEqual([])
     })
 
@@ -917,7 +928,7 @@ describe('TransactionsRepository', () => {
       await expect(repo.create({ ...shop(groceriesOnly()), merchant_id: rewe.id })).rejects.toThrow(
         /"Rewe" is deleted/,
       )
-      await expect(repo.update(bare.id, { tags: [birthday.id] })).rejects.toThrow(/deleted/)
+      await expect(repo.update(bare.id, { tags: [birthday.id] })).rejects.toThrow(DeletedTagError)
       await expect(repo.update(bare.id, { merchant_id: rewe.id })).rejects.toThrow(/deleted/)
       await expect(repo.update(bare.id, { categories: resplit })).rejects.toThrow(/deleted/)
       expect(await repo.findById(bare.id)).toMatchObject({
