@@ -7,6 +7,7 @@ import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRepository'
+import { TagsRepository } from '@/db/repositories/TagsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
@@ -16,8 +17,10 @@ import { todayLocal } from '@/money/dates'
 import type { ExchangeRateInput } from '@/money/providers'
 import { RateService } from '@/money/rateService'
 import { formatDay } from '@/format/date'
+import { useAccountsStore } from '@/stores/accounts'
+import { useTagsStore } from '@/stores/tags'
 import { useMoneySettingsStore } from '@/stores/moneySettings'
-import type { UUID } from '@/db/uuid'
+import type { ShortId } from '@/db/shortId'
 import { formatApprox, formatMoney } from '@/format/currency'
 import AccountsView from '../AccountsView.vue'
 
@@ -30,12 +33,14 @@ let rateService: RateService
 // What the fake rate source publishes; a function may throw (source down).
 let sourceAnswers: ExchangeRateInput[] | (() => ExchangeRateInput[]) = []
 let transactionsRepo: TransactionsRepository
+let tagsRepo: TagsRepository
 vi.mock('@/db/init', () => ({
   getAccountsRepository: () => accountsRepo,
   getAppliedRatesRepository: () => appliedRepo,
   getRateService: () => rateService,
   getAccountGroupingsRepository: () => groupingsRepo,
   getTransactionsRepository: () => transactionsRepo,
+  getTagsRepository: () => tagsRepo,
 }))
 
 function seed(name: string) {
@@ -83,6 +88,7 @@ describe('AccountsView', () => {
     accountsRepo = new AccountsRepository(db)
     groupingsRepo = new AccountGroupingsRepository(db)
     transactionsRepo = new TransactionsRepository(db)
+    tagsRepo = new TagsRepository(db)
     appliedRepo = new AppliedRatesRepository(db)
     rateService = new RateService({
       exchangeRates: new ExchangeRatesRepository(db),
@@ -132,6 +138,49 @@ describe('AccountsView', () => {
     if (!button) throw new Error(`no button "${text}"`)
     return button
   }
+
+  it('shows a renamed tag on the account', async () => {
+    const tag = await tagsRepo.create({ kind: 'tag', name: 'daily' })
+    const account = await seed('Cash')
+    await accountsRepo.update(account.id, { tags: [tag.id] })
+    const w = await mountView()
+    expect(w.text()).toContain('#daily')
+
+    await tagsRepo.update(tag.id, { name: 'everyday' })
+    await useAccountsStore().load()
+    await useTagsStore().load()
+    await settle()
+    expect(w.text()).toContain('#everyday')
+    expect(w.text()).not.toContain('#daily')
+  })
+
+  it('does not show a deleted tag on the account', async () => {
+    const tag = await tagsRepo.create({ kind: 'tag', name: 'gone' })
+    const account = await seed('Cash')
+    await accountsRepo.update(account.id, { tags: [tag.id] })
+    await tagsRepo.softDelete(tag.id)
+    const w = await mountView()
+    expect(w.text()).not.toContain('gone')
+  })
+
+  it('saves tags typed in the editor as plain tags', async () => {
+    const existing = await tagsRepo.create({ kind: 'tag', name: 'daily' })
+    const account = await seed('Cash')
+    const w = await mountView()
+    ;[...w.findAll('button')].find((b) => b.text().includes('Edit'))!.element.click()
+    await settle()
+    const input = document.getElementById('account-tags') as HTMLInputElement
+    input.value = 'Daily'
+    input.dispatchEvent(new Event('input'))
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }),
+    )
+    await settle()
+    buttonByText('Save').click()
+    await settle()
+    expect((await accountsRepo.findById(account.id))!.tags).toEqual([existing.id])
+    expect(await tagsRepo.listAll()).toHaveLength(1)
+  })
 
   it('shows an empty state with a way to add the first account', async () => {
     const w = await mountView()
@@ -495,7 +544,7 @@ describe('AccountsView', () => {
   })
 
   describe('balances', () => {
-    function accountIn(name: string, currency: string, grouping_id: UUID | null = null) {
+    function accountIn(name: string, currency: string, grouping_id: ShortId | null = null) {
       return accountsRepo.create({
         name,
         balance: zeroMoney(currency),
@@ -508,7 +557,7 @@ describe('AccountsView', () => {
     }
 
     // Income: the transaction write refreshes the account's cached balance.
-    function income(to: UUID, value: number, currency: string) {
+    function income(to: ShortId, value: number, currency: string) {
       return transactionsRepo.create({
         account_id__from: null,
         account_id__to: to,

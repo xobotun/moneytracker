@@ -11,7 +11,9 @@ import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
 import { YELLOW_BUTTON } from './yellowButton'
 import { useAccountsStore } from '@/stores/accounts'
+import { useTagsStore } from '@/stores/tags'
 import type { Account } from '@/db/types'
+import type { ShortId } from '@/db/shortId'
 import CurrencyInput from '@/components/CurrencyInput.vue'
 import { currencyName, currencySymbol, formatMoney } from '@/format/currency'
 import {
@@ -31,6 +33,7 @@ const props = defineProps<{ account: Account | null }>()
 const visible = defineModel<boolean>('visible', { required: true })
 
 const store = useAccountsStore()
+const tagsStore = useTagsStore()
 
 const draft = ref<AccountDraft>(newAccountDraft([]))
 const submitted = ref(false)
@@ -43,12 +46,20 @@ const currencyLocked = ref(false)
 // Transactions on the account being edited; null while counting (or for a new one).
 const transactionCount = ref<number | null>(null)
 
+/** A tag's name for the editor; null for a deleted or unknown tag. */
+function visibleTagName(id: ShortId): string | null {
+  const tag = tagsStore.byId.get(id)
+  return tag && tag.deleted_at_utc === null ? tag.name : null
+}
+
 // Start from a fresh draft each time the dialog opens.
 watch(
   visible,
   (open) => {
     if (!open) return
-    draft.value = props.account ? draftFromAccount(props.account) : newAccountDraft(store.accounts)
+    draft.value = props.account
+      ? draftFromAccount(props.account, visibleTagName)
+      : newAccountDraft(store.accounts)
     submitted.value = false
     confirmingDelete.value = false
     error.value = null
@@ -92,8 +103,12 @@ async function save() {
   saving.value = true
   error.value = null
   try {
-    if (props.account) await store.update(props.account.id, patchFromDraft(props.account, clean))
-    else await store.create(createInputFromDraft(clean))
+    const tagIds = await tagsStore.resolvePlainTags(clean.tags)
+    if (props.account) {
+      await store.update(props.account.id, patchFromDraft(props.account, clean, tagIds))
+    } else {
+      await store.create(createInputFromDraft(clean, tagIds))
+    }
     visible.value = false
   } catch (e) {
     error.value = `Could not save the account. ${(e as Error).message}`

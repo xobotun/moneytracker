@@ -1,11 +1,11 @@
 import type { Database } from '../Database'
 import type { AccountGrouping } from '../types'
-import { newId, type UUID } from '../uuid'
+import { newShortId, type ShortId } from '../shortId'
 import {
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
-  uuidFromColumn,
+  shortIdFromColumn,
 } from '../columnMappers'
 
 type AccountGroupingRow = {
@@ -29,7 +29,7 @@ export type AccountGroupingUpdateInput = Partial<AccountGroupingCreateInput>
 
 function rowToAccountGrouping(row: AccountGroupingRow): AccountGrouping {
   return {
-    id: uuidFromColumn(row.id),
+    id: shortIdFromColumn(row.id),
     name: row.name,
     colour: row.colour,
     icon: row.icon,
@@ -48,7 +48,7 @@ export class AccountGroupingsRepository {
   constructor(private db: Database) {}
 
   async create(input: AccountGroupingCreateInput): Promise<AccountGrouping> {
-    const id = newId()
+    const id = newShortId()
     const now = instantToColumn(new Date())
     // The position is computed inside the INSERT, so appending stays atomic.
     await this.db.run(
@@ -59,7 +59,7 @@ export class AccountGroupingsRepository {
     return (await this.findById(id))!
   }
 
-  async findById(id: UUID): Promise<AccountGrouping | null> {
+  async findById(id: ShortId): Promise<AccountGrouping | null> {
     const rows = await this.db.exec<AccountGroupingRow>(
       'SELECT * FROM account_groupings WHERE id = ? AND deleted_at_utc IS NULL',
       [id],
@@ -75,7 +75,7 @@ export class AccountGroupingsRepository {
     return rows.map(rowToAccountGrouping)
   }
 
-  async update(id: UUID, patch: AccountGroupingUpdateInput): Promise<void> {
+  async update(id: ShortId, patch: AccountGroupingUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
 
@@ -105,7 +105,7 @@ export class AccountGroupingsRepository {
    * Stores `ids` as the new order of the groupings (first = position 0),
    * writing only the ones whose position changes.
    */
-  async reorder(ids: readonly UUID[]): Promise<void> {
+  async reorder(ids: readonly ShortId[]): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
       await Promise.all(
@@ -124,7 +124,7 @@ export class AccountGroupingsRepository {
    * transaction and go to the end of the ungrouped accounts, in their order;
    * the accounts themselves are kept.
    */
-  async softDelete(id: UUID): Promise<void> {
+  async softDelete(id: ShortId): Promise<void> {
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
       const members = await tx.exec<{ id: string }>(
