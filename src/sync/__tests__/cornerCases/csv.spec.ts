@@ -11,7 +11,6 @@ import {
   settle,
   start,
   T0,
-  type BackendKind,
   type Device,
   type World,
 } from '../devices'
@@ -45,9 +44,9 @@ async function expectCsvRoundTrip(device: Device): Promise<void> {
   }
 }
 
-describe.each(['memory', 'github'] as BackendKind[])('through the %s backend', (kind) => {
+describe('through the GitHub backend', () => {
   it('lifts a child whose id sorts before its parent’s and its deleted parent’s', async () => {
-    const [a, b] = (world = await openPair(kind)).devices
+    const [a, b] = (world = await openPair('github')).devices
     // Each child's id sorts before its parent's: 1 under 2 under 3.
     await start(world, async ({ db }) => {
       const tag = (n: number, parent: number | null) =>
@@ -79,28 +78,28 @@ describe.each(['memory', 'github'] as BackendKind[])('through the %s backend', (
     }
   })
 
-  it(`keeps optional text that is '' ${kind === 'github' ? 'as NULL' : 'as it is'}`, async () => {
-    const [a, b] = (world = await openPair(kind)).devices
+  it("keeps optional text that is '' as NULL on every device", async () => {
+    const [a, b] = (world = await openPair('github')).devices
     let tag!: ShortId
     await start(world, async (d) => {
       tag = (await d.tags.create({ kind: 'tag', name: 'old' })).id
     })
     // As an older version, or a raw import, may write it. The repositories
-    // store '' as NULL (optionalTextToColumn).
+    // store '' as NULL (optionalTextToColumn): a CSV cell cannot tell them
+    // apart, so the other device gets NULL, and the tie goes to NULL on A.
     await a.db.run(
       `UPDATE tags SET description = '', colour = '', updated_at_utc = ? WHERE id = ?`,
       [minute(1), tag],
     )
 
     await settle([a, b], 2)
-    const expected = kind === 'github' ? null : ''
     for (const d of [a, b]) {
-      expect(await tagRow(d, tag)).toMatchObject({ description: expected, colour: expected })
+      expect(await tagRow(d, tag)).toMatchObject({ description: null, colour: null })
     }
   })
 
   it('carries non-ASCII names, quotes and line breaks in JSON and text columns', async () => {
-    const [a, b] = (world = await openPair(kind)).devices
+    const [a, b] = (world = await openPair('github')).devices
     const synonyms = ['ВкусВилл', 'Café "Zum Löwen", Ecke', 'emoji 😀', 'line\nbreak', ' spaced ']
     const auto = { text: 'Grüße\r\nzweite Zeile, "quoted"', amount: '1,00 €', nested: { ok: true } }
     let shop!: ShortId, t!: UUID

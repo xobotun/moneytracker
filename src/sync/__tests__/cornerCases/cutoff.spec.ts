@@ -42,6 +42,8 @@ describe('changes made offline before the other device’s cutoff', () => {
   // edit (minute 5) is "changed since" B's cutoff (minute 4) and replaces the
   // tombstone. The delete is lost on both devices, silently — the scenarios
   // doc says the delete wins and every discarded change is reported.
+  // Deliberately failing until TASKS.md "Sync: tell which side changed a row without timestamps" is done —
+  // see docs/plans/2026-10-26-sync-change-detection.md. Turn this back into `it(...)` when it is fixed.
   it.fails('lets the delete win over an edit made after the other device’s cutoff', async () => {
     let t!: UUID
     await start(world, async (d) => {
@@ -74,6 +76,8 @@ describe('changes made offline before the other device’s cutoff', () => {
   // ROW_RANK (src/sync/syncColumns.ts) promises "an override is never lost to
   // a device that resolved the same day", but the rank is only consulted when
   // both sides changed since the cutoff (src/sync/mergeEngine.ts).
+  // Deliberately failing until TASKS.md "Sync: tell which side changed a row without timestamps" is done —
+  // see docs/plans/2026-10-26-sync-change-detection.md. Turn this back into `it(...)` when it is fixed.
   it.fails(
     'keeps a manual rate over a resolution made after the other device’s cutoff',
     async () => {

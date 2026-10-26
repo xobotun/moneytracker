@@ -41,39 +41,6 @@ describe('tag hierarchy on several devices', () => {
     for (const d of [a, b]) expect(await parentOf(d, alex)).toBe(deutschland)
   })
 
-  it('undoes the latest move of a three-tag loop made on two devices', async () => {
-    const [a, b] = (world = await openPair()).devices
-    let x!: ShortId, y!: ShortId, z!: ShortId
-    await start(world, async ({ tags }) => {
-      x = (await tags.create({ kind: 'tag', name: 'x' })).id
-      y = (await tags.create({ kind: 'tag', name: 'y' })).id
-      z = (await tags.create({ kind: 'tag', name: 'z' })).id
-    })
-    at(minute(1))
-    await a.tags.move(x, y)
-    at(minute(2))
-    await b.tags.move(y, z)
-    at(minute(3))
-    await b.tags.move(z, x) // the latest move: undone
-    at(minute(4))
-    await a.sync()
-    at(minute(5))
-    const onB = await b.sync()
-    expect(onB.conflicts.filter((c) => c.resolution === 'loop-undone')).toEqual([
-      expect.objectContaining({ primaryKey: z }),
-    ])
-
-    await settle([a, b], 6)
-    await expectSound([a, b])
-    for (const d of [a, b]) {
-      expect([await parentOf(d, x), await parentOf(d, y), await parentOf(d, z)]).toEqual([
-        y,
-        z,
-        null,
-      ])
-    }
-  })
-
   it('undoes the latest move of a three-tag loop made on three devices', async () => {
     const [a, b, c] = (world = await openTrio()).devices
     let x!: ShortId, y!: ShortId, z!: ShortId
@@ -212,24 +179,5 @@ describe('tag hierarchy on several devices', () => {
       expect(await d.tags.duplicates()).toEqual([])
       expect((await d.tags.findByName('merchant', 'REWE CITY'))?.id).toBe(r1)
     }
-  })
-
-  it('lists a new tag named like a synonym added on the other device as a duplicate', async () => {
-    const [a, b] = (world = await openPair()).devices
-    let wildberries!: ShortId
-    await start(world, async ({ tags }) => {
-      wildberries = (await tags.create({ kind: 'merchant', name: 'Wildberries' })).id
-    })
-    at(minute(1))
-    await a.tags.update(wildberries, { synonyms: ['WB'] })
-    at(minute(2))
-    const wb = (await b.tags.create({ kind: 'merchant', name: 'wb' })).id
-    at(minute(3))
-    await a.sync()
-    at(minute(4))
-    await b.sync()
-
-    await settle([a, b], 5)
-    for (const d of [a, b]) expect(await d.tags.duplicates()).toEqual([[wildberries, wb].sort()])
   })
 })

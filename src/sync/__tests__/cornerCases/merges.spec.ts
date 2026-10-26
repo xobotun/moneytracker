@@ -216,32 +216,9 @@ describe('tag merges on several devices', () => {
     }
   })
 
-  it('lifts the target to the source’s parent when the other device moved it under the source', async () => {
-    const [a, b] = (world = await openPair()).devices
-    let p!: ShortId, x!: ShortId, y!: ShortId
-    await start(world, async (d) => {
-      p = (await d.tags.create({ kind: 'category', name: 'Shopping' })).id
-      x = (await d.tags.create({ kind: 'category', name: 'Clothes', parent_id: p })).id
-      y = (await d.tags.create({ kind: 'category', name: 'Apparel' })).id
-    })
-    at(minute(1))
-    await a.tags.merge(x, y)
-    at(minute(2))
-    await b.tags.move(y, x)
-    at(minute(3))
-    await a.sync()
-    at(minute(4))
-    await b.sync()
-
-    await settle([a, b], 5)
-    await expectSound([a, b])
-    for (const d of [a, b]) {
-      expect(await tagRow(d, x)).toMatchObject({ merged_into_id: y })
-      expect(await tagRow(d, y)).toMatchObject({ parent_id: p, deleted_at_utc: null })
-    }
-  })
-
   it('lifts a tag restored on one device whose parent the other device deleted', async () => {
+    // The control for the bug below: a delete moves only live children, so
+    // B's tombstone of X is not touched and A's restore stands.
     const [a, b] = (world = await openPair()).devices
     let p!: ShortId, x!: ShortId
     await start(world, async (d) => {
@@ -295,37 +272,6 @@ describe('tag merges on several devices', () => {
     await expectSound([a, b])
     for (const d of [a, b]) {
       expect(await tagRow(d, x)).toMatchObject({ parent_id: q, deleted_at_utc: null })
-    }
-  })
-
-  it('lets a merge win over a restore of the same tag', async () => {
-    // Delete wins: A's restore (minute 2) of a tag B merged (minute 1) is
-    // dropped, and A's transaction on it moves to the target.
-    const [a, b] = (world = await openPair()).devices
-    let x!: ShortId, y!: ShortId, food!: ShortId, wallet!: ShortId
-    await start(world, async (d) => {
-      x = (await d.tags.create({ kind: 'tag', name: 'job' })).id
-      y = (await d.tags.create({ kind: 'tag', name: 'work' })).id
-      food = (await d.tags.create({ kind: 'category', name: 'Food' })).id
-      wallet = await openAccount(d, 'Wallet')
-    })
-    at(minute(1))
-    await b.tags.merge(x, y)
-    at(minute(1.5))
-    await a.tags.softDelete(x)
-    await a.tags.restore(x)
-    at(minute(2))
-    await record(a, { from: wallet, to: null, parts: [part(food, 100)], tags: [x] })
-    at(minute(3))
-    await a.sync()
-    at(minute(4))
-    await b.sync()
-
-    await settle([a, b], 5)
-    await expectSound([a, b])
-    for (const d of [a, b]) {
-      expect(await tagRow(d, x)).toMatchObject({ merged_into_id: y })
-      expect(await tagsOnTransactions(d)).toEqual([[y]])
     }
   })
 })

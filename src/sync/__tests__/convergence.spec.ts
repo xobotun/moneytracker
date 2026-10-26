@@ -61,6 +61,8 @@ describe('two devices converge', () => {
     expect(await tagRow(a, d)).toMatchObject({ deleted_at_utc: null })
   })
 
+  // Relies on today's timestamp cutoff (a live row wins over an older remote merge). Revisit with
+  // TASKS.md "Sync: tell which side changed a row without timestamps" — docs/plans/2026-10-26-sync-change-detection.md.
   it('after a redirect whose merged tag comes back', async () => {
     let x!: ShortId, y!: ShortId
     await start(world, async ({ db, tags }) => {

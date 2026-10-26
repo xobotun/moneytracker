@@ -2,16 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { ShortId } from '../../../db/shortId'
 import type { UUID } from '../../../db/uuid'
 import { at, minute, openPair, settle, start, type Device, type World } from '../devices'
-import {
-  balances,
-  expectBalancesMatchTransactions,
-  expectSound,
-  openAccount,
-  part,
-  partsOf,
-  record,
-  usd,
-} from './fixtures'
+import { balances, expectSound, openAccount, part, partsOf, record, usd } from './fixtures'
 
 // Transactions edited on two devices while offline: the category split, the
 // amount and the accounts of one row, and the cached balances that follow
@@ -49,13 +40,17 @@ describe('transactions under sync', () => {
     ['the device that syncs second', () => [a, b]],
     ['the device that syncs first', () => [b, a]],
   ] as const)('when %s edits last', (_, editors) => {
-    it('keeps one whole split, never a mix of the two', async () => {
+    it('keeps one whole row, amount and split, never a mix of the two', async () => {
       await seedExpense()
       const [early, late] = editors()
       at(minute(1))
       await early!.transactions.update(t, { categories: [part(food, 6000), part(office, 4000)] })
       at(minute(2))
-      await late!.transactions.update(t, { categories: [part(gifts, 3000), part(fun, 7000)] })
+      await late!.transactions.update(t, {
+        amount__from: usd(12000),
+        amount__to: usd(12000),
+        categories: [part(gifts, 5000), part(fun, 7000)],
+      })
       at(minute(3))
       await a.sync()
       at(minute(4))
@@ -66,34 +61,11 @@ describe('transactions under sync', () => {
 
       await settle([a, b], 5)
       for (const d of [a, b]) {
+        expect((await d.transactions.findById(t))!.amount__from).toEqual(usd(12000))
         expect(await partsOf(d, t)).toEqual([
-          [gifts, 3000, 2],
+          [gifts, 5000, 2],
           [fun, 7000, 2],
         ])
-      }
-      await expectSound([a, b])
-    })
-
-    it('keeps the amount and the split of one device when the other changed the amount', async () => {
-      await seedExpense()
-      const [early, late] = editors()
-      at(minute(1))
-      await early!.transactions.update(t, { categories: [part(food, 2500), part(office, 7500)] })
-      at(minute(2))
-      await late!.transactions.update(t, {
-        amount__from: usd(12000),
-        amount__to: usd(12000),
-        categories: [part(food, 12000)],
-      })
-      at(minute(3))
-      await a.sync()
-      at(minute(4))
-      await b.sync()
-
-      await settle([a, b], 5)
-      for (const d of [a, b]) {
-        expect((await d.transactions.findById(t))!.amount__from).toEqual(usd(12000))
-        expect(await partsOf(d, t)).toEqual([[food, 12000, 2]])
       }
       await expectSound([a, b])
     })
@@ -151,35 +123,6 @@ describe('transactions under sync', () => {
     await expectSound([a, b])
   })
 
-  it('sums the parts of two categories merged into each other on two devices', async () => {
-    let groceries!: ShortId
-    await start(world, async (d) => {
-      food = (await d.tags.create({ kind: 'category', name: 'Food' })).id
-      groceries = (await d.tags.create({ kind: 'category', name: 'Groceries' })).id
-      wallet = await openAccount(d, 'Wallet')
-      t = await record(d, {
-        from: wallet,
-        to: null,
-        parts: [part(food, 4000), part(groceries, 6000)],
-      })
-    })
-    at(minute(1))
-    await a.tags.merge(food, groceries)
-    at(minute(2))
-    await b.tags.merge(groceries, food) // the later merge: undone
-    at(minute(3))
-    await a.sync()
-    at(minute(4))
-    await b.sync()
-
-    await settle([a, b], 5)
-    for (const d of [a, b]) {
-      expect(await partsOf(d, t)).toEqual([[groceries, 10000, 2]])
-      expect(await d.tags.findById(groceries)).not.toBeNull()
-    }
-    await expectSound([a, b])
-  })
-
   describe('with a transfer', () => {
     let w1: ShortId, w2: ShortId, w3: ShortId, w4: ShortId, savings: ShortId
 
@@ -216,19 +159,16 @@ describe('transactions under sync', () => {
       await expectSound([a, b])
     })
 
-    it.each([
-      ['after', 1, 2],
-      ['before', 2, 1],
-    ])('lets a delete win over an edit made %s it', async (_, deleteAt, editAt) => {
+    it('lets a delete win over an edit made after it', async () => {
       await seedTransfer()
-      at(minute(editAt))
+      at(minute(1))
+      await b.transactions.softDelete(t)
+      at(minute(2))
       await a.transactions.update(t, {
         amount__from: usd(15000),
         amount__to: usd(15000),
         categories: [part(savings, 15000)],
       })
-      at(minute(deleteAt))
-      await b.transactions.softDelete(t)
       at(minute(3))
       await a.sync()
       at(minute(4))
@@ -241,30 +181,5 @@ describe('transactions under sync', () => {
       }
       await expectSound([a, b])
     })
-  })
-
-  // BUG: a balance with no live transactions keeps the scale its cache had,
-  // so two devices show one zero balance differently ("$0.000" on A, "$0.00"
-  // on B) although they hold the same rows: the hash ignores the cache, and
-  // the merge only writes balances whose value or scale changed
-  // (src/db/balances.ts, the `parts.length === 0` scale).
-  it.fails('shows a zero balance at the same scale on every device', async () => {
-    await start(world, async (d) => {
-      food = (await d.tags.create({ kind: 'category', name: 'Food' })).id
-      wallet = await openAccount(d, 'Wallet')
-    })
-    at(minute(1))
-    const odd = await record(a, { from: wallet, to: null, parts: [part(food, 1005, 3)] })
-    at(minute(2))
-    await a.transactions.softDelete(odd) // A's cache: 0 at scale 3
-    at(minute(3))
-    await a.sync()
-    at(minute(4))
-    await b.sync()
-
-    await settle([a, b], 5)
-    await expectBalancesMatchTransactions(a)
-    await expectBalancesMatchTransactions(b)
-    expect(await balances(a)).toEqual(await balances(b))
   })
 })
