@@ -61,7 +61,7 @@ export const migration: Migration = {
     );
 
     CREATE TABLE account_groupings (
-      id              TEXT PRIMARY KEY,                                  -- UUIDv7
+      id              TEXT PRIMARY KEY,                                  -- short id
       name            TEXT NOT NULL,
       colour          TEXT NOT NULL,
       icon            TEXT NOT NULL,
@@ -72,17 +72,17 @@ export const migration: Migration = {
     );
 
     CREATE TABLE accounts (
-      id              TEXT PRIMARY KEY,                                  -- UUIDv7
+      id              TEXT PRIMARY KEY,                                  -- short id
       name            TEXT NOT NULL,
       currency        TEXT NOT NULL,                                     -- money currency of balance_* (ISO 4217 or custom)
       balance_value   INTEGER NOT NULL,                                  -- money: unscaled value
       balance_scale   INTEGER NOT NULL,                                  -- money: decimal places
       is_cash         INTEGER NOT NULL DEFAULT 0 CHECK (is_cash IN (0, 1)), -- boolean: 1 = cash (money in hand, e.g. a wallet)
-      tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
+      tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of plain-tag ids (short ids of tags with kind 'tag')
       location_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a location tag; NULL = none
       colour          TEXT NOT NULL,
       icon            TEXT NOT NULL,
-      grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- UUIDv7; NULL = not in a group
+      grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- short id; NULL = not in a group
       sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position within its group (or among ungrouped accounts), ascending; ties by name
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
@@ -123,8 +123,8 @@ export const migration: Migration = {
 
     CREATE TABLE transactions (
       id                       TEXT PRIMARY KEY,                         -- UUIDv7
-      account_id__from         TEXT REFERENCES accounts(id) ON DELETE RESTRICT, -- UUIDv7; NULL = Global Economy (income)
-      account_id__to           TEXT REFERENCES accounts(id) ON DELETE RESTRICT, -- UUIDv7; NULL = Global Economy (spend)
+      account_id__from         TEXT REFERENCES accounts(id) ON DELETE RESTRICT, -- short id; NULL = Global Economy (income)
+      account_id__to           TEXT REFERENCES accounts(id) ON DELETE RESTRICT, -- short id; NULL = Global Economy (spend)
       amount_value__from       INTEGER NOT NULL,                         -- money: unscaled value
       amount_scale__from       INTEGER NOT NULL,                         -- money: decimal places
       amount_currency__from    TEXT NOT NULL,                            -- money: currency
@@ -135,7 +135,7 @@ export const migration: Migration = {
       transaction_at_zone      TEXT NOT NULL,                            -- civil moment: IANA zone name
       date_override_local      TEXT,                                     -- civil moment: offset-bearing ISO 8601
       date_override_zone       TEXT,                                     -- civil moment: IANA zone name
-      tags                     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of tag names
+      tags                     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of plain-tag ids (short ids of tags with kind 'tag')
       location_lat             REAL,                                     -- WGS84 degrees
       location_lon             REAL,                                     -- WGS84 degrees
       location_id              TEXT REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a location tag; NULL = none

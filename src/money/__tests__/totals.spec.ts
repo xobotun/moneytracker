@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { moneyAmount, type MoneyAmount } from '@/db/MoneyAmount'
 import { asUuid } from '@/db/uuid'
+import { asShortId } from '@/db/shortId'
 import type { Account, AppliedRate } from '@/db/types'
 import { RateTable } from '../rates'
 import { balanceView, totalView } from '../totals'
@@ -9,7 +10,7 @@ let n = 0
 function account(balance: MoneyAmount): Account {
   n++
   return {
-    id: asUuid(`acc-${n}`),
+    id: asShortId(`acc-${n}`),
     name: `Account ${n}`,
     balance,
     is_cash: false,

@@ -6,8 +6,7 @@ import { migration as domainMigration } from '../../migrations/002_domain_schema
 import { AccountsRepository } from '../AccountsRepository'
 import { AccountGroupingsRepository } from '../AccountGroupingsRepository'
 import { moneyAmount } from '../../MoneyAmount'
-import { asUuid, type UUID } from '../../uuid'
-import { asShortId } from '../../shortId'
+import { asShortId, type ShortId } from '../../shortId'
 
 describe('AccountsRepository', () => {
   let db: Database
@@ -36,7 +35,7 @@ describe('AccountsRepository', () => {
       colour: '#000',
       icon: 'bank',
     })
-    expect(account.id).toBeDefined()
+    expect(account.id).toMatch(/^[0-9A-Za-z]{12}$/)
     expect(account.name).toBe('Checking')
     expect(account.balance.value).toBe(10000)
     expect(account.balance.scale).toBe(2)
@@ -48,7 +47,7 @@ describe('AccountsRepository', () => {
   })
 
   it('returns null for a missing account', async () => {
-    expect(await repo.findById(asUuid('nonexistent'))).toBeNull()
+    expect(await repo.findById(asShortId('nonexistent'))).toBeNull()
   })
 
   it('round-trips balance MoneyAmount with scale=2', async () => {
@@ -87,14 +86,14 @@ describe('AccountsRepository', () => {
     const account = await repo.create({
       name: 'Tagged Account',
       balance: moneyAmount(5000, 2, 'USD'),
-      tags: ['savings', 'emergency'],
+      tags: [asShortId('savingsTag01'), asShortId('emergencyT02')],
       location_id: null,
       grouping_id: null,
       colour: '#0FF',
       icon: 'wallet',
     })
     const found = await repo.findById(account.id)
-    expect(found?.tags).toEqual(['savings', 'emergency'])
+    expect(found?.tags).toEqual(['savingsTag01', 'emergencyT02'])
   })
 
   it('is not cash unless told, and round-trips is_cash', async () => {
@@ -164,7 +163,7 @@ describe('AccountsRepository', () => {
     const account = await repo.create({
       name: 'Test',
       balance: moneyAmount(1000, 2, 'USD'),
-      tags: ['original'],
+      tags: [asShortId('originalTag1')],
       location_id: null,
       grouping_id: null,
       colour: '#000',
@@ -173,7 +172,7 @@ describe('AccountsRepository', () => {
     await repo.update(account.id, { name: 'Changed' })
     const after = await repo.findById(account.id)
     expect(after?.name).toBe('Changed')
-    expect(after?.tags).toEqual(['original'])
+    expect(after?.tags).toEqual(['originalTag1'])
     expect(after?.colour).toBe('#000')
   })
 
@@ -210,7 +209,7 @@ describe('AccountsRepository', () => {
   })
 
   describe('order and groups (grouping_id, sort_order)', () => {
-    function createNamed(name: string, grouping_id: UUID | null = null) {
+    function createNamed(name: string, grouping_id: ShortId | null = null) {
       return repo.create({
         name,
         balance: moneyAmount(0, 2, 'USD'),
@@ -225,7 +224,7 @@ describe('AccountsRepository', () => {
     const createGrouping = (name: string) =>
       groupings.create({ name, colour: '#000', icon: 'folder' })
 
-    const namesIn = async (groupingId: UUID | null) =>
+    const namesIn = async (groupingId: ShortId | null) =>
       (await repo.list()).filter((a) => a.grouping_id === groupingId).map((a) => a.name)
 
     it('appends a new account after the existing ones', async () => {
@@ -256,7 +255,7 @@ describe('AccountsRepository', () => {
     })
 
     it('rejects a group that does not exist', async () => {
-      await expect(createNamed('Orphan', asUuid('no-such-grouping'))).rejects.toThrow()
+      await expect(createNamed('Orphan', asShortId('no-such-grp'))).rejects.toThrow()
     })
 
     it('arrange() stores the given order', async () => {

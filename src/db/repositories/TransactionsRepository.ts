@@ -14,11 +14,12 @@ import {
   moneyFromRow,
   moneyToColumns,
   optionalTextToColumn,
+  shortIdFromColumn,
   shortIdFromNullableColumn,
   uuidFromColumn,
-  uuidFromNullableColumn,
 } from '../columnMappers'
 import { newId, type UUID } from '../uuid'
+import type { ShortId } from '../shortId'
 
 type TransactionRow = {
   id: string
@@ -64,8 +65,8 @@ type TransactionUpdateInput = Partial<
 function rowToTransaction(row: TransactionRow): Transaction {
   return {
     id: uuidFromColumn(row.id),
-    account_id__from: uuidFromNullableColumn(row.account_id__from),
-    account_id__to: uuidFromNullableColumn(row.account_id__to),
+    account_id__from: shortIdFromNullableColumn(row.account_id__from),
+    account_id__to: shortIdFromNullableColumn(row.account_id__to),
     amount__from: moneyFromRow('amount__from', {
       amount_value__from: row.amount_value__from,
       amount_scale__from: row.amount_scale__from,
@@ -185,7 +186,7 @@ export class TransactionsRepository {
           'SELECT account_id__from AS a, account_id__to AS b FROM transactions WHERE id = ?',
           [id],
         )
-      ).flatMap((r) => [r.a, r.b].filter((v): v is string => v !== null).map(uuidFromColumn))
+      ).flatMap((r) => [r.a, r.b].filter((v): v is string => v !== null).map(shortIdFromColumn))
     await this.db.transaction(async (tx) => {
       const before = await accountsOf(tx)
       await write(tx)
@@ -210,7 +211,7 @@ export class TransactionsRepository {
   }
 
   /** How many live transactions have a leg on `accountId`. */
-  async countByAccountId(accountId: UUID): Promise<number> {
+  async countByAccountId(accountId: ShortId): Promise<number> {
     const rows = await this.db.exec<{ n: number }>(
       `SELECT COUNT(*) AS n FROM transactions
        WHERE deleted_at_utc IS NULL AND (account_id__from = ? OR account_id__to = ?)`,
@@ -220,7 +221,7 @@ export class TransactionsRepository {
   }
 
   async listByAccountId(
-    accountId: UUID,
+    accountId: ShortId,
     sortBy: TransactionSortMode = 'transaction_at',
   ): Promise<Transaction[]> {
     const rows = await this.db.exec<TransactionRow>(

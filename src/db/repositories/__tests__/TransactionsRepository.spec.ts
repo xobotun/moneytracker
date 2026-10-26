@@ -4,7 +4,7 @@ import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainSchemaMigration } from '../../migrations/002_domain_schema'
 import { TransactionsRepository, TRANSACTION_ORDER_BY } from '../TransactionsRepository'
-import { newId, asUuid, type UUID } from '../../uuid'
+import { newId } from '../../uuid'
 import { moneyAmount } from '../../MoneyAmount'
 import { localMoment } from '../../LocalMoment'
 import { newShortId, asShortId, type ShortId } from '../../shortId'
@@ -12,8 +12,8 @@ import { newShortId, asShortId, type ShortId } from '../../shortId'
 describe('TransactionsRepository', () => {
   let db: Database
   let repo: TransactionsRepository
-  let accountId1: UUID
-  let accountId2: UUID
+  let accountId1: ShortId
+  let accountId2: ShortId
   let locationId: ShortId
 
   beforeEach(async () => {
@@ -23,8 +23,8 @@ describe('TransactionsRepository', () => {
     repo = new TransactionsRepository(db)
 
     // Seed test data: two accounts and one location tag
-    accountId1 = newId()
-    accountId2 = newId()
+    accountId1 = newShortId()
+    accountId2 = newShortId()
     locationId = newShortId()
     const now = new Date().toISOString()
 
@@ -53,8 +53,8 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves a normal transfer (both account_id__* set)', async () => {
     const input = {
-      account_id__from: asUuid(accountId1),
-      account_id__to: asUuid(accountId2),
+      account_id__from: asShortId(accountId1),
+      account_id__to: asShortId(accountId2),
       amount__from: moneyAmount(10000, 2, 'USD'),
       amount__to: moneyAmount(9500, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -86,7 +86,7 @@ describe('TransactionsRepository', () => {
   it('creates and retrieves income from Global Economy (account_id__from IS NULL)', async () => {
     const input = {
       account_id__from: null,
-      account_id__to: asUuid(accountId1),
+      account_id__to: asShortId(accountId1),
       amount__from: moneyAmount(5000, 2, 'USD'),
       amount__to: moneyAmount(5000, 2, 'USD'),
       transaction_at: localMoment('2026-03-15T10:00:00.000+00:00', 'UTC'),
@@ -108,7 +108,7 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves spend into Global Economy (account_id__to IS NULL)', async () => {
     const input = {
-      account_id__from: asUuid(accountId1),
+      account_id__from: asShortId(accountId1),
       account_id__to: null,
       amount__from: moneyAmount(2000, 2, 'USD'),
       amount__to: moneyAmount(2000, 2, 'USD'),
@@ -132,8 +132,8 @@ describe('TransactionsRepository', () => {
   it('creates and retrieves a transaction with date_override set', async () => {
     const dateOverride = localMoment('2026-02-28T23:59:59.999+00:00', 'UTC')
     const input = {
-      account_id__from: asUuid(accountId1),
-      account_id__to: asUuid(accountId2),
+      account_id__from: asShortId(accountId1),
+      account_id__to: asShortId(accountId2),
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(950, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -154,8 +154,8 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves a transaction with location_lat/location_lon only', async () => {
     const input = {
-      account_id__from: asUuid(accountId1),
-      account_id__to: asUuid(accountId2),
+      account_id__from: asShortId(accountId1),
+      account_id__to: asShortId(accountId2),
       amount__from: moneyAmount(500, 2, 'USD'),
       amount__to: moneyAmount(475, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -180,8 +180,8 @@ describe('TransactionsRepository', () => {
 
   it('creates and retrieves a transaction with location_id set', async () => {
     const input = {
-      account_id__from: asUuid(accountId1),
-      account_id__to: asUuid(accountId2),
+      account_id__from: asShortId(accountId1),
+      account_id__to: asShortId(accountId2),
       amount__from: moneyAmount(800, 2, 'USD'),
       amount__to: moneyAmount(760, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -202,7 +202,7 @@ describe('TransactionsRepository', () => {
 
   it('throws on FK violation: bad account_id__from', async () => {
     const input = {
-      account_id__from: asUuid('nonexistent-account-id'),
+      account_id__from: asShortId('nonexistent-account-id'),
       account_id__to: accountId1,
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(1000, 2, 'USD'),
@@ -385,7 +385,7 @@ describe('TransactionsRepository', () => {
       ],
     )
 
-    const transactions = await repo.listByAccountId(asUuid(accountId1))
+    const transactions = await repo.listByAccountId(asShortId(accountId1))
     expect(transactions.length).toBe(2)
     expect(transactions.map((t) => t.id)).toContain(id1)
     expect(transactions.map((t) => t.id)).toContain(id2)
@@ -394,8 +394,8 @@ describe('TransactionsRepository', () => {
 
   it('findById returns null for soft-deleted transaction', async () => {
     const input = {
-      account_id__from: asUuid(accountId1),
-      account_id__to: asUuid(accountId2),
+      account_id__from: asShortId(accountId1),
+      account_id__to: asShortId(accountId2),
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(950, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -415,8 +415,8 @@ describe('TransactionsRepository', () => {
 
   it('updates a transaction', async () => {
     const input = {
-      account_id__from: asUuid(accountId1),
-      account_id__to: asUuid(accountId2),
+      account_id__from: asShortId(accountId1),
+      account_id__to: asShortId(accountId2),
       amount__from: moneyAmount(1000, 2, 'USD'),
       amount__to: moneyAmount(950, 2, 'EUR'),
       transaction_at: localMoment('2026-03-15T14:30:00.000+00:00', 'UTC'),
@@ -450,7 +450,7 @@ describe('TransactionsRepository', () => {
 
   describe('descriptions', () => {
     const input = () => ({
-      account_id__from: asUuid(accountId1),
+      account_id__from: asShortId(accountId1),
       account_id__to: null,
       amount__from: moneyAmount(350, 2, 'USD'),
       amount__to: moneyAmount(350, 2, 'USD'),
@@ -580,7 +580,7 @@ describe('TransactionsRepository', () => {
 
   describe('cached account balances', () => {
     // Account 1 is in USD, Account 2 in EUR.
-    const balance = async (id: UUID) =>
+    const balance = async (id: ShortId) =>
       (
         await db.exec<{ v: number; s: number }>(
           'SELECT balance_value AS v, balance_scale AS s FROM accounts WHERE id = ?',
@@ -588,7 +588,7 @@ describe('TransactionsRepository', () => {
         )
       )[0]!
 
-    function input(from: UUID | null, to: UUID | null, usd: number, eur: number) {
+    function input(from: ShortId | null, to: ShortId | null, usd: number, eur: number) {
       return {
         account_id__from: from,
         account_id__to: to,

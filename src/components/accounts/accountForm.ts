@@ -2,6 +2,7 @@ import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import type { Account } from '@/db/types'
 import type { AccountCreateInput, AccountUpdateInput } from '@/db/repositories/AccountsRepository'
 import { currencyCodeError, normaliseCurrencyCode } from '@/format/currency'
+import type { ShortId } from '@/db/shortId'
 import { PRIME_ICONS } from './primeIcons'
 
 // Form logic of the account editor, kept out of the component so it can be
@@ -61,7 +62,10 @@ export const ACCOUNT_COLOUR_NAMES: Record<(typeof ACCOUNT_COLOURS)[number], stri
   '#64748b': 'slate',
 }
 
-/** What the editor edits. `currency` is the free-form money currency tag. */
+/**
+ * What the editor edits. `currency` is the free-form money currency tag;
+ * `tags` are tag names — the account stores plain-tag ids, resolved on save.
+ */
 export interface AccountDraft {
   name: string
   currency: string
@@ -130,13 +134,20 @@ export function newAccountDraft(existing: readonly Account[]): AccountDraft {
   }
 }
 
-export function draftFromAccount(account: Account): AccountDraft {
+/**
+ * `tagName` gives the name to edit for a tag id, or null for a tag that is
+ * deleted or unknown (it is left out of the draft, so saving drops it).
+ */
+export function draftFromAccount(
+  account: Account,
+  tagName: (id: ShortId) => string | null,
+): AccountDraft {
   return {
     name: account.name,
     currency: account.balance.currency,
     icon: account.icon,
     colour: account.colour,
-    tags: [...account.tags],
+    tags: account.tags.map(tagName).filter((name): name is string => name !== null),
     is_cash: account.is_cash,
   }
 }
@@ -164,12 +175,12 @@ export function normaliseDraft(draft: AccountDraft): AccountDraft {
  * A new account starts at zero; money already on it is entered as income. It
  * joins no group (it shows below them); groups are arranged in reorder mode.
  */
-export function createInputFromDraft(draft: AccountDraft): AccountCreateInput {
+export function createInputFromDraft(draft: AccountDraft, tagIds: ShortId[]): AccountCreateInput {
   return {
     name: draft.name,
     balance: zeroMoney(draft.currency),
     is_cash: draft.is_cash,
-    tags: draft.tags,
+    tags: tagIds,
     location_id: null,
     colour: draft.colour,
     icon: draft.icon,
@@ -178,7 +189,11 @@ export function createInputFromDraft(draft: AccountDraft): AccountCreateInput {
 }
 
 /** Only the fields that changed, so an untouched save writes nothing. */
-export function patchFromDraft(account: Account, draft: AccountDraft): AccountUpdateInput {
+export function patchFromDraft(
+  account: Account,
+  draft: AccountDraft,
+  tagIds: ShortId[],
+): AccountUpdateInput {
   const patch: AccountUpdateInput = {}
   if (draft.name !== account.name) patch.name = draft.name
   if (draft.currency !== account.balance.currency) {
@@ -187,6 +202,6 @@ export function patchFromDraft(account: Account, draft: AccountDraft): AccountUp
   if (draft.icon !== account.icon) patch.icon = draft.icon
   if (draft.colour !== account.colour) patch.colour = draft.colour
   if (draft.is_cash !== account.is_cash) patch.is_cash = draft.is_cash
-  if (draft.tags.join('\u0000') !== account.tags.join('\u0000')) patch.tags = draft.tags
+  if (tagIds.join(',') !== account.tags.join(',')) patch.tags = tagIds
   return patch
 }

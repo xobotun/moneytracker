@@ -6,7 +6,7 @@ import { migration as domainMigration } from '../../migrations/002_domain_schema
 import { AccountGroupingsRepository } from '../AccountGroupingsRepository'
 import { AccountsRepository } from '../AccountsRepository'
 import { zeroMoney } from '../../MoneyAmount'
-import { asUuid, type UUID } from '../../uuid'
+import { asShortId, type ShortId } from '../../shortId'
 
 describe('AccountGroupingsRepository', () => {
   let db: Database
@@ -29,7 +29,7 @@ describe('AccountGroupingsRepository', () => {
     return repo.create({ name, colour: '#000000', icon: 'folder' })
   }
 
-  function createAccount(name: string, grouping_id: UUID | null) {
+  function createAccount(name: string, grouping_id: ShortId | null) {
     return accounts.create({
       name,
       balance: zeroMoney('EUR'),
@@ -43,7 +43,7 @@ describe('AccountGroupingsRepository', () => {
 
   it('creates and finds an account grouping', async () => {
     const grouping = await repo.create({ name: 'My Accounts', colour: '#FF5733', icon: 'wallet' })
-    expect(grouping.id).toBeDefined()
+    expect(grouping.id).toMatch(/^[0-9A-Za-z]{12}$/)
     expect(grouping.name).toBe('My Accounts')
     expect(grouping.colour).toBe('#FF5733')
     expect(grouping.icon).toBe('wallet')
@@ -54,7 +54,7 @@ describe('AccountGroupingsRepository', () => {
   })
 
   it('returns null for a missing account grouping', async () => {
-    expect(await repo.findById(asUuid('nonexistent'))).toBeNull()
+    expect(await repo.findById(asShortId('nonexistent'))).toBeNull()
   })
 
   it('appends a new grouping after the existing ones', async () => {

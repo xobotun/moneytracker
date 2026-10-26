@@ -66,15 +66,15 @@ export interface JourneyDetails {
 }
 
 export interface Account {
-  id: UUID
+  id: ShortId
   name: string
   balance: MoneyAmount
   is_cash: boolean // money in hand (a wallet), not in a bank; reports split cash from non-cash by it
-  tags: string[]
+  tags: ShortId[] // plain tags (kind 'tag')
   location_id: ShortId | null // a `location` tag
   colour: string
   icon: string
-  grouping_id: UUID | null // the account's group; null = shown below all groups
+  grouping_id: ShortId | null // the account's group; null = shown below all groups
   sort_order: number // position within its group; set by create(), update() of grouping_id and arrange()
   created_at_utc: Date
   updated_at_utc: Date
@@ -112,7 +112,7 @@ export interface AppliedRate {
 }
 
 export interface AccountGrouping {
-  id: UUID
+  id: ShortId
   name: string
   colour: string
   icon: string
@@ -124,8 +124,8 @@ export interface AccountGrouping {
 
 export interface Transaction {
   id: UUID
-  account_id__from: UUID | null
-  account_id__to: UUID | null
+  account_id__from: ShortId | null
+  account_id__to: ShortId | null
   amount__from: MoneyAmount
   amount__to: MoneyAmount
   transaction_at: LocalMoment

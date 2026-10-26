@@ -1,5 +1,5 @@
 import type { SqlExecutor } from './Database'
-import type { UUID } from './uuid'
+import type { ShortId } from './shortId'
 
 // accounts.balance_value / balance_scale cache each account's balance, so the
 // accounts page need not sum every transaction to show it. The transactions
@@ -19,7 +19,7 @@ import type { UUID } from './uuid'
  */
 export async function recalculateBalances(
   db: SqlExecutor,
-  accountIds?: readonly UUID[],
+  accountIds?: readonly ShortId[],
 ): Promise<number> {
   const only = accountIds ? `WHERE a.id IN (${accountIds.map(() => '?').join(', ')})` : ''
   if (accountIds?.length === 0) return 0
