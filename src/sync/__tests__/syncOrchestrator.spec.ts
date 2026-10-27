@@ -289,6 +289,24 @@ describe('runSync keeps the sync base', () => {
     await expectBase(backend.peekMeta()!.hash)
   })
 
+  it('writes the rows read before the upload, stamped with their hash, though the app writes during it', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+    const before = await snapshotDatabase(local)
+    const tryUpload = backend.tryUpload.bind(backend)
+    backend.tryUpload = async (db, meta, expected) => {
+      await seedWork(local)
+      return tryUpload(db, meta, expected)
+    }
+
+    expect((await runSync(local, deps())).decision).toBe('first-sync-upload')
+
+    expect(backend.peekMeta()!.hash).toBe(before.databaseHash)
+    expect(await readSyncBaseInfo(local)).toMatchObject({ databaseHash: before.databaseHash })
+    expect(await readSyncBase(local)).toEqual(nonEmpty(before.rows))
+  })
+
   const noBaseForThisRemote: [string, BaseSource | null][] = [
     ['without a base', null],
     ['with a base from another remote', { remoteId: 'github:me/mt@main', schemaVersion: 3 }],

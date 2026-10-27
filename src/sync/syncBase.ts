@@ -50,30 +50,46 @@ export async function rowHash(table: SyncTable, row: SyncRow): Promise<string> {
   ).join('')
 }
 
+/** Every synced row of a database at one moment, with the hash `hashDatabase` gives them. */
+export interface SyncedRows {
+  databaseHash: string
+  /** Each of `SYNC_TABLES` in order, with its rows sorted by primary key. */
+  tables: { table: SyncTable; rows: SyncRow[] }[]
+}
+
 /**
- * Hashes every synced row. The rows are read in one transaction, so they are a
- * consistent state even if the app writes meanwhile; the hashing happens after.
+ * Reads every synced row and hashes them as `hashDatabase` does. The rows are
+ * read in one transaction, so they are a consistent state even if the app
+ * writes meanwhile. Their own hashes come from `hashRows`, separately: an
+ * upload needs only the database hash before it starts.
  */
-export async function snapshotDatabase(db: Database): Promise<Snapshot> {
+export async function readSyncedRows(db: Database): Promise<SyncedRows> {
   const tables = await db.transaction(async (tx) => {
-    const read: SyncRow[][] = []
+    const read: SyncedRows['tables'] = []
     for (const table of SYNC_TABLES) {
-      read.push(await tx.exec<SyncRow>(`SELECT * FROM ${table.name} ORDER BY ${table.pk}`))
+      const rows = await tx.exec<SyncRow>(`SELECT * FROM ${table.name} ORDER BY ${table.pk}`)
+      read.push({ table, rows })
     }
     return read
   })
+  const lines = tables.flatMap(({ table, rows }) => rows.map((row) => canonicalLine(table, row)))
+  return { databaseHash: await hashLines(lines), tables }
+}
 
+/** The snapshot of rows `readSyncedRows` read: their `rowHash`es. */
+export async function hashRows(read: SyncedRows): Promise<Snapshot> {
   const rows: RowHashes = new Map()
-  const lines: string[] = []
-  for (const [i, table] of SYNC_TABLES.entries()) {
+  for (const { table, rows: tableRows } of read.tables) {
     const hashes = new Map<string, string>()
-    for (const row of tables[i] ?? []) {
-      hashes.set(String(row[table.pk]), await rowHash(table, row))
-      lines.push(canonicalLine(table, row))
-    }
+    for (const row of tableRows) hashes.set(String(row[table.pk]), await rowHash(table, row))
     rows.set(table.name, hashes)
   }
-  return { databaseHash: await hashLines(lines), rows }
+  return { databaseHash: read.databaseHash, rows }
+}
+
+/** Reads and hashes every synced row at once: `readSyncedRows`, then `hashRows`. */
+export async function snapshotDatabase(db: Database): Promise<Snapshot> {
+  return hashRows(await readSyncedRows(db))
 }
 
 /** The base's description; null when this device has no base. */

@@ -6,9 +6,10 @@ import { readSchemaVersion, decideSchemaAction } from './schemaVersion'
 import { mergeDatabases } from './mergeEngine'
 import { baseDetector, cutoffDetector, type ChangeDetector } from './changeDetection'
 import {
+  hashRows,
   readSyncBase,
   readSyncBaseInfo,
-  snapshotDatabase,
+  readSyncedRows,
   writeSyncBase,
   type BaseSource,
 } from './syncBase'
@@ -126,21 +127,24 @@ async function attemptSync(
 
   /**
    * Compare-and-swap upload of the local database. On success the uploaded
-   * rows become the last-known remote state and the sync base. The snapshot
-   * is taken before the upload, so the base may be older than what was
-   * uploaded (an app write landing in between), never newer; the stamp
-   * carries the snapshot's hash.
+   * rows become the last-known remote state and the sync base. The rows are
+   * read before the upload, so the base may be older than what was uploaded
+   * (an app write landing in between), never newer; the stamp carries their
+   * hash. Only the read and that hash come before the upload, to keep the
+   * window short: the rows' own hashes are computed after it, from the same
+   * rows.
    */
   const upload = async (expected: SyncMetadata | null): Promise<boolean> => {
-    const snapshot = await snapshotDatabase(localDb)
+    const read = await readSyncedRows(localDb)
     const meta: SyncMetadata = {
       device: deps.deviceName,
       uploadedAtUtc: deps.now().toISOString(),
-      hash: snapshot.databaseHash,
+      hash: read.databaseHash,
       migrationVersion: localVersion,
     }
     if (!(await deps.backend.tryUpload(localDb, meta, expected))) return false
     deps.saveLastKnown(remoteStateOf(meta))
+    const snapshot = await hashRows(read)
     await localDb.transaction((tx) => writeSyncBase(tx, snapshot, source))
     return true
   }
@@ -195,9 +199,9 @@ async function attemptSync(
 /**
  * When nothing needed syncing, the local rows are the remote's: make them the
  * base, so the next merge can tell which side changed a row — unless the base
- * already is that state. The rows are hashed again, and written only if they
- * still are the remote's: an app write may have landed since the hash that
- * found nothing to sync.
+ * already is that state. The rows are read and hashed again, and written only
+ * if they still are the remote's: an app write may have landed since the hash
+ * that found nothing to sync.
  */
 async function adoptAsBase(
   localDb: Database,
@@ -212,7 +216,8 @@ async function adoptAsBase(
   ) {
     return
   }
-  const snapshot = await snapshotDatabase(localDb)
-  if (snapshot.databaseHash !== remoteHash) return
+  const read = await readSyncedRows(localDb)
+  if (read.databaseHash !== remoteHash) return
+  const snapshot = await hashRows(read)
   await localDb.transaction((tx) => writeSyncBase(tx, snapshot, source))
 }
