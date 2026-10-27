@@ -67,6 +67,30 @@ export function newTagDraft(
   }
 }
 
+type DetailDraft = Pick<
+  TagDraft,
+  | 'address'
+  | 'latitude'
+  | 'longitude'
+  | 'merchant_id'
+  | 'default_category_id'
+  | 'start_date'
+  | 'end_date'
+>
+
+/** The detail fields of a draft (they are read after the tag's own fields). */
+export function detailDraft(details: TagDetailValues): DetailDraft {
+  return {
+    address: details.address ?? '',
+    latitude: details.position?.latitude ?? null,
+    longitude: details.position?.longitude ?? null,
+    merchant_id: details.merchant_id,
+    default_category_id: details.default_category_id,
+    start_date: details.start_date,
+    end_date: details.end_date,
+  }
+}
+
 /** The draft of a stored tag; `merged`: its merged names. */
 export function draftFromTag(
   tag: Tag,
@@ -80,13 +104,7 @@ export function draftFromTag(
     description: tag.description ?? '',
     colour: tag.colour,
     icon: tag.icon,
-    address: details.address ?? '',
-    latitude: details.position?.latitude ?? null,
-    longitude: details.position?.longitude ?? null,
-    merchant_id: details.merchant_id,
-    default_category_id: details.default_category_id,
-    start_date: details.start_date,
-    end_date: details.end_date,
+    ...detailDraft(details),
   }
 }
 

@@ -24,6 +24,7 @@ import { subtreeIds, tagOptions } from '@/tags/tree'
 import {
   KIND_NOUNS,
   createInputFromDraft,
+  detailDraft,
   draftFromTag,
   newTagDraft,
   saveInputFromDraft,
@@ -70,6 +71,9 @@ const uses = ref(0)
 const locating = ref(false)
 const positionError = ref<string | null>(null)
 
+// Counts openings, so details read for an earlier one are dropped.
+let opening = 0
+
 // Start from a fresh draft each time the dialog opens.
 watch(
   visible,
@@ -80,9 +84,11 @@ watch(
 )
 
 async function reset() {
+  const current = ++opening
   submitted.value = false
   error.value = null
   loadFailed.value = false
+  loading.value = false
   confirmingDelete.value = false
   positionError.value = null
   derivedDates.value = { start: null, end: null }
@@ -93,21 +99,25 @@ async function reset() {
     return
   }
   carried.value = carriedNames(tag.id, store.tags)
-  const merged = mergedNames(tag, store.tags)
-  // The tag's own fields at once; its details follow when read.
-  draft.value = draftFromTag(tag, noDetails(), merged)
+  // The tag's own fields at once; its details follow when read (the user
+  // may type meanwhile, so they fill only the detail fields).
+  draft.value = draftFromTag(tag, noDetails(), mergedNames(tag, store.tags))
   loading.value = true
   try {
-    draft.value = draftFromTag(tag, await store.details(tag), merged)
+    const details = await store.details(tag)
+    if (current !== opening) return
+    Object.assign(draft.value, detailDraft(details))
     if (tag.kind === 'journey') {
       const dates = await store.journeyDates(tag.id)
+      if (current !== opening) return
       derivedDates.value = { start: dates.derivedStart, end: dates.derivedEnd }
     }
   } catch (e) {
+    if (current !== opening) return
     loadFailed.value = true
     error.value = `Could not load the ${noun.value}'s details. ${(e as Error).message}`
   } finally {
-    loading.value = false
+    if (current === opening) loading.value = false
   }
 }
 

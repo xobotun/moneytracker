@@ -125,6 +125,54 @@ describe('TagEditDialog', () => {
     expect(await tagsRepo.findById(snacks.id)).toMatchObject({ parent_id: null })
   })
 
+  /** Holds back the next details read until `release()` is called. */
+  function slowDetails() {
+    const read = detailsRepo.values.bind(detailsRepo)
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    vi.spyOn(detailsRepo, 'values').mockImplementationOnce(async (id, kind) => {
+      await gate
+      return read(id, kind)
+    })
+    return () => release()
+  }
+
+  it('keeps what was typed while the details load', async () => {
+    const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
+    await detailsRepo.setLocation(shop.id, {
+      address: 'Weg 1',
+      latitude: null,
+      longitude: null,
+      merchant_id: null,
+    })
+    const release = slowDetails()
+    await open('location', shop)
+    await type('tag-name', 'Rewe')
+    release()
+    await settle()
+    expect(input('tag-name').value).toBe('Rewe')
+    expect(input('tag-address').value).toBe('Weg 1')
+  })
+
+  it('ignores details that arrive after the dialog moved on', async () => {
+    const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
+    await detailsRepo.setLocation(shop.id, {
+      address: 'Weg 1',
+      latitude: null,
+      longitude: null,
+      merchant_id: null,
+    })
+    const release = slowDetails()
+    const w = await open('location', shop)
+    await w.setProps({ visible: false })
+    await w.setProps({ tag: null, visible: true })
+    await settle()
+    release()
+    await settle()
+    expect(text()).toContain('New location')
+    expect(input('tag-address').value).toBe('')
+  })
+
   it('keeps Save disabled when the details could not be read', async () => {
     const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
     await detailsRepo.setLocation(shop.id, {
