@@ -57,8 +57,8 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
     - `LocalMoment` — offset-bearing ISO 8601 + IANA zone name
 - Column mappers — Money, LocalMoment, JSON arrays, JSON objects, instants, UUIDs
 - `002_domain_schema` migration creates six tables with hard FKs:
-    - `locations`
-    - `tags` (natural string PK)
+    - `locations` (since replaced by location tags, see "Tags and categories — data layer")
+    - `tags` (natural string PK; since then short ids, see the same section)
     - `accounts`
     - `exchange_rates` (per-provider rows; id is a UUIDv5 of (date, base currency, provider), so one row per key and two devices' copies merge as one row)
     - `account_groupings` (membership: `accounts.grouping_id`, one group per account)
@@ -333,6 +333,15 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 - Which side changed a row is told by per-row base hashes, not timestamps (`src/sync/syncBase.ts`, `changeDetection.ts`); the cutoff stays as the fallback when there is no base. Decision and as-built notes: [docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md)
 
+### Tags page
+
+- Design: [docs/plans/2026-10-27-tags-page-design.md](docs/plans/2026-10-27-tags-page-design.md), plan: [docs/plans/2026-10-27-tags-page-plan.md](docs/plans/2026-10-27-tags-page-plan.md)
+- `/tags` (nav item "Tags"): a tab per kind, kept in the URL (`?kind=merchant`); each a tree sorted by name with collapsible branches, a filter over every name, other names in fainter text, Add (a child) and Edit per row, duplicates outlined and explained (merged by hand), "Show deleted" with Restore. Parent loops and dead parents that sync leaves show at the top level (`src/tags/tree.ts`)
+- Edit dialog for every kind: name, parent (by path, never its own subtree), other names, description, colour and icon (an inherited look shows as derived, with a reset), a location's address, position ("Use my position") and merchant, a merchant's default category, a journey's dates (derived from its transactions and sub-journeys until typed). Saved in one transaction (`TagsRepository.save`): a refused rename no longer leaves a tag moved. Delete confirms with the use count; a category in use goes to merge
+- Merge dialog: target of the same kind, what moves, and an answer per differing detail (keep one or type another). A merge now fills the target's empty detail with the source's link to a deleted tag
+- `tags.retired_names`: removing a merged name stops it finding the tag (the merged tag's own row still holds it, and edits to a tombstone never sync); a merge carries the list on (`src/tags/otherNames.ts`)
+- Plain tags can be nested now, so an account keeps its tags by id when saved and a typed name finds a tag at any level (`resolvePlainTags`)
+
 ## To Do
 
 ### Domain model gaps
@@ -341,14 +350,14 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 - **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now (journey tags with dates; data layer done, see Done)
 - **Cash vs. non-cash flag** on transactions (maybe not needed yet)
-- Categories, tags of five kinds and short ids: the data layer is done (see "Tags and categories — data layer" under Done); the Tags page, the transaction form and reports are below
+- Categories, tags of five kinds and short ids: the data layer and the Tags page are done (see Done); the transaction form and reports are below
 - Later: **fractional category splits** (a part given as a fraction of the transaction) and **recurring transactions** (same doc, TODO)
 - Location granularity at FIAS level (location tags cover it now: a hierarchy such as country > city > store, with address and coordinates in `location_details` — FIAS-specific structure TBD) (good as is for now)
 
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Transactions, tags, locations (accounts and account groupings: done, one store — see Accounts UI; exchange rates: `useRatesStore` holds today's applied rates)
+    - Transactions (accounts and account groupings: done, one store — see Accounts UI; tags of every kind, locations included: `useTagsStore`, see Tags page; exchange rates: `useRatesStore` holds today's applied rates)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
@@ -369,8 +378,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Typed vs. derived values (the UI rule in CLAUDE.md)
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
-- Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; merged names listed, each removable only while nothing uses it (decisions §2.5); duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
-    - Before merge ships: `TagsRepository.merge` refuses to fill the target's empty detail with the source's link to a deleted tag (`DeletedTagError`), and `detailConflicts` does not report it. Spec §2.5: the source's details fill the ones the target lacks — skip the liveness check for a value either tag already has; keep it for a `resolved` value that is on neither side (left open by the tags-and-categories final review)
 
 ### Exchange rates
 

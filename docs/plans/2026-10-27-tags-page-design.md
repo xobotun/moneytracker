@@ -114,3 +114,15 @@ Plain tags get a tree like every kind (§2.1: any kind can have a parent). Until
 ## 9. Left to the builder
 
 Component split and names; exact repository signatures; which PrimeVue inputs carry the chip list and the date pickers; the empty-tab wording; small layout details within the UI rules in CLAUDE.md.
+
+---
+
+## 10. As built (2026-10-27)
+
+Built as designed, on branch `tags-page`. Differences and additions:
+
+- Other names: the hint under the chip list names every listed name that came from a merge (synonym or not), rather than marking merged-only chips, since a local merge copies the names into the synonyms anyway.
+- `TagDetailsRepository.journeyDates` also returns `derivedStart` / `derivedEnd`, so a typed date's reset shows what it goes back to.
+- The reset buttons are always shown next to a typed colour, icon or date, not only on hover or focus: phones have no hover.
+- The tree is a flat list of rows with their depth (`flattenTree`) and disclosure buttons, not a recursive component or ARIA tree.
+- The merge dialog's "another" for a detail allows an empty value, which clears it.
