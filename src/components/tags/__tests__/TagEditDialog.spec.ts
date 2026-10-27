@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
@@ -7,15 +7,13 @@ import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { TagsRepository } from '@/db/repositories/TagsRepository'
 import { TagDetailsRepository } from '@/db/repositories/TagDetailsRepository'
-import { AccountsRepository } from '@/db/repositories/AccountsRepository'
-import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
-import { zeroMoney, moneyAmount } from '@/db/MoneyAmount'
-import { localMoment } from '@/db/LocalMoment'
 import type { Tag, TagKind } from '@/db/types'
 import type { ShortId } from '@/db/shortId'
 import { DERIVED_CLASS } from '@/components/derived'
 import { useTagsStore } from '@/stores/tags'
 import TagEditDialog from '../TagEditDialog.vue'
+import { button, choose, input, optionsOf, pageText, settle, stubBrowser, type } from './dom'
+import { addAccount, spend } from './records'
 
 // Real store and repositories over an in-memory database; only the
 // module-level repository registry is replaced.
@@ -31,28 +29,7 @@ describe('TagEditDialog', () => {
   let pinia: Pinia
   let wrapper: VueWrapper | null = null
 
-  beforeAll(() => {
-    // PrimeVue overlays query matchMedia; jsdom has none.
-    vi.stubGlobal(
-      'matchMedia',
-      (query: string) =>
-        ({
-          matches: false,
-          media: query,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-        }) as unknown as MediaQueryList,
-    )
-    // The auto-resizing description watches its size; jsdom has no ResizeObserver.
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    )
-  })
+  beforeAll(stubBrowser)
 
   afterAll(() => {
     vi.unstubAllGlobals()
@@ -75,14 +52,6 @@ describe('TagEditDialog', () => {
     await db.close()
   })
 
-  // Waits for SQLite work started by a click (the async build yields to the event loop).
-  async function settle() {
-    for (let i = 0; i < 5; i++) {
-      await flushPromises()
-      await new Promise((r) => setTimeout(r, 0))
-    }
-  }
-
   async function open(kind: TagKind, tag: Tag | null, parentId: ShortId | null = null) {
     await useTagsStore().load()
     wrapper = mount(TagEditDialog, {
@@ -94,62 +63,12 @@ describe('TagEditDialog', () => {
     return wrapper
   }
 
-  function button(text: string): HTMLButtonElement {
-    const found = [...document.querySelectorAll('button')].find(
-      (b) => b.textContent?.trim() === text || b.getAttribute('aria-label') === text,
-    )
-    if (!found) throw new Error(`no button "${text}"`)
-    return found
-  }
-
-  function input(id: string): HTMLInputElement {
-    return document.getElementById(id) as HTMLInputElement
-  }
-
-  async function type(id: string, value: string) {
-    const field = input(id)
-    field.value = value
-    field.dispatchEvent(new Event('input'))
-    await settle()
-  }
-
-  /** Picks `label` in the Select whose input id is `id`. */
-  async function choose(id: string, label: string) {
-    ;(input(id).closest('.p-select') as HTMLElement).click()
-    await settle()
-    const option = [
-      ...document.querySelectorAll<HTMLElement>('.p-select-overlay [role=option]'),
-    ].find((o) => o.textContent?.trim() === label)
-    if (!option) throw new Error(`no option "${label}"`)
-    // Select picks an option on mousedown.
-    option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    await settle()
-  }
-
   async function save(label = 'Save') {
     button(label).click()
     await settle()
   }
 
-  const text = () => document.body.textContent ?? ''
-
-  /** Records a 5 € expense from `accountId` in `categoryId` with the plain `tags`. */
-  async function spend(accountId: ShortId, categoryId: ShortId, tags: ShortId[]) {
-    const amount = moneyAmount(500, 2, 'EUR')
-    await new TransactionsRepository(db).create({
-      account_id__from: accountId,
-      account_id__to: null,
-      amount__from: amount,
-      amount__to: amount,
-      categories: [{ category_id: categoryId, amount__from: amount, amount__to: amount }],
-      location_id: null,
-      location_lat: null,
-      location_lon: null,
-      tags,
-      transaction_at: localMoment('2026-07-01T12:00:00.000+02:00', 'Europe/Berlin'),
-      date_override: null,
-    })
-  }
+  const text = pageText
 
   it('creates a top-level category with a preset colour and the kind icon', async () => {
     const w = await open('category', null)
@@ -202,11 +121,7 @@ describe('TagEditDialog', () => {
     await tagsRepo.create({ kind: 'category', name: 'Groceries', parent_id: food.id })
     await tagsRepo.create({ kind: 'category', name: 'Fun' })
     await open('category', food)
-    ;(input('tag-parent').closest('.p-select') as HTMLElement).click()
-    await settle()
-    const options = [...document.querySelectorAll('.p-select-overlay [role=option]')].map((o) =>
-      o.textContent?.trim(),
-    )
+    const options = (await optionsOf('tag-parent')).map((o) => o.textContent?.trim())
     expect(options).toEqual(['None (top level)', 'Fun'])
   })
 
@@ -349,17 +264,7 @@ describe('TagEditDialog', () => {
     const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
     const mia = await tagsRepo.create({ kind: 'tag', name: 'mia' })
     await tagsRepo.create({ kind: 'tag', name: 'gifts', parent_id: mia.id })
-    const accounts = new AccountsRepository(db)
-    const cash = await accounts.create({
-      name: 'Cash',
-      balance: zeroMoney('EUR'),
-      tags: [mia.id],
-      location_id: null,
-      grouping_id: null,
-      colour: '#3b82f6',
-      icon: 'wallet',
-    })
-    await spend(cash.id, food.id, [mia.id])
+    await spend(db, await addAccount(db, [mia.id]), food.id, [mia.id])
     await open('tag', mia)
     button('Delete mia').click()
     await settle()
@@ -371,17 +276,7 @@ describe('TagEditDialog', () => {
 
   it('offers a merge instead of deleting a category in use', async () => {
     const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
-    const accounts = new AccountsRepository(db)
-    const cash = await accounts.create({
-      name: 'Cash',
-      balance: zeroMoney('EUR'),
-      tags: [],
-      location_id: null,
-      grouping_id: null,
-      colour: '#3b82f6',
-      icon: 'wallet',
-    })
-    await spend(cash.id, food.id, [])
+    await spend(db, await addAccount(db), food.id)
     const w = await open('category', food)
     button('Delete Food').click()
     await settle()
