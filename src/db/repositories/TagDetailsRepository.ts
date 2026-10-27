@@ -132,7 +132,7 @@ export const DETAIL_FIELDS_BY_KIND: Record<TagKind, readonly TagDetailField[]> =
 }
 
 /** Details with every field empty. */
-function noDetails(): TagDetailValues {
+export function noDetails(): TagDetailValues {
   return {
     address: null,
     position: null,

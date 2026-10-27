@@ -15,10 +15,12 @@ import {
   DETAIL_FIELDS_BY_KIND,
   assertDetailLinks,
   assertJourneyDates,
+  noDetails,
   readDetailValues,
   writeDetailValues,
 } from './TagDetailsRepository'
 import { countTagUsage, redirectTagReferences } from '../tagReferences'
+import { cleanOtherNames, foldCase } from '@/tags/otherNames'
 import {
   instantFromColumn,
   instantFromNullableColumn,
@@ -54,6 +56,21 @@ export type TagCreateInput = {
   synonyms?: string[]
   colour?: string | null
   icon?: string | null
+  /** The details of a location, merchant or journey, written in the same transaction. */
+  details?: TagDetailValues
+}
+
+/** Everything the edit dialog saves at once (see `save`). */
+export type TagSaveInput = {
+  name: string
+  parent_id: ShortId | null
+  description: string | null
+  /** The synonyms to keep; cleaned like `cleanOtherNames`. */
+  otherNames: string[]
+  colour: string | null // null = inherited
+  icon: string | null // null = inherited
+  /** The fields of the tag's kind are saved; the others are ignored. */
+  details: TagDetailValues
 }
 
 export type TagUpdateInput = {
@@ -80,11 +97,6 @@ export function rowToTag(row: TagRow): Tag {
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
-}
-
-/** Names are compared ignoring case, in a way that also works beyond ASCII (SQLite's lower() does not). */
-function foldCase(name: string): string {
-  return name.toLocaleLowerCase()
 }
 
 /** Everything a tag is found by: its name and its synonyms. */
@@ -138,6 +150,18 @@ function sameDetail(a: TagDetailValues[TagDetailField], b: TagDetailValues[TagDe
     return a.latitude === b.latitude && a.longitude === b.longitude
   }
   return a === b
+}
+
+/** The fields of `kind` from `values`, the others empty; empty text is none. */
+function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues {
+  const next = noDetails()
+  for (const field of DETAIL_FIELDS_BY_KIND[kind]) {
+    ;(next as Record<TagDetailField, unknown>)[field] = values[field]
+  }
+  next.address = optionalTextToColumn(next.address)
+  next.start_date = optionalTextToColumn(next.start_date)
+  next.end_date = optionalTextToColumn(next.end_date)
+  return next
 }
 
 /** The fields of the kind where source and target both have a value and the values differ. */
@@ -234,6 +258,7 @@ export class TagsRepository {
     const now = instantToColumn(new Date())
     const parentId = input.parent_id ?? null
     const synonyms = input.synonyms ?? []
+    const details = input.details ? detailsOfKind(input.kind, input.details) : null
     await this.db.transaction(async (tx) => {
       if (parentId !== null) await assertParent(tx, input.kind, parentId)
       await assertNamesFree(tx, input.kind, parentId, [input.name, ...synonyms])
@@ -255,8 +280,77 @@ export class TagsRepository {
           now,
         ],
       )
+      if (details && DETAIL_FIELDS_BY_KIND[input.kind].some((field) => details[field] !== null)) {
+        await assertDetailLinks(tx, input.kind, details)
+        assertJourneyDates(details)
+        await writeDetailValues(tx, id, input.kind, details, now)
+      }
     })
     return (await this.findById(id))!
+  }
+
+  /**
+   * Saves what the edit dialog shows, in one transaction: the tag's fields,
+   * its parent and its details, so a refusal changes nothing. Names are
+   * checked at the parent the tag ends up under — all of them when it moves,
+   * only new ones when it stays. Only what changed is written: an unchanged
+   * save stamps nothing. A link the details already have is not checked again
+   * (see `assertDetailLinks`).
+   */
+  async save(id: ShortId, input: TagSaveInput): Promise<void> {
+    const now = instantToColumn(new Date())
+    const name = input.name.trim()
+    const parentId = input.parent_id
+    const synonyms = cleanOtherNames(name, input.otherNames)
+    await this.db.transaction(async (tx) => {
+      const tag = await liveTagOrThrow(tx, id, 'Tag')
+      const moves = parentId !== tag.parent_id
+      if (moves && parentId !== null) {
+        await assertParent(tx, tag.kind, parentId)
+        const path = await loopPath(tx, id, parentId)
+        if (path) throw new TagLoopError(path)
+      }
+      const had = new Set(moves ? [] : namesOf(tag).map(foldCase))
+      const unchecked = [name, ...synonyms].filter((n) => !had.has(foldCase(n)))
+      await assertNamesFree(tx, tag.kind, parentId, unchecked, id)
+
+      const sets: string[] = []
+      const params: unknown[] = []
+      const set = (column: string, value: unknown) => {
+        sets.push(`${column} = ?`)
+        params.push(value)
+      }
+      if (name !== tag.name) set('name', name)
+      const description = optionalTextToColumn(input.description)
+      if (description !== tag.description) set('description', description)
+      if (JSON.stringify(synonyms) !== JSON.stringify(tag.synonyms)) {
+        set('synonyms', jsonArrayToColumn(synonyms))
+      }
+      const colour = optionalTextToColumn(input.colour)
+      if (colour !== tag.colour) set('colour', colour)
+      const icon = optionalTextToColumn(input.icon)
+      if (icon !== tag.icon) set('icon', icon)
+      if (moves) {
+        set('parent_id', parentId)
+        set('moved_at_utc', now)
+      }
+      if (sets.length > 0) {
+        set('updated_at_utc', now)
+        await tx.run(`UPDATE tags SET ${sets.join(', ')} WHERE id = ?`, [...params, id])
+      }
+
+      const fields = DETAIL_FIELDS_BY_KIND[tag.kind]
+      if (fields.length === 0) return
+      const stored = await readDetailValues(tx, id, tag.kind)
+      const next = detailsOfKind(tag.kind, input.details)
+      const changed = fields.filter((field) => !sameDetail(next[field], stored[field]))
+      if (changed.length === 0) return
+      await assertDetailLinks(tx, tag.kind, next, stored)
+      if (changed.includes('start_date') || changed.includes('end_date')) {
+        assertJourneyDates(next)
+      }
+      await writeDetailValues(tx, id, tag.kind, next, now)
+    })
   }
 
   /** The live tag with this id, or null. */
