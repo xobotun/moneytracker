@@ -270,6 +270,8 @@ describe('TagDetailsRepository', () => {
     end,
     startTyped: false,
     endTyped: false,
+    derivedStart: start,
+    derivedEnd: end,
   })
 
   it('journeyDates derives from the earliest and latest transaction of the journey and its children', async () => {
@@ -311,6 +313,8 @@ describe('TagDetailsRepository', () => {
       end: '2026-07-10',
       startTyped: true,
       endTyped: false,
+      derivedStart: '2026-07-01',
+      derivedEnd: '2026-07-10',
     })
 
     await repo.setJourney(lisbon.id, { start_date: null, end_date: '2026-07-11' })
@@ -319,6 +323,8 @@ describe('TagDetailsRepository', () => {
       end: '2026-07-11',
       startTyped: false,
       endTyped: true,
+      derivedStart: '2026-07-01',
+      derivedEnd: '2026-07-10',
     })
 
     await repo.setJourney(lisbon.id, { start_date: '2026-06-30', end_date: '2026-07-11' })
@@ -327,6 +333,8 @@ describe('TagDetailsRepository', () => {
       end: '2026-07-11',
       startTyped: true,
       endTyped: true,
+      derivedStart: '2026-07-01',
+      derivedEnd: '2026-07-10',
     })
 
     // A deleted details row holds no dates.
@@ -336,6 +344,8 @@ describe('TagDetailsRepository', () => {
       end: '2026-07-10',
       startTyped: false,
       endTyped: false,
+      derivedStart: '2026-07-01',
+      derivedEnd: '2026-07-10',
     })
   })
 
@@ -360,6 +370,8 @@ describe('TagDetailsRepository', () => {
       end: '2026-07-03',
       startTyped: true,
       endTyped: false,
+      derivedStart: '2026-07-03',
+      derivedEnd: '2026-07-03',
     })
 
     // A deleted details row types nothing.

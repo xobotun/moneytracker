@@ -373,13 +373,16 @@ export class TagDetailsRepository {
    * override when they have one) and of its live journeys below it, including
    * the dates typed on those, so a parent covers its children (decisions
    * §2.7). A deleted journey and everything under it no longer count. Null
-   * when there is nothing to derive from.
+   * when there is nothing to derive from. `derivedStart` / `derivedEnd` are
+   * the derived ones even where a date is typed: what a reset goes back to.
    */
   async journeyDates(id: ShortId): Promise<{
     start: string | null
     end: string | null
     startTyped: boolean
     endTyped: boolean
+    derivedStart: string | null
+    derivedEnd: string | null
   }> {
     const typed = await this.getJourney(id)
     // Each transaction counts by its own local date, so the range contains
@@ -414,6 +417,8 @@ export class TagDetailsRepository {
       end: end ?? derived.last_date,
       startTyped: start !== null,
       endTyped: end !== null,
+      derivedStart: derived.first_date,
+      derivedEnd: derived.last_date,
     }
   }
 
