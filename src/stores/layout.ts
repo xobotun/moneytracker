@@ -74,6 +74,7 @@ export const useLayoutStore = defineStore('layout', () => {
   const navItems = ref([
     { label: 'Home', icon: 'pi pi-home', route: '/' },
     { label: 'Accounts', icon: 'pi pi-wallet', route: '/accounts' },
+    { label: 'Tags', icon: 'pi pi-tags', route: '/tags' },
     { label: 'Page Two', icon: 'pi pi-file', route: '/page-two' },
     { label: 'About', icon: 'pi pi-info-circle', route: '/about' },
   ])

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { asShortId } from '@/db/shortId'
-import { applyOtherNames, carriedNames, cleanOtherNames, mergedNames } from '../otherNames'
+import {
+  applyOtherNames,
+  carriedNames,
+  cleanOtherNames,
+  mergedNames,
+  mergedNamesByTag,
+} from '../otherNames'
 import { merged, tag } from './fixtures'
 
 describe('cleanOtherNames', () => {
@@ -90,5 +96,24 @@ describe('applyOtherNames', () => {
       synonyms: [],
       retired_names: [],
     })
+  })
+})
+
+describe('mergedNamesByTag', () => {
+  it('gives each tag its mergedNames in one pass', () => {
+    const work = tag('work', { synonyms: ['Job'] })
+    const other = tag('other')
+    const tags = [
+      work,
+      other,
+      merged('job', 'work', { synonyms: ['gig'] }),
+      merged('side', 'job'),
+      merged('a', 'b'),
+      merged('b', 'a'),
+    ]
+    const byTag = mergedNamesByTag(tags)
+    expect(byTag.get(work.id)).toEqual(mergedNames(work, tags))
+    expect(byTag.get(work.id)).toEqual(['gig', 'side'])
+    expect(byTag.get(other.id) ?? []).toEqual([])
   })
 })

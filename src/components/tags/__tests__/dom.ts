@@ -34,9 +34,14 @@ export async function settle(): Promise<void> {
   }
 }
 
-/** The button whose text or `aria-label` is `text`. */
+/**
+ * The button whose text or `aria-label` is `text`, in the topmost open dialog
+ * when there is one (a modal leaves nothing else to click).
+ */
 export function button(text: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll('button')].find(
+  const dialogs = document.querySelectorAll('[role=dialog]')
+  const dialog = dialogs[dialogs.length - 1]
+  const found = [...(dialog ?? document).querySelectorAll('button')].find(
     (b) => b.textContent?.trim() === text || b.getAttribute('aria-label') === text,
   )
   if (!found) throw new Error(`no button "${text}"`)

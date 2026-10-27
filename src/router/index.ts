@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import('../views/AccountsView.vue'),
     },
     {
+      path: '/tags',
+      name: 'tags',
+      component: () => import('../views/TagsView.vue'),
+    },
+    {
       path: '/page-two',
       name: 'page-two',
       component: () => import('../views/PageTwo.vue'),

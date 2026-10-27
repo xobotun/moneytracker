@@ -61,6 +61,32 @@ export function filterTree(nodes: readonly TagNode[], matches: (tag: Tag) => boo
   })
 }
 
+/** One row of the tree as the page lists it. */
+export interface TreeRow {
+  tag: Tag
+  depth: number
+  hasChildren: boolean
+  /** Its children are listed (false for a leaf). */
+  open: boolean
+}
+
+/** The rows of the tree in order, depth first; the children of a closed tag are left out. */
+export function flattenTree(
+  nodes: readonly TagNode[],
+  isOpen: (id: ShortId) => boolean,
+): TreeRow[] {
+  const rows: TreeRow[] = []
+  const visit = (level: readonly TagNode[], depth: number) => {
+    for (const { tag, children } of level) {
+      const open = children.length > 0 && isOpen(tag.id)
+      rows.push({ tag, depth, hasChildren: children.length > 0, open })
+      if (open) visit(children, depth + 1)
+    }
+  }
+  visit(nodes, 0)
+  return rows
+}
+
 /** Whether the tag's name, a synonym or one of its `merged` names contains `query`, ignoring case. */
 export function tagMatches(tag: Tag, query: string, merged: readonly string[]): boolean {
   const q = foldCase(query.trim())

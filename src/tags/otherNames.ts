@@ -43,6 +43,23 @@ export function mergedNames(tag: Tag, tags: readonly Tag[]): string[] {
   return distinct(carriedNames(tag.id, tags), [tag.name, ...tag.synonyms, ...tag.retired_names])
 }
 
+/** `mergedNames` of every tag that has any, in one pass over the merged tags. */
+export function mergedNamesByTag(tags: readonly Tag[]): Map<ShortId, string[]> {
+  const mergedInto = new Map<string, string | null>(tags.map((t) => [t.id, t.merged_into_id]))
+  const carried = new Map<string, string[]>()
+  for (const t of tags) {
+    if (t.merged_into_id === null) continue
+    const end = mergeChainEnd(t.id, (at) => mergedInto.get(at) ?? null)
+    if (end !== null) carried.set(end, [...(carried.get(end) ?? []), t.name, ...t.synonyms])
+  }
+  const byTag = new Map<ShortId, string[]>()
+  for (const t of tags) {
+    const names = carried.get(t.id)
+    if (names) byTag.set(t.id, distinct(names, [t.name, ...t.synonyms, ...t.retired_names]))
+  }
+  return byTag
+}
+
 /**
  * The retired names a merge target keeps: its own and the source's, except
  * its names after the merge (`synonyms`: its synonyms then).

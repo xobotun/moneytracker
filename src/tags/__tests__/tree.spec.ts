@@ -4,6 +4,7 @@ import type { Tag } from '@/db/types'
 import {
   buildTree,
   filterTree,
+  flattenTree,
   pathLabel,
   subtreeIds,
   tagMatches,
@@ -151,6 +152,31 @@ describe('tagOptions', () => {
       { id: 'drinks', label: 'Drinks' },
       { id: 'food', label: 'Food' },
       { id: 'groceries', label: 'Food › Groceries' },
+    ])
+  })
+})
+
+describe('flattenTree', () => {
+  it('lists the rows in order with their depth, skipping closed branches', () => {
+    const tags = [
+      tag('food'),
+      tag('groceries', under('food')),
+      tag('bread', under('groceries')),
+      tag('fun'),
+    ]
+    const tree = buildTree(tags, 'category')
+    const rows = (open: (id: string) => boolean) =>
+      flattenTree(tree, open).map((r) => [r.tag.id, r.depth, r.hasChildren, r.open])
+    expect(rows(() => true)).toEqual([
+      ['food', 0, true, true],
+      ['groceries', 1, true, true],
+      ['bread', 2, false, false],
+      ['fun', 0, false, false],
+    ])
+    expect(rows((id) => id !== 'groceries')).toEqual([
+      ['food', 0, true, true],
+      ['groceries', 1, true, false],
+      ['fun', 0, false, false],
     ])
   })
 })
