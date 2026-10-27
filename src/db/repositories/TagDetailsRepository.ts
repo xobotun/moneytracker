@@ -175,18 +175,18 @@ type DetailLinks = Pick<TagDetailValues, 'merchant_id' | 'default_category_id'>
 /**
  * Checks that the links in `values` that the kind uses are live tags of the
  * right kind (a location's merchant, a merchant's default category). A link
- * equal to the one in `stored` (the details as they are) is not checked: a
- * deleted tag stays linked (restoring it brings it back), but nothing new can
- * link to it.
+ * equal to the same field of a `known` value set (the details as they are;
+ * for a merge, the source's too) is not checked: a deleted tag stays linked
+ * (restoring it brings it back), but nothing new can link to it.
  */
 export async function assertDetailLinks(
   ex: SqlExecutor,
   kind: TagKind,
   values: DetailLinks,
-  stored: DetailLinks | null = null,
+  ...known: (DetailLinks | null)[]
 ): Promise<void> {
   const changed = (field: keyof DetailLinks) =>
-    values[field] !== null && values[field] !== stored?.[field]
+    values[field] !== null && !known.some((k) => k?.[field] === values[field])
   if (kind === 'location' && changed('merchant_id')) {
     await assertLiveKind(ex, values.merchant_id!, 'merchant', 'A location’s merchant')
   }

@@ -424,9 +424,9 @@ export class TagsRepository {
    * different values, `resolved` must give the value (one of the two, or a
    * third; null clears it) or a MergeConflictError lists the fields and
    * nothing is changed. Fields of other kinds in `resolved` are ignored. A
-   * link the target gets (a merchant, a default category) must be a live tag
-   * of the right kind, and changed journey dates must be valid; the target's
-   * own unchanged values are not checked again.
+   * link (a merchant, a default category) that neither tag had must be a live
+   * tag of the right kind, and changed journey dates must be valid; a link
+   * either tag already has is not checked again, even to a tag deleted since.
    */
   async merge(
     sourceId: ShortId,
@@ -454,9 +454,10 @@ export class TagsRepository {
           ;(next as Record<TagDetailField, unknown>)[field] = value ?? null
         }
         const changed = fields.filter((field) => !sameDetail(next[field], into[field]))
-        // Only what changes is checked: a link the target already has may
-        // point to a tag deleted since, and that must not block the merge.
-        await assertDetailLinks(tx, target.kind, next, into)
+        // Only a link on neither side is checked: one either tag already has
+        // may point to a tag deleted since, and the source's fills the
+        // target's empty field all the same (decisions §2.5).
+        await assertDetailLinks(tx, target.kind, next, into, from)
         if (changed.includes('start_date') || changed.includes('end_date')) {
           assertJourneyDates(next)
         }

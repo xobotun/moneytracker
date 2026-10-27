@@ -865,7 +865,34 @@ describe('TagsRepository', () => {
       expect((await details.getMerchant(m2.id))!.default_category_id).toBe(food.id)
     })
 
-    it('checks a link the target gets, from the source or a resolution', async () => {
+    it("fills the target's empty default category with the source's link to a deleted one", async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const m2 = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(m1.id, { default_category_id: food.id })
+      await repo.softDelete(food.id)
+
+      await repo.merge(m1.id, m2.id)
+      expect(await repo.findById(m1.id)).toBeNull()
+      expect((await details.getMerchant(m2.id))!.default_category_id).toBe(food.id)
+    })
+
+    it("fills the target's empty merchant with the source's link to a merchant deleted since", async () => {
+      const { a, b } = await twoLocations()
+      const rewe = await repo.create({ kind: 'merchant', name: 'REWE' })
+      await details.setLocation(a.id, {
+        address: null,
+        latitude: null,
+        longitude: null,
+        merchant_id: rewe.id,
+      })
+      await repo.softDelete(rewe.id)
+
+      await repo.merge(a.id, b.id)
+      expect((await details.getLocation(b.id))!.merchant_id).toBe(rewe.id)
+    })
+
+    it('still refuses a resolved link on neither side that is deleted', async () => {
       const food = await repo.create({ kind: 'category', name: 'Food' })
       const drinks = await repo.create({ kind: 'category', name: 'Drinks' })
       const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
@@ -874,16 +901,29 @@ describe('TagsRepository', () => {
       await repo.softDelete(food.id)
       await repo.softDelete(drinks.id)
 
-      await expect(repo.merge(m1.id, m2.id)).rejects.toThrow(DeletedTagError)
       await expect(repo.merge(m1.id, m2.id, { default_category_id: drinks.id })).rejects.toThrow(
         DeletedTagError,
       )
       expect(await repo.findById(m1.id)).toMatchObject({ merged_into_id: null })
       expect(await details.getMerchant(m2.id)).toBeNull()
+    })
 
-      // Resolving the link away lets the merge through.
-      await repo.merge(m1.id, m2.id, { default_category_id: null })
-      expect(await repo.findById(m1.id)).toBeNull()
+    it("accepts a resolved link equal to the source's deleted one", async () => {
+      const { a, b } = await twoLocations()
+      const rewe = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const edeka = await repo.create({ kind: 'merchant', name: 'EDEKA' })
+      const link = (merchant_id: ShortId) => ({
+        address: null,
+        latitude: null,
+        longitude: null,
+        merchant_id,
+      })
+      await details.setLocation(a.id, link(rewe.id))
+      await details.setLocation(b.id, link(edeka.id))
+      await repo.softDelete(rewe.id)
+
+      await repo.merge(a.id, b.id, { merchant_id: rewe.id })
+      expect((await details.getLocation(b.id))!.merchant_id).toBe(rewe.id)
     })
 
     it('checks changed journey dates', async () => {
