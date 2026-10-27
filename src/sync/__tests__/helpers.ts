@@ -1,15 +1,19 @@
 import { Database, type SqlExecutor } from '../../db/Database'
 import type { TagKind } from '../../db/types'
-import { runMigrations } from '../../db/migrations'
-import { migration as settingsMigration } from '../../db/migrations/001_settings'
-import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
+import { ALL_MIGRATIONS, runMigrations } from '../../db/migrations'
+import type { RowHashes } from '../syncBase'
 
 /** A fresh in-memory database with all migrations applied. */
 export async function newMigratedDb(): Promise<Database> {
   const db = new Database()
   await db.init()
-  await runMigrations(db, [settingsMigration, domainMigration])
+  await runMigrations(db, ALL_MIGRATIONS)
   return db
+}
+
+/** Drops the tables without rows: `readSyncBase` only knows tables it has rows of. */
+export function nonEmpty(rows: RowHashes): RowHashes {
+  return new Map([...rows].filter(([, hashes]) => hashes.size > 0))
 }
 
 export interface SeedTagInput {

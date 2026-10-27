@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import type { Database } from '../../db/Database'
+import { cutoffDetector } from '../changeDetection'
 import { mergeTable } from '../mergeEngine'
 import { readRows } from '../rows'
 import { newMigratedDb, seedAccount, seedTag } from './helpers'
@@ -21,7 +22,7 @@ describe('mergeTable', () => {
     remote = await newMigratedDb()
     await seedTag(local, { id: 'a', name: 'Local only', created: CUTOFF, updated: CUTOFF })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     expect(await readRows(local, 'tags')).toHaveLength(1)
@@ -32,7 +33,7 @@ describe('mergeTable', () => {
     remote = await newMigratedDb()
     await seedTag(remote, { id: 'b', name: 'Remote only', created: CUTOFF, updated: CUTOFF })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     const rows = await readRows(local, 'tags')
@@ -51,7 +52,7 @@ describe('mergeTable', () => {
       updated: '2026-05-10T00:00:00.000Z',
     })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     expect((await readRows(local, 'tags'))[0]!.name).toBe('New from remote')
@@ -68,7 +69,7 @@ describe('mergeTable', () => {
     })
     await seedTag(remote, { id: 'd', name: 'Old', created: CUTOFF, updated: CUTOFF })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     expect((await readRows(local, 'tags'))[0]!.name).toBe('New from local')
@@ -90,7 +91,7 @@ describe('mergeTable', () => {
       updated: '2026-05-08T00:00:00.000Z', // newer → remote wins
     })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0]!).toMatchObject({ table: 'tags', primaryKey: 'e', winner: 'remote' })
@@ -103,7 +104,7 @@ describe('mergeTable', () => {
     await seedTag(local, { id: 'f', name: 'Same', created: CUTOFF, updated: CUTOFF })
     await seedTag(remote, { id: 'f', name: 'Same', created: CUTOFF, updated: CUTOFF })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
   })
@@ -122,7 +123,7 @@ describe('mergeTable', () => {
       deleted: '2026-05-10T00:00:00.000Z',
     })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     const rows = await readRows(local, 'tags')
@@ -149,7 +150,7 @@ describe('mergeTable', () => {
       deleted: '2026-05-05T00:00:00.000Z',
     })
 
-    const conflicts = await mergeTable(local, remote, TAGS, CUTOFF)
+    const conflicts = await mergeTable(local, remote, TAGS, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(1)
     expect(conflicts[0]!).toMatchObject({
@@ -168,7 +169,12 @@ describe('mergeTable', () => {
     await seedAccount(remote, { id: 'acc', name: 'Cash', created: CUTOFF, updated: CUTOFF })
     // Derived, device-computed: the merge rebuilds it afterwards.
     await remote.run("UPDATE accounts SET balance_value = 999 WHERE id = 'acc'")
-    const conflicts = await mergeTable(local, remote, { name: 'accounts', pk: 'id' }, CUTOFF)
+    const conflicts = await mergeTable(
+      local,
+      remote,
+      { name: 'accounts', pk: 'id' },
+      cutoffDetector(CUTOFF),
+    )
     expect(conflicts).toHaveLength(0)
   })
 })

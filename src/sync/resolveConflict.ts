@@ -7,8 +7,10 @@ export interface ConflictResult {
 }
 
 /**
- * Resolve a row modified on both sides since the merge cutoff
- * (see "Conflict resolution" in the sync scenarios doc):
+ * Resolve a row changed on both sides since the two sides last agreed (the
+ * base, or the cutoff when there is none), or two copies that differ though
+ * neither side changed them (see "Conflict resolution" in the sync scenarios
+ * doc):
  *  1. If exactly one side deleted the row, the delete wins — keep the tombstone.
  *  2. Given the table's `rank` (see ROW_RANK), the higher-ranked side wins.
  *  3. Otherwise the side with the latest updated/deleted timestamp wins.

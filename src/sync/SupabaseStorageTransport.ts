@@ -28,6 +28,11 @@ export class SupabaseStorageTransport implements BlobTransport {
     this.fetch = withSyncFetchPolicy(fetchFn)
   }
 
+  /** Without the anon key. */
+  get remoteId(): string {
+    return `supabase:${this.cfg.url}/${this.cfg.bucket}/${this.blobKey}`
+  }
+
   async validate(): Promise<void> {
     // HEAD on the bucket root would be ideal but Supabase Storage doesn't
     // expose it directly; a HEAD on any object path returns 404 vs. 401

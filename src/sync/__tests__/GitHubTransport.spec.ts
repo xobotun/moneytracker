@@ -25,6 +25,12 @@ function makeFakeFetch(
 const cfg = { repo: 'me/mt', branch: 'main', token: 'ghp_test', path: '' }
 
 describe('GitHubTransport', () => {
+  it('names the remote by repository and branch, without the token', () => {
+    const remoteId = new GitHubTransport(cfg, makeFakeFetch([])).remoteId
+    expect(remoteId).toBe('github:me/mt@main')
+    expect(remoteId).not.toContain(cfg.token)
+  })
+
   it('getRef returns null on 404 and SHA on 200', async () => {
     expect(await new GitHubTransport(cfg, makeFakeFetch([])).getRef()).toBeNull()
     const ok = makeFakeFetch([

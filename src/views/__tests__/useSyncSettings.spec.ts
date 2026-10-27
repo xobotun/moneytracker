@@ -3,10 +3,11 @@ import { shallowRef } from 'vue'
 import { useSyncSettings } from '../useSyncSettings'
 import { Database } from '../../db/Database'
 import type { SyncBackend } from '../../sync/SyncBackend'
-import { runMigrations } from '../../db/migrations'
-import { migration as settingsMigration } from '../../db/migrations/001_settings'
-import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
+import { ALL_MIGRATIONS, runMigrations } from '../../db/migrations'
 import { FakeSyncBackend } from '../../sync/__tests__/fakes'
+import { seedTag } from '../../sync/__tests__/helpers'
+import { hashDatabase } from '../../sync/hashDatabase'
+import { readSchemaVersion } from '../../sync/schemaVersion'
 import {
   saveLastKnownRemoteState,
   saveLastFetchedRemoteSnapshot,
@@ -20,13 +21,14 @@ import {
 async function migratedDb(): Promise<Database> {
   const db = new Database()
   await db.init()
-  await runMigrations(db, [settingsMigration, domainMigration])
+  await runMigrations(db, ALL_MIGRATIONS)
   return db
 }
 
 // A minimal backend stub — only the method the composable uses.
 function fakeBackend(hash: string): SyncBackend {
   return {
+    remoteId: 'stub',
     getMetadata: async () => null,
     downloadDatabase: async () => {
       throw new Error('not used here')
@@ -176,6 +178,7 @@ describe('useSyncSettings — syncNow + lastSyncError', () => {
   it('syncNow records an error when the backend throws', async () => {
     const db = await migratedDb()
     const failingBackend = {
+      remoteId: 'failing',
       getMetadata: async () => {
         throw new Error('boom')
       },
@@ -209,6 +212,7 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
   /** A remote written by a newer app version: runSync aborts without merging. */
   function newerSchemaBackend(): SyncBackend {
     return {
+      remoteId: 'newer',
       getMetadata: async () => ({
         device: 'other-device',
         uploadedAtUtc: '2026-05-20T10:00:00.000Z',
@@ -231,6 +235,50 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
     expect(s.lastSyncError.value?.message).toMatch(/newer version/i)
     expect(loadSyncError()?.message).toMatch(/newer version/i)
     await db.close()
+  })
+
+  it('migrates a remote written by an older app version, then merges it', async () => {
+    const db = await migratedDb()
+    const backend = new FakeSyncBackend()
+    // A database written by an older app: the migrations up to version 2.
+    const old = new Database()
+    await old.init()
+    await runMigrations(old, ALL_MIGRATIONS.slice(0, 2))
+    const at = '2026-05-21T00:00:00.000Z'
+    await seedTag(old, { id: 'tag000000001', name: 'Home', created: at, updated: at })
+    await backend.setRemote(old, {
+      device: 'older app',
+      uploadedAtUtc: at,
+      hash: await hashDatabase(old),
+      migrationVersion: 2,
+    })
+    // The schema version of the downloaded copy as downloaded, and when the
+    // sync is done with it.
+    let downloadedVersion: number | null = null
+    let mergedVersion: number | null = null
+    const download = backend.downloadDatabase.bind(backend)
+    backend.downloadDatabase = async () => {
+      const remote = await download()
+      downloadedVersion = await readSchemaVersion(remote)
+      const close = remote.close.bind(remote)
+      remote.close = async () => {
+        mergedVersion = await readSchemaVersion(remote)
+        await close()
+      }
+      return remote
+    }
+    const s = useSyncSettings({ db, backend })
+
+    await s.syncNow()
+
+    expect(s.lastSyncError.value).toBeNull()
+    expect(s.lastSyncOutcome.value).toMatchObject({ decision: 'merge', uploaded: true })
+    expect(downloadedVersion).toBe(2)
+    expect(mergedVersion).toBe(await readSchemaVersion(db))
+    expect(backend.peekMeta()?.migrationVersion).toBe(await readSchemaVersion(db))
+    expect(await db.exec('SELECT id FROM tags')).toEqual([{ id: 'tag000000001' }])
+    await db.close()
+    await backend.close()
   })
 
   it('exposes a summary of the last successful sync', async () => {
@@ -288,6 +336,7 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
     let releaseMetadata!: () => void
     let syncsStarted = 0
     const slowBackend: SyncBackend = {
+      remoteId: 'slow',
       getMetadata: () =>
         new Promise((resolve) => {
           syncsStarted++

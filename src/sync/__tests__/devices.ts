@@ -14,8 +14,9 @@ import { FakeGitHubRemote, FakeSyncBackend } from './fakes'
 import { newMigratedDb } from './helpers'
 
 // Several devices syncing through one remote with the real orchestrator, so
-// every merge uses the cutoff the orchestrator uses: the upload time of the
-// device's last sync. The clock is mocked and set by hand before every step.
+// every merge tells which side changed a row as the app does: by the device's
+// sync base, or by the upload time of its last sync when it has no base. The
+// clock is mocked and set by hand before every step.
 
 export const T0 = '2026-05-01T00:00:00.000Z' // the shared data is created
 export const C = '2026-05-01T01:00:00.000Z' // every device syncs it
@@ -122,7 +123,8 @@ export async function openTrio(
 /**
  * The first device creates the shared data at T0; at C every device has
  * synced it (the first uploads, the others merge, then all but the last find
- * nothing to do), so every device's merge cutoff is C.
+ * nothing to do), so every device's base is the state at C, and its merge
+ * cutoff is C.
  */
 export async function start(world: World, seed: (device: Device) => Promise<void>): Promise<void> {
   const [first, ...rest] = world.devices

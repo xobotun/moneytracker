@@ -1,9 +1,9 @@
 # Sync: Telling Which Side Changed a Row
 
-**Status:** Postponed 2026-10-26. Known bug, pinned by two deliberately failing tests
-(`it.fails`) in `src/sync/__tests__/cornerCases/cutoff.spec.ts`; tracked in TASKS.md as
-"Sync: tell which side changed a row without timestamps". Found by the sync corner-case
-tests of the tags-and-categories plan (Task A6).
+**Status:** Built 2026-10-27 (option A). Sections 1 to 4 are the record of the decision;
+section 6 says what was built. It was a known bug, pinned by two `it.fails` tests in
+`src/sync/__tests__/cornerCases/cutoff.spec.ts`, which are plain `it` tests now. Found by the
+sync corner-case tests of the tags-and-categories plan (Task A6).
 
 ---
 
@@ -21,6 +21,23 @@ this device's last sync. A change made offline and uploaded later slips through.
 | 5 | A (not synced since minute 3) edits T. |
 | 6 | A syncs and merges B's upload. Remote T was deleted at minute 1, before A's last sync, so it counts as **unchanged**; local T was edited at minute 5, so it counts as **changed**. "Only the local side moved" → A keeps its live T and uploads it. Delete-wins never runs; no conflict is reported. |
 | 7 | B syncs (last sync minute 4). Remote T (edited at 5) counts as changed, its own tombstone (1) as unchanged → B takes the live T. **The delete is lost on both devices, silently.** |
+
+```mermaid
+sequenceDiagram
+    participant B as Device B
+    participant R as Remote
+    participant A as Device A
+    Note over B: m1 offline, deletes T<br/>(tombstone stamped m1)
+    A->>R: m3 uploads something unrelated
+    Note over A: A's last sync is now m3
+    B->>R: m4 pulls, merges, pushes the delete
+    Note over A: m5 edits T (stamped m5)
+    R->>A: m6 B's upload
+    Note over A: remote T stamped m1, before m3: "unchanged"<br/>local T stamped m5, after m3: "changed"<br/>keeps the live T, reports nothing
+    A->>R: m6 uploads the live T
+    R->>B: m7 A's upload
+    Note over B: remote T stamped m5, after m4: "changed"<br/>own tombstone stamped m1, before m4: "unchanged"<br/>takes the live T: the delete is lost
+```
 
 The same path loses a manual exchange rate: B types a manual EUR/USD rate offline, A's
 resolver later upgrades its own row of that day to an ECB rate; the override — which
@@ -59,6 +76,25 @@ discarded edit is reported.
   compare-and-swap and unchanged-file detection) but never reads the commit this device
   last synced against. The Supabase / S3 backends keep no history at all.
 
+How a row counts as changed, today and under option A below:
+
+```mermaid
+flowchart LR
+    subgraph today["Today: timestamps against the cutoff"]
+        direction TB
+        t1["the row's created / updated / deleted time"] --> t2{"after this device's<br/>last sync?"}
+        t2 -- yes --> t3["changed"]
+        t2 -- no --> t4["unchanged,<br/>even if this device never saw it"]
+    end
+    subgraph optionA["Option A: hashes against the agreed base"]
+        direction TB
+        a1["hash of the row now"] --> a2{"same as the hash both<br/>devices last agreed on?"}
+        a2 -- no --> a3["changed"]
+        a2 -- yes --> a4["unchanged"]
+    end
+    today ~~~ optionA
+```
+
 Consequences beyond the two tests: every "both sides changed" case where one side's edit
 predates the other device's cutoff is treated as one-sided. Delete-wins and rank rules are
 skipped (the outcome changes), and for plain edits the outcome is usually the same
@@ -76,6 +112,22 @@ every successful sync from the database that was uploaded.
 During a merge: changed locally ⇔ `hash(local row) ≠ base`; changed remotely ⇔
 `hash(remote row) ≠ base`; a row absent from the base is new on the side that has it.
 Then the existing rules decide (delete wins → rank → newer → tie by content).
+
+```mermaid
+flowchart TD
+    s1["sync starts"] --> s2["for every row: compare the local and the<br/>remote hash with the row's hash in sync_base"]
+    s2 --> s3{"changed on"}
+    s3 -- "one side" --> s4["take that side"]
+    s3 -- "both sides" --> s5["conflict rules: delete wins, rank,<br/>newer, tie by content; reported"]
+    s3 -- "neither" --> s6["keep"]
+    s4 & s5 & s6 --> s7["tag repairs, then compare-and-swap upload"]
+    s7 -- "upload accepted" --> s8["rewrite sync_base from the uploaded rows"]
+    s7 -- "another device uploaded meanwhile" --> s1
+```
+
+In the example of section 1, at minute 6 the base holds T as both devices last agreed on it
+(live, unedited). Remote T (deleted) differs from it, and so does local T (edited): both
+sides changed, so delete-wins keeps the tombstone and the discarded edit is reported.
 
 - **Upsides**
   - No clocks in change detection: late uploads, offline periods and clock skew stop mattering.
@@ -105,6 +157,8 @@ Then the existing rules decide (delete wins → rank → newer → tie by conten
     normalised through the merge-chain map (apply the redirects to the base hashes and to the
     current rows alike), or record such rewrites in the base. A lift is no merge
     chain: it needs the second way, or the same normalisation over deleted parents.
+    (As built, neither is needed: a tombstone is hashed by identity and delete time only,
+    see section 6.)
 
 ### B. Full base copy (three-way merge)
 
@@ -132,6 +186,25 @@ write; the base is "counter values at the last sync".
     write, merge, repair and cache refresh must maintain it — easy to forget one path.
   - For two or three household devices it buys nothing over A.
 
+**A against C.** A plain counter is not enough (two devices both going from 5 to 6 look
+equal), so C in practice means a **version vector** per row (`{A: 3, B: 5}`), stored in the
+row and synced. A, by contrast, maintains nothing on writes: the current hash is computed
+from the row's content at sync time, and only the base is stored, device-locally.
+
+| | A: hashes against a base | C: version vectors |
+|---|---|---|
+| Write paths to maintain | none | every one (repositories, merge rewrites, repairs, applied rates; not cache refreshes) — one missed bump silently loses an edit |
+| Schema | one device-local table; synced tables and CSV unchanged | a column on every synced table, `SYNC_COLUMNS`, CSV |
+| The same edit on both devices | no conflict (same content) | a conflict, if both bumped |
+| An edit undone before syncing | no change | a change |
+| Device state lost (new install, cleared site data, provider switch) | no base: one sync falls back to today's cutoff | nothing to lose — the vectors are in the data |
+| What it proves | the content differs | who has seen whose edits (causality) |
+| Repairs | rewrites without a bump need the normalisation above | identical repairs on two devices bump different entries → conflicts; needs its own rule |
+| Other needs | — | a stable device identity; vectors grow with every device ever used |
+
+C would win with peer-to-peer sync or frequent loss of device state; with one remote, two or
+three devices and many write paths, A fits.
+
 ### D. Keep timestamps, move the cutoff further back
 
 E.g. cutoff = last sync − 7 days, or the oldest upload time any device reported.
@@ -147,18 +220,77 @@ E.g. cutoff = last sync − 7 days, or the oldest upload time any device reporte
 
 ## 5. Recommendation
 
-Option A, with today's cutoff as the fallback when no base exists. Consider B later only if
-column-level merging becomes a goal.
+**Decided 2026-10-27: option A**, with today's cutoff as the fallback when no base exists.
+Consider B later only if column-level merging becomes a goal.
 
-When implementing:
-- Flip the two `it.fails` in `cutoff.spec.ts` to `it`, and revisit two `convergence.spec.ts`
-  tests that rely on today's cutoff: "after a redirect whose merged tag comes back" (a live
-  row winning over an older remote merge) and "after a lift whose deleted parent comes back"
-  (A's rename of d wins only because B's tombstone of d predates A's cutoff; with real change
-  detection both sides changed d, delete-wins keeps it deleted, and the test's last
-  assertion flips).
-- Keep `cornerCases/merges.spec.ts` "keeps a restore when the other device merged the
-  restored tag's parent" passing: it fails if the rewrites without a timestamp bump count as
-  changes (see option A's downsides).
-- Update the scenarios doc (algorithm step 5, "Merge cutoff"; conflict definition).
-- Remove the TASKS.md entry.
+## 6. As built
+
+Code: `src/sync/syncBase.ts` (row hashes, the base tables), `src/sync/changeDetection.ts`
+(the two detectors), `mergeDatabases` in `src/sync/mergeEngine.ts`, and `changeDetectorFor`,
+`upload` and `adoptAsBase` in `src/sync/syncOrchestrator.ts`. The base lives in the
+device-local tables `sync_base` (one hash per row) and `sync_base_info` (migration 003).
+They are not in `SYNC_TABLES`, so they are never merged or written to CSV.
+
+1. **Row hash.** The first 16 bytes of SHA-256 over the row's line, in hex. A live row uses
+   the line `hashDatabase` already writes for it, shared through one function so the two
+   cannot drift. A deleted row hashes as its identity and its delete time only.
+   This replaces the merge-chain normalisation of section 4. A tombstone changes only by
+   being deleted or restored. The rewrites without a timestamp bump that matter (a user's tag
+   merge, the sync repair's redirect) touch the references of a tombstone, never its delete
+   time, so they stay invisible and a concurrent restore is kept (`merges.spec.ts`). The
+   normalisation would have needed the base rows, which option A does not keep. Such rewrites
+   of live rows (redirect, lift) still count as changes. They meet a real edit as a
+   conflict, which latest-wins settles correctly because the repair kept the older stamp;
+   the cost is a reported conflict, not a lost change.
+2. **Rows neither side changed that still differ.** With the base this can only be two
+   tombstones that differ in what the hash leaves out. They are settled by `resolveConflict`
+   and not reported. With the cutoff they stay reported conflicts, as before.
+3. **When the base is used.** Only when `sync_base_info` names this remote and this schema
+   version. Otherwise the merge uses the cutoff, as before: `lastKnown?.uploadedAtUtc`, or
+   the epoch. A base from another remote describes another history (a stale remote's old rows
+   would look changed and win). After a migration every row's line changes.
+4. **When the base is written.** Always the whole base and its info row, in one transaction.
+   - In the merge transaction, after the repairs: the remote's rows. They are the common
+     ancestor of the merged database and anything uploaded after it, so a compare-and-swap
+     retry compares against the remote it just merged, and a failed merge rolls the base back.
+   - After every successful upload (first upload, upload-local, merge): the local rows read
+     just before the upload. Only the read and the database hash for the stamp come before
+     the upload; the rows' own hashes are computed after it, from the same rows.
+   - On decision `none`, unless the info already names this remote, this schema version and
+     the remote's hash: a snapshot, written only if its database hash equals the remote's.
+   If writing the base fails after a successful upload, the sync reports an error and the old
+   base stays. The next sync rewrites it. When that sync is a `merge` (another device uploaded
+   meanwhile), the merge first uses the older base and may over-report changed rows for that
+   one sync.
+5. **Remote identity.** `SyncBackend.remoteId`, a string without secrets:
+   `github:<repo>@<branch>`, `s3:<endpoint>/<bucket>/<object key>`,
+   `supabase:<url>/<bucket>/<blob key>`.
+6. **Upload stamps.** An upload's metadata hash is the database hash of the rows read for it,
+   which equals `hashDatabase` of the same rows. One walk instead of two, and the stamp
+   describes the rows the base holds.
+
+Effects on the outcomes:
+- A conflict is reported once, by the device whose merge meets it. With the cutoff both
+  devices often reported the same pair. The merge-cycle case in `convergence.spec.ts` is
+  reported on the device that first merges both changes; the other device later takes the
+  repaired rows as a one-sided change.
+- Two convergence tests changed outcome on purpose, as predicted here: a rename of a tag that
+  the other device deleted or merged now loses to the delete (delete wins, reported) instead
+  of bringing the tag back.
+
+What is left:
+- The base may be older than the upload: an app write between the read and the export, or a
+  crash between the upload and the base write. The next merge then over-reports changed rows
+  for one sync. In that window only, a delete can win over a restore on another device: a
+  concurrent one, or an informed one (that device merged the delete, then restored the row on
+  purpose).
+- A remote that keeps its id but not its history: emptied and seeded again (a stale device's
+  first upload into an emptied repository or bucket), or rolled back to an older version. The
+  base still matches its id and schema version, so rows this device did not change since its
+  last upload look changed on the remote only, and the remote's older copies win silently
+  (the cutoff would have kept the newer rows by latest-wins and reported a conflict). A
+  deliberate rollback propagates the same way, as a remote change, which is arguably what was
+  meant.
+- A SQLite-blob upload carries the device's `sync_base` tables along. Nobody reads them there.
+- No base (first sync after install, cleared site data, another provider or schema version):
+  one sync uses the cutoff and has its known gap.

@@ -1,12 +1,23 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import type { Database } from '../../db/Database'
-import type { SyncMetadata } from '../types'
-import { decideSync, runSync } from '../syncOrchestrator'
+import type { RemoteState, SyncMetadata } from '../types'
+import { changeDetectorFor, decideSync, runSync } from '../syncOrchestrator'
 import { FakeSyncBackend } from './fakes'
 import { readRows } from '../rows'
-import { newMigratedDb, seedAccount, seedTag, seedTransaction } from './helpers'
+import { newMigratedDb, nonEmpty, seedAccount, seedTag, seedTransaction } from './helpers'
 import type { SyncBackend } from '../SyncBackend'
 import { hashDatabase } from '../hashDatabase'
+import { readSchemaVersion } from '../schemaVersion'
+import {
+  readSyncBase,
+  readSyncBaseInfo,
+  snapshotDatabase,
+  writeSyncBase,
+  type BaseSource,
+  type RowHashes,
+  type Snapshot,
+  type SyncBaseInfo,
+} from '../syncBase'
 
 const META = (over: Partial<SyncMetadata> = {}): SyncMetadata => ({
   device: 'other-device',
@@ -198,6 +209,180 @@ describe('runSync', () => {
   })
 })
 
+describe('runSync keeps the sync base', () => {
+  let local: Database
+  let backend: FakeSyncBackend
+
+  afterEach(async () => {
+    if (local) await local.close()
+    if (backend) await backend.close()
+  })
+
+  function deps() {
+    let lastKnown: RemoteState | null = null
+    return {
+      backend,
+      deviceName: 'dev-A',
+      now: () => new Date('2026-05-22T12:00:00.000Z'),
+      migrate: async () => {},
+      loadLastKnown: () => lastKnown,
+      saveLastKnown: (state: RemoteState) => {
+        lastKnown = state
+      },
+      sleep: async () => {},
+    }
+  }
+
+  const at = '2026-05-21T00:00:00.000Z'
+  const seedHome = (db: Database) =>
+    seedTag(db, { id: 'home', name: 'Home', created: at, updated: at })
+  const seedWork = (db: Database) =>
+    seedTag(db, { id: 'work', name: 'Work', created: at, updated: at })
+
+  /** A remote holding `seed`'s rows, uploaded by `device`. */
+  async function remoteOf(seed: (db: Database) => Promise<void>, device: string): Promise<string> {
+    const db = await newMigratedDb()
+    await seed(db)
+    const hash = await hashDatabase(db)
+    await backend.setRemote(db, META({ device, hash, migrationVersion: 3 }))
+    return hash
+  }
+
+  /** The base holds the local rows, agreed with this remote at `databaseHash`. */
+  async function expectBase(databaseHash: string): Promise<void> {
+    expect(await readSyncBaseInfo(local)).toEqual({
+      remoteId: 'memory',
+      schemaVersion: await readSchemaVersion(local),
+      databaseHash,
+    })
+    expect(await readSyncBase(local)).toEqual(nonEmpty((await snapshotDatabase(local)).rows))
+  }
+
+  it('writes the uploaded rows after a first upload', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+
+    expect((await runSync(local, deps())).decision).toBe('first-sync-upload')
+
+    await expectBase(backend.peekMeta()!.hash)
+  })
+
+  it('writes the uploaded rows after an upload of the local database', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+    await remoteOf(async () => {}, 'dev-A')
+
+    expect((await runSync(local, deps())).decision).toBe('upload-local')
+
+    await expectBase(backend.peekMeta()!.hash)
+  })
+
+  it('writes the uploaded rows after a merge, stamped with their hash', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+    await remoteOf(seedWork, 'dev-B')
+
+    expect((await runSync(local, deps())).decision).toBe('merge')
+
+    expect(backend.peekMeta()!.hash).toBe(await hashDatabase(local))
+    await expectBase(backend.peekMeta()!.hash)
+  })
+
+  it('writes the rows read before the upload, stamped with their hash, though the app writes during it', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+    const before = await snapshotDatabase(local)
+    const tryUpload = backend.tryUpload.bind(backend)
+    backend.tryUpload = async (db, meta, expected) => {
+      await seedWork(local)
+      return tryUpload(db, meta, expected)
+    }
+
+    expect((await runSync(local, deps())).decision).toBe('first-sync-upload')
+
+    expect(backend.peekMeta()!.hash).toBe(before.databaseHash)
+    expect(await readSyncBaseInfo(local)).toMatchObject({ databaseHash: before.databaseHash })
+    expect(await readSyncBase(local)).toEqual(nonEmpty(before.rows))
+  })
+
+  /** Writes a base described by `info` that holds a marker row no snapshot of real rows would. */
+  async function writeMarkedBase(info: SyncBaseInfo): Promise<RowHashes> {
+    const marked: Snapshot = {
+      databaseHash: info.databaseHash,
+      rows: new Map([['tags', new Map([['marker', 'not-a-row']])]]),
+    }
+    await local.transaction((tx) => writeSyncBase(tx, marked, info))
+    return marked.rows
+  }
+
+  /** No base, or one that differs from this remote's current state in one field. */
+  const notThisRemotesState: [string, Partial<SyncBaseInfo> | null][] = [
+    ['without a base', null],
+    ['with a base from another remote', { remoteId: 'github:me/mt@main' }],
+    ['with a base from another schema version', { schemaVersion: 2 }],
+    ['with an older base of this remote', { databaseHash: 'sha256:older' }],
+  ]
+
+  it.each(notThisRemotesState)(
+    'adopts the remote as the base when nothing needs syncing, %s',
+    async (_, differs) => {
+      local = await newMigratedDb()
+      backend = new FakeSyncBackend()
+      await seedHome(local)
+      const remoteHash = await remoteOf(seedHome, 'dev-B')
+      if (differs) {
+        await writeMarkedBase({
+          remoteId: 'memory',
+          schemaVersion: 3,
+          databaseHash: remoteHash,
+          ...differs,
+        })
+      }
+
+      expect((await runSync(local, deps())).decision).toBe('none')
+
+      await expectBase(remoteHash)
+    },
+  )
+
+  it('leaves a base already agreed with this remote alone when nothing needs syncing', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+    const remoteHash = await remoteOf(seedHome, 'dev-B')
+    const marked = await writeMarkedBase({
+      remoteId: 'memory',
+      schemaVersion: 3,
+      databaseHash: remoteHash,
+    })
+
+    expect((await runSync(local, deps())).decision).toBe('none')
+
+    expect(await readSyncBase(local)).toEqual(marked)
+  })
+
+  it('writes no base when nothing needs syncing but the rows changed after they were hashed', async () => {
+    local = await newMigratedDb()
+    backend = new FakeSyncBackend()
+    await seedHome(local)
+    await remoteOf(seedHome, 'dev-B')
+    // The app writes while the remote's metadata is on its way.
+    const getMetadata = backend.getMetadata.bind(backend)
+    backend.getMetadata = async () => {
+      await seedWork(local)
+      return getMetadata()
+    }
+
+    expect((await runSync(local, deps())).decision).toBe('none')
+
+    expect(await readSyncBaseInfo(local)).toBeNull()
+  })
+})
+
 describe('runSync retry bound', () => {
   let local: Database
   const opened: Database[] = []
@@ -211,6 +396,7 @@ describe('runSync retry bound', () => {
   function alwaysLosingBackend(remoteDevice: string) {
     let uploads = 0
     const backend: SyncBackend = {
+      remoteId: 'losing',
       getMetadata: async () => META({ device: remoteDevice, hash: `remote-${uploads}` }),
       downloadDatabase: async () => {
         const db = await newMigratedDb()
@@ -269,6 +455,7 @@ describe('runSync retry bound', () => {
     local = await newMigratedDb()
     let uploads = 0
     const emptyRemoteLosingRace: SyncBackend = {
+      remoteId: 'losing',
       getMetadata: async () => null, // remote looks empty every time
       downloadDatabase: async () => {
         throw new Error('not used')
@@ -298,5 +485,70 @@ describe('runSync retry bound', () => {
     await expect(runSync(local, boundedDeps(backend, sleeps))).rejects.toThrow()
     expect(sleeps).toHaveLength(2) // between 3 attempts
     expect(sleeps[1]!).toBeGreaterThan(sleeps[0]!)
+  })
+})
+
+describe('changeDetectorFor', () => {
+  let db: Database
+
+  afterEach(async () => {
+    if (db) await db.close()
+  })
+
+  const TAGS = { name: 'tags', pk: 'id' }
+  const SOURCE: BaseSource = { remoteId: 'memory', schemaVersion: 3 }
+  const LAST_KNOWN: RemoteState = {
+    device: 'dev-B',
+    uploadedAtUtc: '2026-05-20T10:00:00.000Z',
+    hash: 'remote-hash',
+  }
+
+  /** One tag stamped before the last sync, and a base of it agreed with `source`. */
+  async function tagWithBase(source: BaseSource | null) {
+    db = await newMigratedDb()
+    const at = '2026-05-01T00:00:00.000Z'
+    await seedTag(db, { id: 'home', name: 'Home', created: at, updated: at })
+    if (source) {
+      const snapshot = await snapshotDatabase(db)
+      await db.transaction((tx) => writeSyncBase(tx, snapshot, source))
+    }
+    return (await readRows(db, 'tags'))[0]!
+  }
+
+  it('compares with the base agreed with this remote at this schema version', async () => {
+    const row = await tagWithBase(SOURCE)
+
+    const changes = await changeDetectorFor(db, SOURCE, LAST_KNOWN)
+
+    expect(changes.exact).toBe(true)
+    expect(await changes.changed(TAGS, row)).toBe(false)
+    expect(await changes.changed(TAGS, { ...row, name: 'House' })).toBe(true)
+  })
+
+  const noUsableBase: [string, BaseSource | null][] = [
+    ['without a base', null],
+    ['with a base from another remote', { ...SOURCE, remoteId: 'github:me/mt@main' }],
+    ['with a base from another schema version', { ...SOURCE, schemaVersion: 2 }],
+  ]
+
+  it.each(noUsableBase)('falls back to the cutoff of the last sync %s', async (_, source) => {
+    const row = await tagWithBase(source)
+
+    const changes = await changeDetectorFor(db, SOURCE, LAST_KNOWN)
+
+    expect(changes.exact).toBe(false)
+    // Stamped before the last sync: unchanged, whatever it holds.
+    expect(await changes.changed(TAGS, { ...row, name: 'House' })).toBe(false)
+    const later = '2026-05-21T00:00:00.000Z'
+    expect(await changes.changed(TAGS, { ...row, updated_at_utc: later })).toBe(true)
+  })
+
+  it('takes every row for changed before the first sync', async () => {
+    const row = await tagWithBase(null)
+
+    const changes = await changeDetectorFor(db, SOURCE, null)
+
+    expect(changes.exact).toBe(false)
+    expect(await changes.changed(TAGS, row)).toBe(true)
   })
 })

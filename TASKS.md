@@ -329,24 +329,11 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - Split calculator for the form: `src/money/split.ts` (typed vs. derived parts, the spec's worked example)
 - Sync: deferred FKs for self-referencing tags; `repairTags` after every merge (merge cycles, redirects, categories in use, lifts, parent loops); exact ties broken by row content, the same on every device; two-device convergence tests and sync corner-case tests (`src/sync/__tests__/cornerCases/`)
 
+### Sync — change detection
+
+- Which side changed a row is told by per-row base hashes, not timestamps (`src/sync/syncBase.ts`, `changeDetection.ts`); the cutoff stays as the fallback when there is no base. Decision and as-built notes: [docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md)
+
 ## To Do
-
-### Sync: tell which side changed a row without timestamps
-
-Known bug, postponed 2026-10-26. A change made offline and uploaded after another device's
-last sync counts as "unchanged" on that device, so delete-wins and rank rules are skipped and
-the discarded change is not reported: a delete or a manual exchange rate is lost on both
-devices, even with synchronised clocks. Problem, why the current mechanisms miss it, options
-with their upsides and downsides, and the recommendation (per-row base hashes):
-[docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md).
-
-- Deliberately failing tests until this is done: the two `it.fails` in
-  `src/sync/__tests__/cornerCases/cutoff.spec.ts` — turn them into `it(...)` when fixed
-- Revisit `src/sync/__tests__/convergence.spec.ts` "after a redirect whose merged tag comes
-  back" and "after a lift whose deleted parent comes back", which rely on today's cutoff
-- Keep `src/sync/__tests__/cornerCases/merges.spec.ts` "keeps a restore when the other device
-  merged the restored tag's parent" passing: the user's merge rewrites the tombstone without a
-  timestamp bump, so compare rows through the merge-chain map (see the doc, option A)
 
 ### Domain model gaps
 
@@ -433,6 +420,17 @@ the app's automatic flows and the polished UI.
   Sync now click.
 - Blocking overlay during sync with a "use the local database"
   interrupt button.
+- Freeze edits while a sync runs: disable every control that writes
+  (buttons, forms, drag-to-reorder) and show that a sync is in progress.
+  The upload exports a copy, so a later write only waits for the next
+  sync, but the sync base must describe exactly the rows the upload
+  exported (a few milliseconds apart today:
+  docs/plans/2026-10-26-sync-change-detection.md §6). Background writers
+  bypass the UI — `RateService` filling `applied_rates` — so gate writes
+  in the stores, not only in the views. `syncing` in `useSyncSettings.ts`
+  already tracks a running sync at module scope; move it to a store the
+  views can read. Unfreeze on every exit (done, error, gave up after
+  retries), and let the overlay's interrupt button end a long upload.
 - Network state / metered-connection detection (PWA heuristic) and the
   auto-sync trigger policy that uses it.
 - Conflict-notification email (needs a Supabase Edge Function so the
@@ -440,9 +438,6 @@ the app's automatic flows and the polished UI.
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 
 Follow-up items flagged for the next plan:
-- Real schema migration in `useSyncSettings.syncNow` — currently a
-  plan-mandated stub that throws. Real cross-schema migration on
-  downloaded remote DBs is deferred.
 - Live verification: every backend is unit-tested against in-memory fakes
   only; none has been run against the real service yet (CORS, ETag
   exposure, rate limits). First real target: GitHub.
@@ -473,11 +468,21 @@ Known sync defects, postponed (review 2026-10-18):
   a device to another device's name is unsupported): a device with a
   duplicate name and a smaller or empty database takes `upload-local`, which
   can drop data and leave stale trailing CSV files.
-- **Clock skew:** the merge cutoff compares timestamps from different
-  devices' clocks. Accepted for now; concurrent edits expected to be rare.
-  (Exact ties no longer flip-flop: they are broken by row content, the same
-  on every device. The cutoff itself is the postponed "Sync: tell which side
-  changed a row without timestamps" above.)
+- **Clock skew:** "latest wins" compares timestamps from different devices'
+  clocks. Accepted for now; concurrent edits expected to be rare. (Which side
+  changed a row no longer depends on clocks: the sync base tells it, and the
+  timestamp cutoff is only the fallback when there is no base — see
+  docs/plans/2026-10-26-sync-change-detection.md. Exact ties are broken by
+  row content, the same on every device.)
+- **Same remote id, different history:** the sync base is used whenever the
+  remote id and schema version match. A remote emptied and seeded again (a
+  stale device's first upload into an emptied repository or bucket) or rolled
+  back to an older version still matches, so rows this device did not change
+  since its last upload take the remote's older copies silently. Intended fix:
+  a random lineage id, written by a first upload, carried forward by every
+  upload from the metadata it replaces, stored in `sync_base_info` and part
+  of the match (docs/plans/2026-10-26-sync-change-detection.md, "What is
+  left").
 
 
 ### Import

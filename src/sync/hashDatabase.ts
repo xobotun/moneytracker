@@ -1,5 +1,5 @@
 import type { Database } from '../db/Database'
-import { SYNC_TABLES } from './syncTables'
+import { SYNC_TABLES, type SyncTable } from './syncTables'
 import { EQUALITY_IGNORED_COLUMNS } from './syncColumns'
 import type { SyncRow } from './types'
 
@@ -32,6 +32,36 @@ export function __resetHashCache(): void {
   cache = new WeakMap()
 }
 
+/**
+ * The line `hashDatabase` hashes for one row (it adds the trailing newline).
+ *
+ * Canonical JSON: keys sorted alphabetically, no whitespace, undefined
+ * omitted, NULL preserved. JSON.stringify already omits undefined and
+ * preserves null; we add explicit key sorting. Columns the merge ignores are
+ * left out too (a device-computed cache, the timestamps of independently
+ * computed rows): they are not part of the data. Shared with the per-row hash
+ * of the sync base so the two can never drift.
+ */
+export function canonicalLine(table: SyncTable, row: SyncRow): string {
+  const ignored = EQUALITY_IGNORED_COLUMNS[table.name] ?? []
+  const sortedKeys = Object.keys(row)
+    .filter((key) => !ignored.includes(key))
+    .sort()
+  return `${table.name} ${JSON.stringify(row, sortedKeys)}`
+}
+
+/** `sha256:<hex>` over the lines in order, each ended by a newline. */
+export async function hashLines(lines: string[]): Promise<string> {
+  // crypto.subtle.digest works on the assembled byte buffer. For a small
+  // personal-finance DB this fits comfortably in memory; if we ever push
+  // past ~50MB of row text we'd switch to a streaming SHA-256 (an
+  // off-the-shelf one — Web Crypto does not stream).
+  const buffer = new TextEncoder().encode(lines.map((line) => `${line}\n`).join(''))
+  const digest = await crypto.subtle.digest('SHA-256', buffer)
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+  return `sha256:${hex}`
+}
+
 export async function hashDatabase(db: Database): Promise<string> {
   const cached = cache.get(db)
   if (cached && cached.atMutation === db.mutationCounter) {
@@ -46,41 +76,12 @@ export async function hashDatabase(db: Database): Promise<string> {
   // entry outdated, so the next call re-hashes.
   const atMutation = db.mutationCounter
 
-  // crypto.subtle.digest works on the assembled byte buffer. For a small
-  // personal-finance DB this fits comfortably in memory; if we ever push
-  // past ~50MB of row text we'd switch to a streaming SHA-256 (an
-  // off-the-shelf one — Web Crypto does not stream).
-  const encoder = new TextEncoder()
-  const chunks: Uint8Array[] = []
-
+  const lines: string[] = []
   for (const table of SYNC_TABLES) {
     const rows = await db.exec<SyncRow>(`SELECT * FROM ${table.name} ORDER BY ${table.pk}`)
-    for (const row of rows) {
-      // Canonical JSON: keys sorted alphabetically, no whitespace, undefined
-      // omitted, NULL preserved. JSON.stringify already omits undefined and
-      // preserves null; we add explicit key sorting. Columns the merge
-      // ignores are left out too (a device-computed cache, the timestamps of
-      // independently computed rows): they are not part of the data.
-      const ignored = EQUALITY_IGNORED_COLUMNS[table.name] ?? []
-      const sortedKeys = Object.keys(row)
-        .filter((key) => !ignored.includes(key))
-        .sort()
-      const canonical = JSON.stringify(row, sortedKeys)
-      chunks.push(encoder.encode(`${table.name} ${canonical}\n`))
-    }
+    for (const row of rows) lines.push(canonicalLine(table, row))
   }
-
-  // Concatenate into one buffer for crypto.subtle.digest.
-  const totalLen = chunks.reduce((s, c) => s + c.length, 0)
-  const buffer = new Uint8Array(totalLen)
-  let offset = 0
-  for (const c of chunks) {
-    buffer.set(c, offset)
-    offset += c.length
-  }
-  const digest = await crypto.subtle.digest('SHA-256', buffer)
-  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-  const result = `sha256:${hex}`
+  const result = await hashLines(lines)
 
   cache.set(db, { hash: result, atMutation })
   return result

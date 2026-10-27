@@ -32,10 +32,7 @@ describe('two devices converge', () => {
   const tagRow = async (device: Device, id: string) =>
     (await device.db.exec('SELECT * FROM tags WHERE id = ?', [id]))[0]!
 
-  // Relies on today's timestamp cutoff (A's rename of d wins only because B's tombstone predates
-  // A's cutoff; with real change detection delete-wins keeps d deleted). Revisit with TASKS.md
-  // "Sync: tell which side changed a row without timestamps" — docs/plans/2026-10-26-sync-change-detection.md.
-  it('after a lift whose deleted parent comes back', async () => {
+  it('after a lift, when the other device renames the deleted parent', async () => {
     let g!: ShortId, d!: ShortId, c!: ShortId
     await start(world, async ({ tags }) => {
       g = (await tags.create({ kind: 'tag', name: 'g' })).id
@@ -52,21 +49,22 @@ describe('two devices converge', () => {
     await b.sync() // c arrives under the deleted d: lifted to g, timestamp kept
     expect(await tagRow(b, c)).toMatchObject({ parent_id: g, updated_at_utc: minute(1) })
     at(minute(5))
-    await a.tags.update(d, { name: 'd again' }) // brings d back on its next sync
+    await a.tags.update(d, { name: 'd again' })
     at(minute(6))
-    await a.sync()
+    // Both devices changed d since they last agreed: the delete wins over the rename.
+    const onA = await a.sync()
     at(minute(7))
     await b.sync()
 
     await expectConverged([a, b], minute(8))
-    // Both copies of c tie on their timestamp: the devices picked the same one.
-    expect([g, d]).toContain((await tagRow(a, c)).parent_id)
-    expect(await tagRow(a, d)).toMatchObject({ deleted_at_utc: null })
+    expect(onA.conflicts.filter((conflict) => conflict.primaryKey === d)).toMatchObject([
+      { winner: 'remote', resolution: 'delete-wins', local: { name: 'd again' } },
+    ])
+    expect(await tagRow(a, d)).toMatchObject({ deleted_at_utc: minute(2) })
+    expect(await tagRow(a, c)).toMatchObject({ parent_id: g })
   })
 
-  // Relies on today's timestamp cutoff (a live row wins over an older remote merge). Revisit with
-  // TASKS.md "Sync: tell which side changed a row without timestamps" — docs/plans/2026-10-26-sync-change-detection.md.
-  it('after a redirect whose merged tag comes back', async () => {
+  it('after a redirect, when the other device renames the merged tag', async () => {
     let x!: ShortId, y!: ShortId
     await start(world, async ({ db, tags }) => {
       x = (await tags.create({ kind: 'tag', name: 'job' })).id
@@ -90,13 +88,22 @@ describe('two devices converge', () => {
     const txnOnB = (await b.db.exec('SELECT tags FROM transactions'))[0]!
     expect(txnOnB.tags).toBe(JSON.stringify([y]))
     at(minute(5))
-    await a.tags.update(x, { name: 'job again' }) // its live row wins over the merge
+    await a.tags.update(x, { name: 'job again' })
     at(minute(6))
-    await a.sync()
+    // Both devices changed x since they last agreed: the merge (a delete) wins over the rename.
+    const onA = await a.sync()
     at(minute(7))
     await b.sync()
 
     await expectConverged([a, b], minute(8))
+    expect(onA.conflicts.filter((conflict) => conflict.primaryKey === x)).toMatchObject([
+      { winner: 'remote', resolution: 'delete-wins', local: { name: 'job again' } },
+    ])
+    for (const device of [a, b]) {
+      expect(await tagRow(device, x)).toMatchObject({ merged_into_id: y, name: 'job' })
+      const [txn] = await device.db.exec('SELECT tags FROM transactions')
+      expect(txn!.tags).toBe(JSON.stringify([y]))
+    }
   })
 
   it('after a parent loop is undone', async () => {
@@ -143,12 +150,12 @@ describe('two devices converge', () => {
       expect.objectContaining({ primaryKey: y, winner: 'local' }),
     ])
     at(minute(5))
-    // B's own deleted y wins its merge again ("delete wins"): B meets the
-    // cycle too, and restores y exactly as A did.
+    // B changed neither x nor y since its upload; both come back changed by
+    // A's repair, so B takes them and never meets the cycle. The undone merge
+    // is reported once, on A.
     const onB = await b.sync()
-    expect(onB.conflicts.filter((c) => c.resolution === 'loop-undone')).toEqual([
-      expect.objectContaining({ primaryKey: y, winner: 'remote' }),
-    ])
+    expect(onB.decision).toBe('merge')
+    expect(onB.conflicts).toEqual([])
 
     await expectConverged([a, b], minute(6))
     const restored = {

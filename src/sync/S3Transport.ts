@@ -39,6 +39,11 @@ export class S3Transport implements BlobTransport {
     this.fetchFn = withSyncFetchPolicy(fetchFn)
   }
 
+  /** Without the credentials. `blobKey` is the config's `objectKey` (see `buildBackend`). */
+  get remoteId(): string {
+    return `s3:${this.cfg.endpoint}/${this.cfg.bucket}/${this.blobKey}`
+  }
+
   private getClient(): Promise<AwsClient> {
     this.client ??= import('aws4fetch').then(
       ({ AwsClient }) =>

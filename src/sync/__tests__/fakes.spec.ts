@@ -36,6 +36,12 @@ describe('FakeSyncBackend', () => {
     expect(await backend.getMetadata()).toBeNull()
   })
 
+  it('names its remote "memory" unless given an id', () => {
+    expect(new FakeSyncBackend().remoteId).toBe('memory')
+    backend = new FakeSyncBackend('other')
+    expect(backend.remoteId).toBe('other')
+  })
+
   it('accepts a first-sync upload (expected === null)', async () => {
     backend = new FakeSyncBackend()
     const local = await migratedDb()

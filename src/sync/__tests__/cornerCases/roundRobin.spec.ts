@@ -94,6 +94,7 @@ describe('an upload that loses the race after a merge', () => {
       device !== 'A'
         ? backend
         : {
+            remoteId: backend.remoteId,
             getMetadata: () => backend.getMetadata(),
             downloadDatabase: () => backend.downloadDatabase(),
             hashDatabase: (db) => backend.hashDatabase(db),

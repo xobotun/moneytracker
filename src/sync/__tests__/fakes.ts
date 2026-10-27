@@ -23,6 +23,9 @@ export class FakeSyncBackend implements SyncBackend {
    *  called yet" guard on tryUpload. */
   private getMetadataCalled = false
 
+  /** `remoteId` tells two fake remotes apart (a provider switch). */
+  constructor(readonly remoteId: string = 'memory') {}
+
   /** Test hook: simulate the remote being updated by some other writer. */
   async setRemote(db: Database, meta: SyncMetadata): Promise<void> {
     if (this.remoteDb) await this.remoteDb.close()
@@ -331,6 +334,8 @@ export class FakeBlobTransport implements BlobTransport {
   private blob: Uint8Array | null = null
   private sidecar: { text: string; etag: string } | null = null
   private nextEtag = 1
+
+  constructor(readonly remoteId: string = 'blob:memory') {}
 
   async validate(): Promise<void> {}
 

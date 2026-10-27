@@ -83,36 +83,54 @@ User may interrupt the sync at any time, the app will have to use the local data
    - If the remote schema is **newer** than this app supports, abort the sync
      and prompt the user to update the app.
 4. **Download** the remote database to a temporary location and open it. Open the local database too.
-5. **Merge cutoff.** Take the last-successful-sync timestamp (the `upload timestamp` from the locally stored 
-    last known remote state). Only rows whose `created_at_utc`, `updated_at_utc`, or `deleted_at_utc` is newer than this
-    cutoff need to be considered on either side. Over-including rows is harmless (re-applying an identical row is a no-op).
+5. **Change detection.** Decide per row which side changed since the last agreed state, by the
+    **sync base**: the hash of every row as it stood when this device last agreed with the remote
+    (device-local tables `sync_base` and `sync_base_info`). A row changed on a side when its hash
+    differs from its base hash; a row the base lacks is new on the side that has it. No timestamps
+    are compared. A deleted row hashes as its identity and delete time only.
+    The base is used only when it was agreed with this remote and at this schema version. Otherwise
+    (first sync, cleared site data, another provider, a migration since) fall back to the **merge
+    cutoff**: the `upload timestamp` of the locally stored last known remote state; a row counts as
+    changed when its `created_at_utc`, `updated_at_utc` or `deleted_at_utc` is newer than that.
+    Over-including rows is harmless when only one side changed them.
 6. **Merge, parent tables before child tables** so foreign keys (`ON DELETE RESTRICT`) are never violated mid-merge:
    1. tags and the tag side tables (location, merchant and journey details), and the other parent tables
       (applied rates, account groups); tags also reference each other, so foreign keys are checked at COMMIT
    2. accounts
    3. transactions
-   For each candidate row:
+   For each row that differs between the two sides:
    - Changed on only one side → upsert it into the other side.
    - Changed on both sides → **conflict**, resolve per the section below.
    - There are no hard deletes — a deleted row is just a row with
      `deleted_at_utc` set, and the merge treats it like any other row.
 7. Apply the merged result into the local database inside a **single atomic transaction**, 
     in the same parent-before-child order, so a crash cannot leave a half-merged database.
-    Collect every conflicting row for the conflict email.
+    Make the remote's rows the new base in the same transaction, after the tag repairs, so a retry
+    in step 8 compares against the remote it just merged. Collect every conflicting row for the conflict email.
 8. **Compare-and-swap upload.** Re-read the remote metadata:
    - If the remote's current upload timestamp + hash still equal the *expected remote state* from step 2 
      → upload the merged database, then overwrite the remote metadata with `{ this device, now, new hash, migration version }`.
+     The hash is that of a snapshot of the local rows taken just before the upload.
    - If they differ, another device uploaded while we were merging. Discard the upload, update the expected remote state,
      and **go back to step 3** to re-merge against the new remote.
 
    Concurrent use by two devices is unlikely in practice, so this primitive CAS
    loop is sufficient; it just needs to never silently clobber a foreign upload.
-9. Update the locally stored **last known remote state** to what we just uploaded.
+9. Update the locally stored **last known remote state** to what we just uploaded, and make the
+   snapshot taken before the upload the **sync base**. The same happens after an upload in scenario
+   2.1 and after the first upload. In scenario 1 the local rows are the remote's: make them the base,
+   unless the base already is that state. If writing the base fails, the sync reports an error and
+   the old base stays, and the next sync rewrites it. The base may also be older than the upload (an
+   app write in between), never newer. Either way, a merge against an older base over-reports changed
+   rows once.
 
 # Conflict resolution
 
-A row is **in conflict** when it was modified (`updated_at_utc` or`deleted_at_utc`) on *both* the local and 
-the remote side since the merge cutoff.
+A row is **in conflict** when it changed on *both* the local and the remote side since the last
+agreed state (the sync base; the merge cutoff when there is none).
+A conflict is reported once, by the device whose merge meets it. Two copies that still differ
+although neither side changed (only possible with the base: two tombstones that differ in what the
+hash leaves out) are settled the same way below, but not reported.
 
 - If the two versions are byte-identical, it is not a real conflict — pick either.
 - If one side deleted the row and the other updated it, **the delete wins** — keep the tombstone.

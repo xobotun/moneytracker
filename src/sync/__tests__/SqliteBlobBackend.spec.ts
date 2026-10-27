@@ -39,6 +39,11 @@ describe('SqliteBlobBackend', () => {
     return { transport, backend }
   }
 
+  it('names the remote as its transport does', () => {
+    const backend = new SqliteBlobBackend(new FakeBlobTransport('blob:somewhere'))
+    expect(backend.remoteId).toBe('blob:somewhere')
+  })
+
   it('getMetadata returns null when sidecar is empty', async () => {
     const { backend } = setup()
     expect(await backend.getMetadata()).toBeNull()
