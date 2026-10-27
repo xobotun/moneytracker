@@ -21,6 +21,8 @@ export interface SyncTable {
  * migrations are reconciled by the schema gate, not by row merge. Nor is
  * `exchange_rates`, the device-local rate library: it can always be downloaded
  * again (it still rides along inside an uploaded blob, never merged).
+ * `sync_base` and `sync_base_info` (the per-row hashes of the last agreed
+ * state, see syncBase.ts) are device-local in the same way.
  */
 export const SYNC_TABLES: readonly SyncTable[] = [
   { name: 'tags', pk: 'id' },
