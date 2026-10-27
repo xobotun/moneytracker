@@ -253,18 +253,21 @@ They are not in `SYNC_TABLES`, so they are never merged or written to CSV.
    - In the merge transaction, after the repairs: the remote's rows. They are the common
      ancestor of the merged database and anything uploaded after it, so a compare-and-swap
      retry compares against the remote it just merged, and a failed merge rolls the base back.
-   - After every successful upload (first upload, upload-local, merge): a snapshot of the
-     local rows taken just before the upload.
+   - After every successful upload (first upload, upload-local, merge): the local rows read
+     just before the upload. Only the read and the database hash for the stamp come before
+     the upload; the rows' own hashes are computed after it, from the same rows.
    - On decision `none`, unless the info already names this remote, this schema version and
      the remote's hash: a snapshot, written only if its database hash equals the remote's.
-   If writing the base fails after a successful upload, the sync reports an error. The next
-   sync (decision `none` or `upload-local`) rewrites the base.
+   If writing the base fails after a successful upload, the sync reports an error and the old
+   base stays. The next sync rewrites it. When that sync is a `merge` (another device uploaded
+   meanwhile), the merge first uses the older base and may over-report changed rows for that
+   one sync.
 5. **Remote identity.** `SyncBackend.remoteId`, a string without secrets:
    `github:<repo>@<branch>`, `s3:<endpoint>/<bucket>/<object key>`,
    `supabase:<url>/<bucket>/<blob key>`.
-6. **Upload stamps.** An upload's metadata hash is the snapshot's database hash, which
-   equals `hashDatabase` of the same rows. One walk instead of two, and the stamp describes
-   the rows the base holds.
+6. **Upload stamps.** An upload's metadata hash is the database hash of the rows read for it,
+   which equals `hashDatabase` of the same rows. One walk instead of two, and the stamp
+   describes the rows the base holds.
 
 Effects on the outcomes:
 - A conflict is reported once, by the device whose merge meets it. With the cutoff both
@@ -276,9 +279,18 @@ Effects on the outcomes:
   of bringing the tag back.
 
 What is left:
-- The base may be older than the upload: an app write between the snapshot and the export, or
-  a crash between the upload and the base write. The next merge then over-reports changed
-  rows for one sync. In that window only, a delete can win over a concurrent restore.
+- The base may be older than the upload: an app write between the read and the export, or a
+  crash between the upload and the base write. The next merge then over-reports changed rows
+  for one sync. In that window only, a delete can win over a restore on another device: a
+  concurrent one, or an informed one (that device merged the delete, then restored the row on
+  purpose).
+- A remote that keeps its id but not its history: emptied and seeded again (a stale device's
+  first upload into an emptied repository or bucket), or rolled back to an older version. The
+  base still matches its id and schema version, so rows this device did not change since its
+  last upload look changed on the remote only, and the remote's older copies win silently
+  (the cutoff would have kept the newer rows by latest-wins and reported a conflict). A
+  deliberate rollback propagates the same way, as a remote change, which is arguably what was
+  meant.
 - A SQLite-blob upload carries the device's `sync_base` tables along. Nobody reads them there.
 - No base (first sync after install, cleared site data, another provider or schema version):
   one sync uses the cutoff and has its known gap.

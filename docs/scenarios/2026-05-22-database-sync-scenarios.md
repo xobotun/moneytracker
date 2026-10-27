@@ -120,8 +120,10 @@ User may interrupt the sync at any time, the app will have to use the local data
    snapshot taken before the upload the **sync base**. The same happens after an upload in scenario
    2.1 and after the first upload. In scenario 1 the local rows are the remote's: make them the base,
    unless the base already is that state. If writing the base fails, the sync reports an error and
-   the next sync rewrites it. The base may be older than the upload (an app write in between), never
-   newer: the next merge then over-reports changed rows once.
+   the old base stays. The next sync rewrites it. If that sync is a merge (another device uploaded
+   meanwhile), the merge first uses the older base and may over-report changed rows once. The base may
+   be older than the upload (an app write in between), never newer: the next merge then
+   over-reports changed rows once.
 
 # Conflict resolution
 

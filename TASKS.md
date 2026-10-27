@@ -463,6 +463,15 @@ Known sync defects, postponed (review 2026-10-18):
   timestamp cutoff is only the fallback when there is no base — see
   docs/plans/2026-10-26-sync-change-detection.md. Exact ties are broken by
   row content, the same on every device.)
+- **Same remote id, different history:** the sync base is used whenever the
+  remote id and schema version match. A remote emptied and seeded again (a
+  stale device's first upload into an emptied repository or bucket) or rolled
+  back to an older version still matches, so rows this device did not change
+  since its last upload take the remote's older copies silently. Intended fix:
+  a random lineage id, written by a first upload, carried forward by every
+  upload from the metadata it replaces, stored in `sync_base_info` and part
+  of the match (docs/plans/2026-10-26-sync-change-detection.md, "What is
+  left").
 
 
 ### Import
