@@ -215,11 +215,14 @@ describe('TagEditDialog', () => {
       colour: '#3b82f6',
     })
     await open('category', snacks)
-    expect(text()).toContain('Inherited: from Food') // the icon
+    const inherited = () => [...document.querySelectorAll('[title="Inherited: from Food"]')]
+    expect(inherited()).toHaveLength(1) // only the icon so far
     button('Use the colour from Food').click()
     await settle()
-    const picker = document.querySelector('[title="Inherited: from Food"]')!
-    expect(picker.className).toContain(DERIVED_CLASS)
+    // Now the colour too, before the icon in the dialog.
+    expect(inherited()).toHaveLength(2)
+    expect(inherited()[0]!.querySelector('[aria-label="Custom colour"]')).not.toBeNull()
+    for (const picker of inherited()) expect(picker.className).toContain(DERIVED_CLASS)
     await save()
     expect(await tagsRepo.findById(snacks.id)).toMatchObject({ colour: null })
   })

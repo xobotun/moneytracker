@@ -836,6 +836,24 @@ describe('TagsRepository', () => {
       ).rejects.toThrow(DeletedTagError)
     })
 
+    it('rolls back the rename and move when the details are refused after them', async () => {
+      // The link check runs after the tag row is written: only the
+      // transaction keeps the rename and the move from staying.
+      const { berlin, munich, shop } = await shopInBerlin()
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      await repo.softDelete(rewe.id)
+      const input = await asIs(shop.id)
+      await expect(
+        repo.save(shop.id, {
+          ...input,
+          name: 'Rewe Mitte',
+          parent_id: munich.id,
+          details: { ...input.details, merchant_id: rewe.id },
+        }),
+      ).rejects.toThrow(DeletedTagError)
+      expect(await repo.findById(shop.id)).toMatchObject({ name: 'Shop', parent_id: berlin.id })
+    })
+
     it('refuses journey dates that end before they start', async () => {
       const rome = await repo.create({ kind: 'journey', name: 'Rome' })
       const input = await asIs(rome.id)

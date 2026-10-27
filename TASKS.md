@@ -516,3 +516,5 @@ Known sync defects, postponed (review 2026-10-18):
 - `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
 - A sync conflict on an `accounts` row (edited on two devices) captures both sides' cached balance in its snapshot; the two may differ for no data reason. Cosmetic — matters only once a conflict viewer exists (strip `DERIVED_COLUMNS` from the snapshots then)
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)
+- Tags page: an edit dialog keeps the other names it read when it opened, so a save after a sync merged more names into the tag (another tab, or auto-sync once it exists) retires those as removed. Re-read the carried names on save, or freeze edits while a sync runs (see External sync)
+- Tags page: the tabs have no tab panels, so each tab's `aria-controls` points nowhere
