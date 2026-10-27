@@ -14,23 +14,12 @@ import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues } from '@/db/types'
 import { pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
 import { KIND_NOUNS } from './tagForm'
+import { answerError, emptyAnswer, typedValue, type Answer } from './mergeForm'
 
 /** Merges `source` into a tag the user picks (decisions §2.5). */
 const props = defineProps<{ source: Tag }>()
 const visible = defineModel<boolean>('visible', { required: true })
 const emit = defineEmits<{ merged: [] }>()
-
-type Choice = 'source' | 'target' | 'other'
-
-/** The user's answer for one conflicting detail; `other` holds the typed value. */
-interface Answer {
-  choice: Choice | null
-  text: string
-  latitude: number | null
-  longitude: number | null
-  link: ShortId | null
-  date: Date | null
-}
 
 const FIELD_LABELS: Record<TagDetailField, string> = {
   address: 'Address',
@@ -97,12 +86,7 @@ async function readConflicts() {
   checking.value = true
   try {
     conflicts.value = await store.detailConflicts(props.source.id, targetId.value)
-    answers.value = Object.fromEntries(
-      conflicts.value.map((c) => [
-        c.field,
-        { choice: null, text: '', latitude: null, longitude: null, link: null, date: null },
-      ]),
-    )
+    answers.value = Object.fromEntries(conflicts.value.map((c) => [c.field, emptyAnswer()]))
   } catch (e) {
     error.value = `Could not compare the details. ${(e as Error).message}`
   } finally {
@@ -130,31 +114,10 @@ function linkOptions(field: TagDetailField) {
   ]
 }
 
-function toIso(date: Date | null): string | null {
-  if (!date) return null
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-/** The value the user typed for `field` ("another"); empty means none. */
-function typedValue(field: TagDetailField, a: Answer): TagDetailValues[TagDetailField] {
-  switch (field) {
-    case 'address':
-      return a.text.trim() || null
-    case 'position':
-      return a.latitude !== null && a.longitude !== null
-        ? { latitude: a.latitude, longitude: a.longitude }
-        : null
-    case 'merchant_id':
-    case 'default_category_id':
-      return a.link
-    case 'start_date':
-    case 'end_date':
-      return toIso(a.date)
-  }
-}
-
-const answered = computed(() => conflicts.value.every((c) => answers.value[c.field]?.choice))
+// Each differing detail needs a usable answer before the merge.
+const answered = computed(() =>
+  conflicts.value.every((c) => !answerError(c.field, answers.value[c.field]!)),
+)
 const canMerge = computed(
   () => target.value !== undefined && !checking.value && !merging.value && answered.value,
 )
@@ -310,6 +273,12 @@ async function merge() {
             :aria-label="`Another ${FIELD_LABELS[c.field].toLowerCase()}`"
             fluid
           />
+          <small
+            v-if="c.field === 'position' && answerError(c.field, answers[c.field]!)"
+            class="text-red-600"
+          >
+            {{ answerError(c.field, answers[c.field]!) }}
+          </small>
         </template>
       </fieldset>
 

@@ -108,19 +108,27 @@ export function draftFromTag(
   }
 }
 
-export function validateDraft(draft: TagDraft): TagDraftErrors {
-  const errors: TagDraftErrors = {}
-  if (draft.name.trim() === '') errors.name = 'Give the tag a name.'
-  const { latitude, longitude } = draft
-  if ((latitude === null) !== (longitude === null)) {
-    errors.position = 'Enter both coordinates or neither.'
-  } else if (
+/** What is wrong with a typed position: both coordinates or neither, each in range. */
+export function positionError(
+  latitude: number | null,
+  longitude: number | null,
+): string | undefined {
+  if ((latitude === null) !== (longitude === null)) return 'Enter both coordinates or neither.'
+  if (
     latitude !== null &&
     longitude !== null &&
     (Math.abs(latitude) > 90 || Math.abs(longitude) > 180)
   ) {
-    errors.position = 'Latitude goes from −90 to 90, longitude from −180 to 180.'
+    return 'Latitude goes from −90 to 90, longitude from −180 to 180.'
   }
+  return undefined
+}
+
+export function validateDraft(draft: TagDraft): TagDraftErrors {
+  const errors: TagDraftErrors = {}
+  if (draft.name.trim() === '') errors.name = 'Give the tag a name.'
+  const position = positionError(draft.latitude, draft.longitude)
+  if (position) errors.position = position
   if (draft.start_date !== null && draft.end_date !== null && draft.start_date > draft.end_date) {
     errors.dates = 'The journey cannot end before it starts.'
   }
