@@ -1,6 +1,6 @@
 # Sync: Telling Which Side Changed a Row
 
-**Status:** Postponed 2026-10-26. Known bug, pinned by two deliberately failing tests
+**Status:** Postponed 2026-10-26; **option A chosen 2026-10-27** (not built yet). Known bug, pinned by two deliberately failing tests
 (`it.fails`) in `src/sync/__tests__/cornerCases/cutoff.spec.ts`; tracked in TASKS.md as
 "Sync: tell which side changed a row without timestamps". Found by the sync corner-case
 tests of the tags-and-categories plan (Task A6).
@@ -184,6 +184,25 @@ write; the base is "counter values at the last sync".
     write, merge, repair and cache refresh must maintain it — easy to forget one path.
   - For two or three household devices it buys nothing over A.
 
+**A against C.** A plain counter is not enough (two devices both going from 5 to 6 look
+equal), so C in practice means a **version vector** per row (`{A: 3, B: 5}`), stored in the
+row and synced. A, by contrast, maintains nothing on writes: the current hash is computed
+from the row's content at sync time, and only the base is stored, device-locally.
+
+| | A: hashes against a base | C: version vectors |
+|---|---|---|
+| Write paths to maintain | none | every one (repositories, merge rewrites, repairs, applied rates; not cache refreshes) — one missed bump silently loses an edit |
+| Schema | one device-local table; synced tables and CSV unchanged | a column on every synced table, `SYNC_COLUMNS`, CSV |
+| The same edit on both devices | no conflict (same content) | a conflict, if both bumped |
+| An edit undone before syncing | no change | a change |
+| Device state lost (new install, cleared site data, provider switch) | no base: one sync falls back to today's cutoff | nothing to lose — the vectors are in the data |
+| What it proves | the content differs | who has seen whose edits (causality) |
+| Repairs | rewrites without a bump need the normalisation above | identical repairs on two devices bump different entries → conflicts; needs its own rule |
+| Other needs | — | a stable device identity; vectors grow with every device ever used |
+
+C would win with peer-to-peer sync or frequent loss of device state; with one remote, two or
+three devices and many write paths, A fits.
+
 ### D. Keep timestamps, move the cutoff further back
 
 E.g. cutoff = last sync − 7 days, or the oldest upload time any device reported.
@@ -199,8 +218,8 @@ E.g. cutoff = last sync − 7 days, or the oldest upload time any device reporte
 
 ## 5. Recommendation
 
-Option A, with today's cutoff as the fallback when no base exists. Consider B later only if
-column-level merging becomes a goal.
+**Decided 2026-10-27: option A**, with today's cutoff as the fallback when no base exists.
+Consider B later only if column-level merging becomes a goal.
 
 When implementing:
 - Flip the two `it.fails` in `cutoff.spec.ts` to `it`, and revisit two `convergence.spec.ts`

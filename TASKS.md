@@ -337,7 +337,7 @@ Known bug, postponed 2026-10-26. A change made offline and uploaded after anothe
 last sync counts as "unchanged" on that device, so delete-wins and rank rules are skipped and
 the discarded change is not reported: a delete or a manual exchange rate is lost on both
 devices, even with synchronised clocks. Problem, why the current mechanisms miss it, options
-with their upsides and downsides, and the recommendation (per-row base hashes):
+with their upsides and downsides, and the choice — option A, per-row base hashes (decided 2026-10-27, not built yet):
 [docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md).
 
 - Deliberately failing tests until this is done: the two `it.fails` in
