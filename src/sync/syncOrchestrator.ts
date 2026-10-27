@@ -4,6 +4,7 @@ import { EPOCH_UTC } from './types'
 import type { SyncBackend } from './SyncBackend'
 import { readSchemaVersion, decideSchemaAction } from './schemaVersion'
 import { mergeDatabases } from './mergeEngine'
+import { cutoffDetector } from './changeDetection'
 
 /** Scenario decision from "2. Sync needed" of the sync scenarios doc. */
 export type SyncDecision = 'none' | 'upload-local' | 'merge'
@@ -141,7 +142,7 @@ async function attemptSync(
       await deps.migrate(remoteDb)
     }
     const cutoff = deps.loadLastKnown()?.uploadedAtUtc ?? EPOCH_UTC
-    const conflicts = await mergeDatabases(localDb, remoteDb, cutoff)
+    const conflicts = await mergeDatabases(localDb, remoteDb, cutoffDetector(cutoff))
 
     const finalHash = await deps.backend.hashDatabase(localDb)
     const meta = stamp(finalHash)

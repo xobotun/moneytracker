@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import type { Database } from '../../db/Database'
+import { cutoffDetector } from '../changeDetection'
 import { mergeDatabases } from '../mergeEngine'
 import { readRows } from '../rows'
 import { ExchangeRatesRepository } from '../../db/repositories/ExchangeRatesRepository'
@@ -32,7 +33,7 @@ describe('mergeDatabases', () => {
       locationId: 'loc-1',
     })
 
-    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+    const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     expect(await readRows(local, 'tags')).toHaveLength(1)
@@ -50,7 +51,7 @@ describe('mergeDatabases', () => {
       updated: CUTOFF,
     })
 
-    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+    const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     expect(await readRows(local, 'transactions')).toHaveLength(1)
@@ -84,7 +85,7 @@ describe('mergeDatabases', () => {
       updated: '2026-05-06T00:00:00.000Z',
     })
 
-    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+    const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
     expect(conflicts.map((c) => c.table).sort()).toEqual(['accounts', 'tags'])
   })
@@ -107,7 +108,7 @@ describe('mergeDatabases', () => {
       updated: '2026-05-06T00:00:00.000Z',
     })
 
-    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+    const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(1)
     const c = conflicts[0]!
@@ -138,7 +139,7 @@ describe('mergeDatabases', () => {
     await remote.run('DELETE FROM accounts WHERE id = ?', ['acc-x'])
     await remote.run('PRAGMA foreign_keys = ON')
 
-    await expect(mergeDatabases(local, remote, CUTOFF)).rejects.toThrow()
+    await expect(mergeDatabases(local, remote, cutoffDetector(CUTOFF))).rejects.toThrow()
     // The earlier, successful location upsert must have been rolled back.
     expect(await readRows(local, 'tags')).toHaveLength(0)
   })
@@ -159,7 +160,7 @@ describe('mergeDatabases', () => {
     await remote.run('DELETE FROM accounts WHERE id = ?', ['acc-x'])
     await remote.run('PRAGMA foreign_keys = ON')
 
-    const merge = mergeDatabases(local, remote, CUTOFF)
+    const merge = mergeDatabases(local, remote, cutoffDetector(CUTOFF))
     // The user saves something while the sync runs.
     const appWrite = seedTag(local, {
       id: 'user-edit',
@@ -196,7 +197,7 @@ describe('mergeDatabases', () => {
         resolution: DIRECT,
       })
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       expect(await readRows(local, 'applied_rates')).toHaveLength(1)
@@ -215,7 +216,7 @@ describe('mergeDatabases', () => {
         resolution: DIRECT,
       })
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts.map((c) => c.resolution)).toEqual(['rank-wins'])
       expect(await new AppliedRatesRepository(local).find(D, 'EUR', 'USD')).toMatchObject({
@@ -236,7 +237,7 @@ describe('mergeDatabases', () => {
         resolution: DIRECT,
       })
 
-      await mergeDatabases(local, remote, CUTOFF)
+      await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(await new AppliedRatesRepository(local).find(D, 'EUR', 'USD')).toMatchObject({
         provider: 'manual',
@@ -261,7 +262,7 @@ describe('mergeDatabases', () => {
         resolution: DIRECT,
       })
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts.map((c) => c.resolution)).toEqual(['rank-wins'])
       expect((await new AppliedRatesRepository(local).find(D, 'EUR', 'USD'))!.provider).toBe(
@@ -286,7 +287,7 @@ describe('mergeDatabases', () => {
         resolution: null,
       })
 
-      await mergeDatabases(local, remote, CUTOFF)
+      await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect((await new AppliedRatesRepository(local).find(D, 'EUR', 'USD'))!.rate).toBe(1.1)
     })
@@ -302,7 +303,7 @@ describe('mergeDatabases', () => {
       rates: { USD: 1.1 },
     })
 
-    await mergeDatabases(local, remote, CUTOFF)
+    await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
     expect(await readRows(local, 'exchange_rates')).toHaveLength(0)
   })
@@ -321,7 +322,7 @@ describe('mergeDatabases', () => {
     })
     await remote.run("UPDATE accounts SET balance_value = -100 WHERE id = 'acc-9'")
 
-    const conflicts = await mergeDatabases(local, remote, CUTOFF)
+    const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
     expect(conflicts).toHaveLength(0)
     const [account] = await readRows(local, 'accounts')
@@ -384,7 +385,7 @@ describe('mergeDatabases', () => {
         })
       })
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       expect(await rowOf('tags', 'a-child')).toMatchObject({ parent_id: 'b-parent' })
@@ -406,7 +407,7 @@ describe('mergeDatabases', () => {
         updated: T2,
       })
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       const live = await local.exec<{ id: string }>(
@@ -435,7 +436,7 @@ describe('mergeDatabases', () => {
       // …while the other device merges X into Y.
       await mergeInto(remote, 'x', 'y', T2)
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       expect(await rowOf('transactions', 'txn')).toMatchObject({
@@ -464,7 +465,7 @@ describe('mergeDatabases', () => {
         updated: T2,
       })
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       expect(await rowOf('transactions', 'txn')).toMatchObject({ tags: '["z"]' })
@@ -491,7 +492,7 @@ describe('mergeDatabases', () => {
       })
       await mergeInto(remote, 'y', 'x', T2)
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       // The earlier merge stands: Y is back, and X stays merged into it.
       expect(await rowOf('tags', 'y')).toMatchObject({
@@ -547,7 +548,7 @@ describe('mergeDatabases', () => {
         [T2, T2],
       )
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       expect(await rowOf('tags', 'apples')).toMatchObject({ parent_id: 'food', updated_at_utc: T1 })
@@ -571,7 +572,7 @@ describe('mergeDatabases', () => {
       await mergeInto(remote, 'x', 'y', T1)
       await move(local, 'y', 'x', T2)
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(conflicts).toEqual([])
       expect(await rowOf('tags', 'y')).toMatchObject({ parent_id: 'g', updated_at_utc: T2 })
@@ -606,7 +607,7 @@ describe('mergeDatabases', () => {
       await move(local, 'a', 'b', T1)
       await move(remote, 'b', 'a', T2)
 
-      const conflicts = await mergeDatabases(local, remote, CUTOFF)
+      const conflicts = await mergeDatabases(local, remote, cutoffDetector(CUTOFF))
 
       expect(await rowOf('tags', 'a')).toMatchObject({ parent_id: 'b', updated_at_utc: T1 })
       // B goes back to its parent on this device, not to the top level.

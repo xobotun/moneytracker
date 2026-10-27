@@ -1,10 +1,12 @@
 import type { Database, SqlExecutor } from '../db/Database'
 import type { SyncConflict, SyncRow } from './types'
 import type { SyncTable } from './syncTables'
-import { changedSince, readRows, rowsEqual, upsertRow } from './rows'
+import type { ChangeDetector } from './changeDetection'
+import { readRows, rowsEqual, upsertRow } from './rows'
 import { resolveConflict } from './resolveConflict'
 import { SYNC_TABLES } from './syncTables'
 import { EQUALITY_IGNORED_COLUMNS, ROW_RANK } from './syncColumns'
+import { snapshotDatabase, writeSyncBase, type BaseSource } from './syncBase'
 import { recalculateBalances } from '../db/balances'
 import { repairTags } from './repairTags'
 
@@ -24,14 +26,15 @@ function indexByPk(rows: SyncRow[], pk: string): Map<string, SyncRow> {
  * to `local` via upsert and returns the conflicts encountered. The caller is
  * responsible for wrapping the writes in a transaction (see `mergeDatabases`).
  *
- * `cutoff` is the last successful sync timestamp; a row counts as "changed"
- * only if it was created/updated/deleted after it.
+ * `changes` tells which side changed a row since this device last agreed with
+ * the remote (by base hashes, or by the last sync's cutoff). It is asked only
+ * about rows whose two copies differ.
  */
 export async function mergeTable(
   local: SqlExecutor,
   remote: SqlExecutor,
   table: SyncTable,
-  cutoff: string,
+  changes: ChangeDetector,
 ): Promise<SyncConflict[]> {
   const localRows = indexByPk(await readRows(local, table.name), table.pk)
   const remoteRows = indexByPk(await readRows(remote, table.name), table.pk)
@@ -50,8 +53,8 @@ export async function mergeTable(
     // Same row on both sides → nothing to do.
     if (rowsEqual(localRow, remoteRow, ignored)) continue
 
-    const localChanged = changedSince(localRow, cutoff)
-    const remoteChanged = changedSince(remoteRow, cutoff)
+    const localChanged = await changes.changed(table, localRow)
+    const remoteChanged = await changes.changed(table, remoteRow)
 
     // Only the remote moved → take the remote version.
     if (remoteChanged && !localChanged) {
@@ -72,6 +75,11 @@ export async function mergeTable(
     if (winner === 'remote') {
       await upsertRow(local, table.name, table.pk, remoteRow)
     }
+    // Neither moved, for certain (base hashes): two tombstones that differ only
+    // in what their hash leaves out, such as references a tag merge rewrote
+    // without a stamp. No change is lost: settle them the same way on every
+    // device, without a report.
+    if (!localChanged && !remoteChanged && changes.exact) continue
     conflicts.push({
       table: table.name,
       primaryKey: key,
@@ -93,12 +101,22 @@ export async function mergeTable(
  * parents-before-children, and
  * all writes run inside one transaction so a crash or failure cannot leave a
  * half-merged database. Foreign keys are checked when it commits.
+ *
+ * With a `source`, the remote's rows become the new sync base in the same
+ * transaction: the downloaded database is what the merged one and anything
+ * uploaded after it have in common, and a failed merge leaves the old base.
  */
 export async function mergeDatabases(
   local: Database,
   remote: Database,
-  cutoff: string,
+  changes: ChangeDetector,
+  source?: BaseSource,
 ): Promise<SyncConflict[]> {
+  // Hashing the remote needs no local lock: do it before the transaction,
+  // which holds back every app query while it runs. Without a source there is
+  // no await here, so the merge still queues ahead of an app write issued
+  // after this call.
+  const base = source ? await snapshotDatabase(remote) : null
   // `transaction` holds the local connection's lock for the whole merge, so an
   // app write made meanwhile waits instead of landing inside (and being rolled
   // back with) a failed merge, and cannot change rows between read and upsert.
@@ -113,7 +131,7 @@ export async function mergeDatabases(
     }
     const conflicts: SyncConflict[] = []
     for (const table of SYNC_TABLES) {
-      conflicts.push(...(await mergeTable(tx, remote, table, cutoff)))
+      conflicts.push(...(await mergeTable(tx, remote, table, changes)))
     }
     // Merging row by row can combine changes into states no device produced:
     // references to merged tags, orphaned children, parent loops, merge cycles.
@@ -121,6 +139,7 @@ export async function mergeDatabases(
     // The derived columns were not merged: rebuild them from the merged rows,
     // so every device ends up with the same values (and the same hash).
     await recalculateBalances(tx)
+    if (source && base) await writeSyncBase(tx, base, source)
     return conflicts
   })
 }
