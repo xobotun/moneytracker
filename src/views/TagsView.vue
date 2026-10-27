@@ -261,6 +261,7 @@ function onMerged() {
     :kind="kind"
     :tag="editing.tag"
     :parent-id="editing.parentId"
+    :close-on-escape="!mergeVisible"
     @merge="openMerge"
   />
   <TagMergeDialog

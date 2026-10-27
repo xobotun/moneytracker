@@ -63,12 +63,17 @@ describe('TagsView', () => {
     await db.close()
   })
 
-  async function mountView(path = '/tags') {
+  // `transitions`: run Vue's real transitions (stubbed by default), which PrimeVue's
+  // Dialog needs to bind its Escape listener.
+  async function mountView(path = '/tags', transitions = false) {
     await router.push(path)
     await router.isReady()
     wrapper = mount(TagsView, {
       attachTo: document.body,
-      global: { plugins: [pinia, router, [PrimeVue, { theme: { preset: Aura } }]] },
+      global: {
+        plugins: [pinia, router, [PrimeVue, { theme: { preset: Aura } }]],
+        stubs: transitions ? { transition: false } : {},
+      },
     })
     await settle()
     return wrapper
@@ -202,6 +207,27 @@ describe('TagsView', () => {
     button('Add category').click()
     await settle()
     expect(treeRows()).toEqual(['cars', 'Food', '  Bakery', '  Drinks', '  snacks'])
+  })
+
+  it('Escape in the merge dialog leaves the edit dialog and its draft open', async () => {
+    await tagsRepo.create({ kind: 'category', name: 'Lunch' })
+    await tagsRepo.create({ kind: 'category', name: 'Food' })
+    await mountView('/tags', true)
+    button('Edit Lunch').click()
+    await settle()
+    await type('tag-name', 'Lunches')
+    button('Merge Lunch into another category').click()
+    await settle()
+    // The dialogs bind their Escape listener once their enter transition ran.
+    await new Promise((r) => setTimeout(r, 100))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' }))
+    await settle()
+    await new Promise((r) => setTimeout(r, 100)) // the leave transitions
+    const headers = [...document.querySelectorAll('[role=dialog] .p-dialog-title')].map(
+      (h) => h.textContent,
+    )
+    expect(headers).toEqual(['Edit category'])
+    expect(input('tag-name').value).toBe('Lunches')
   })
 
   it('merges from the edit dialog and updates the tree', async () => {

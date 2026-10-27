@@ -32,10 +32,19 @@ import {
   type TagDraftErrors,
 } from './tagForm'
 
-/** Edits `tag`, or creates a new tag of `kind` under `parentId` when it is null. */
+/**
+ * Edits `tag`, or creates a new tag of `kind` under `parentId` when it is
+ * null. `closeOnEscape` is off while a dialog stacked on top of this one is
+ * open: every open dialog hears Escape, and only the top one should close.
+ */
 const props = withDefaults(
-  defineProps<{ kind: TagKind; tag: Tag | null; parentId?: ShortId | null }>(),
-  { parentId: null },
+  defineProps<{
+    kind: TagKind
+    tag: Tag | null
+    parentId?: ShortId | null
+    closeOnEscape?: boolean
+  }>(),
+  { parentId: null, closeOnEscape: true },
 )
 const visible = defineModel<boolean>('visible', { required: true })
 /** Asks for the merge dialog for this tag (the page stacks it over this one). */
@@ -280,6 +289,7 @@ function merge() {
     modal
     :header="`${tag ? 'Edit' : 'New'} ${noun}`"
     :draggable="false"
+    :close-on-escape="closeOnEscape"
     class="w-[34rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
