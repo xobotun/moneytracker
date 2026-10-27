@@ -62,14 +62,19 @@ export function mergedNamesByTag(tags: readonly Tag[]): Map<ShortId, string[]> {
 
 /**
  * The retired names a merge target keeps: its own and the source's, except
- * its names after the merge (`synonyms`: its synonyms then).
+ * the names it still has after the merge — its name, its `synonyms` then and
+ * its `merged` names (what tags merged into it carry and it did not retire).
  */
 export function retiredAfterMerge(
   target: Pick<Tag, 'name' | 'retired_names'>,
   source: Pick<Tag, 'retired_names'>,
   synonyms: readonly string[],
+  merged: readonly string[],
 ): string[] {
-  return distinct([...target.retired_names, ...source.retired_names], [target.name, ...synonyms])
+  return distinct(
+    [...target.retired_names, ...source.retired_names],
+    [target.name, ...synonyms, ...merged],
+  )
 }
 
 /**

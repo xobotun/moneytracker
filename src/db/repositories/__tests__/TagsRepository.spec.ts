@@ -963,6 +963,24 @@ describe('TagsRepository', () => {
         expect((await repo.findByName('tag', 'work'))?.id).toBe(end.id)
       })
 
+      it("a merge does not retire the target's own merged name", async () => {
+        // The target holds "gig" only through a merged tag (a chain merged on
+        // two devices); the source retired a "gig" of its own.
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await insertRaw({
+          id: 'gig000000001',
+          kind: 'tag',
+          name: 'gig',
+          deleted: AT,
+          mergedInto: work.id,
+        })
+        const job = await repo.create({ kind: 'tag', name: 'job' })
+        await db.run(`UPDATE tags SET retired_names = '["gig"]' WHERE id = ?`, [job.id])
+        await repo.merge(job.id, work.id)
+        expect((await repo.findById(work.id))!.retired_names).toEqual([])
+        expect((await repo.findByName('tag', 'gig'))?.id).toBe(work.id)
+      })
+
       it('defaults to none and round-trips', async () => {
         const work = await repo.create({ kind: 'tag', name: 'work' })
         expect(work.retired_names).toEqual([])

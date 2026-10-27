@@ -6,6 +6,7 @@ import {
   cleanOtherNames,
   mergedNames,
   mergedNamesByTag,
+  retiredAfterMerge,
 } from '../otherNames'
 import { merged, tag } from './fixtures'
 
@@ -115,5 +116,18 @@ describe('mergedNamesByTag', () => {
     expect(byTag.get(work.id)).toEqual(mergedNames(work, tags))
     expect(byTag.get(work.id)).toEqual(['gig', 'side'])
     expect(byTag.get(other.id) ?? []).toEqual([])
+  })
+})
+
+describe('retiredAfterMerge', () => {
+  const target = { name: 'work', retired_names: ['old'] }
+
+  it("keeps both sides' retired names", () => {
+    expect(retiredAfterMerge(target, { retired_names: ['gone'] }, [], [])).toEqual(['old', 'gone'])
+  })
+
+  it('does not retire a name the target still has, as a synonym or a merged name', () => {
+    const source = { retired_names: ['WB', 'gig', 'work'] }
+    expect(retiredAfterMerge(target, source, ['wb'], ['Gig'])).toEqual(['old'])
   })
 })

@@ -20,7 +20,13 @@ import {
   writeDetailValues,
 } from './TagDetailsRepository'
 import { countTagUsage, redirectTagReferences } from '../tagReferences'
-import { applyOtherNames, carriedNames, foldCase, retiredAfterMerge } from '@/tags/otherNames'
+import {
+  applyOtherNames,
+  carriedNames,
+  foldCase,
+  mergedNames,
+  retiredAfterMerge,
+} from '@/tags/otherNames'
 import {
   instantFromColumn,
   instantFromNullableColumn,
@@ -607,8 +613,10 @@ export class TagsRepository {
       }
       const synonyms = [...target.synonyms, ...added]
       // A name the source retired stays retired on the target, unless the
-      // target now has it as a name.
-      const retired = retiredAfterMerge(target, source, synonyms)
+      // target still has it: as a name, or through a tag merged into it.
+      const kindRows = await tx.exec<TagRow>('SELECT * FROM tags WHERE kind = ?', [target.kind])
+      const targetMerged = mergedNames(target, kindRows.map(rowToTag))
+      const retired = retiredAfterMerge(target, source, synonyms, targetMerged)
       if (added.length > 0 || JSON.stringify(retired) !== JSON.stringify(target.retired_names)) {
         await tx.run(
           'UPDATE tags SET synonyms = ?, retired_names = ?, updated_at_utc = ? WHERE id = ?',
