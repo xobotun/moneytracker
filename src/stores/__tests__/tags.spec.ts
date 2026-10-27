@@ -81,10 +81,37 @@ describe('useTagsStore', () => {
 
   it("prefers the account's own tag over an older namesake elsewhere", async () => {
     const store = useTagsStore()
-    await tagsRepo.create({ kind: 'tag', name: 'mia' })
+    // Clearly older, so a lookup by name alone would pick it.
+    const at = '2020-01-01T00:00:00.000Z'
+    await db.run(
+      `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES ('miaTop000001', 'tag', 'mia', ?, ?, ?)`,
+      [at, at, at],
+    )
+    expect((await tagsRepo.findByName('tag', 'mia'))?.id).toBe('miaTop000001')
     const family = await tagsRepo.create({ kind: 'tag', name: 'family' })
     const nested = await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
     expect(await store.resolvePlainTags(['mia'], [nested.id])).toEqual([nested.id])
+  })
+
+  it("keeps a known tag by its name before another's synonym", async () => {
+    const store = useTagsStore()
+    const work = await tagsRepo.create({ kind: 'tag', name: 'work', synonyms: ['job'] })
+    const projects = await tagsRepo.create({ kind: 'tag', name: 'projects' })
+    const job = await tagsRepo.create({ kind: 'tag', name: 'job', parent_id: projects.id })
+    expect(await store.resolvePlainTags(['work', 'job'], [work.id, job.id])).toEqual([
+      work.id,
+      job.id,
+    ])
+  })
+
+  it('keeps every known tag that a chip names', async () => {
+    // Two tags called mia at different levels show as one chip; both stay.
+    const store = useTagsStore()
+    const mia = await tagsRepo.create({ kind: 'tag', name: 'mia' })
+    const family = await tagsRepo.create({ kind: 'tag', name: 'family' })
+    const nested = await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
+    expect(await store.resolvePlainTags(['mia'], [mia.id, nested.id])).toEqual([mia.id, nested.id])
   })
 
   describe('write-through actions', () => {

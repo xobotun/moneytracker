@@ -183,8 +183,13 @@ describe('AccountsView', () => {
   })
 
   it('keeps a nested tag when the account is saved', async () => {
-    // A top-level namesake that is older: a lookup by name alone would pick it.
-    await tagsRepo.create({ kind: 'tag', name: 'mia' })
+    // A top-level namesake that is clearly older: a lookup by name alone would pick it.
+    const at = '2020-01-01T00:00:00.000Z'
+    await db.run(
+      `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES ('miaTop000001', 'tag', 'mia', ?, ?, ?)`,
+      [at, at, at],
+    )
     const family = await tagsRepo.create({ kind: 'tag', name: 'family' })
     const mia = await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
     const account = await seed('Cash')

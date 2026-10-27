@@ -39,12 +39,13 @@ export const useTagsStore = defineStore('tags', () => {
   }
 
   /**
-   * The ids of the plain tags called `names` (by a name or a synonym). A name
-   * of one of the `known` tags (those the account already has) keeps that
-   * tag, wherever it sits; any other name is looked up at any level, and a
-   * name found nowhere becomes a new top-level tag. Names are trimmed, empty
-   * ones ignored; the result keeps first-occurrence order without duplicate
-   * ids.
+   * The ids of the plain tags called `names` (by a name or a synonym). The
+   * `known` tags (those the account already has) come first, wherever they
+   * sit: a name keeps every known tag with that main name (two at different
+   * levels show as one chip), else the first known tag with it as a synonym.
+   * Any other name is looked up at any level, and a name found nowhere
+   * becomes a new top-level tag. Names are trimmed, empty ones ignored; the
+   * result keeps first-occurrence order without duplicate ids.
    */
   async function resolvePlainTags(
     names: readonly string[],
@@ -59,11 +60,17 @@ export const useTagsStore = defineStore('tags', () => {
       const name = raw.trim()
       if (name === '') continue
       const key = foldCase(name)
+      const named = own.filter((tag) => foldCase(tag.name) === key)
+      const bySynonym = own.find((tag) => tag.synonyms.some((s) => foldCase(s) === key))
       const found =
-        own.find((tag) => [tag.name, ...tag.synonyms].some((n) => foldCase(n) === key)) ??
-        (await repo.findByName('tag', name)) ??
-        (await repo.create({ kind: 'tag', name, parent_id: null, ...newTagLook('tag') }))
-      if (!ids.includes(found.id)) ids.push(found.id)
+        named.length > 0
+          ? named
+          : [
+              bySynonym ??
+                (await repo.findByName('tag', name)) ??
+                (await repo.create({ kind: 'tag', name, parent_id: null, ...newTagLook('tag') })),
+            ]
+      for (const tag of found) if (!ids.includes(tag.id)) ids.push(tag.id)
     }
     await load()
     return ids
