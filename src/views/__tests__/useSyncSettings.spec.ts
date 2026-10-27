@@ -240,7 +240,7 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
   it('migrates a remote written by an older app version, then merges it', async () => {
     const db = await migratedDb()
     const backend = new FakeSyncBackend()
-    // As GitHubCsvBackend builds it: the migrations up to the remote's version.
+    // A database written by an older app: the migrations up to version 2.
     const old = new Database()
     await old.init()
     await runMigrations(old, ALL_MIGRATIONS.slice(0, 2))
