@@ -1,23 +1,36 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getTagsRepository } from '@/db/init'
+import { getTagDetailsRepository, getTagsRepository } from '@/db/init'
 import type { ShortId } from '@/db/shortId'
-import type { Tag } from '@/db/types'
+import type { Tag, TagDetailConflict, TagDetailValues } from '@/db/types'
+import type { TagCreateInput, TagSaveInput } from '@/db/repositories/TagsRepository'
 import { newTagLook } from '@/tags/look'
+import { foldCase } from '@/tags/otherNames'
 
 /**
  * Tags of every kind, read from SQLite (the source of truth) and re-read after
  * each write. Pages look a tag up by id in `byId` (deleted and merged ones
  * included, so they can hide those), so a rename shows up everywhere after the
  * next `load()`.
+ *
+ * Write-through: every change is persisted first and the tags are then
+ * re-read, so the state never shows something the database does not hold. A
+ * failed write rethrows and leaves the state as it was.
  */
 export const useTagsStore = defineStore('tags', () => {
   const tags = ref<Tag[]>([])
+  const loaded = ref(false)
+  /** The live tags that share a kind, a parent and a name with another one (see `duplicates()`). */
+  const duplicateIds = ref<ReadonlySet<ShortId>>(new Set())
 
   const byId = computed(() => new Map<ShortId, Tag>(tags.value.map((t) => [t.id, t])))
 
   async function load(): Promise<void> {
-    tags.value = await getTagsRepository().listAll()
+    const repo = getTagsRepository()
+    const [all, groups] = await Promise.all([repo.listAll(), repo.duplicates()])
+    tags.value = all
+    duplicateIds.value = new Set(groups.flat())
+    loaded.value = true
   }
 
   /** The tag's name; callers hide deleted tags (`deleted_at_utc !== null`). */
@@ -26,18 +39,29 @@ export const useTagsStore = defineStore('tags', () => {
   }
 
   /**
-   * The ids of the top-level plain tags called `names` (or having one of them
-   * as a synonym): missing ones are created. Names are trimmed, empty ones
-   * ignored; the result keeps first-occurrence order without duplicate ids.
+   * The ids of the plain tags called `names` (by a name or a synonym). A name
+   * of one of the `known` tags (those the account already has) keeps that
+   * tag, wherever it sits; any other name is looked up at any level, and a
+   * name found nowhere becomes a new top-level tag. Names are trimmed, empty
+   * ones ignored; the result keeps first-occurrence order without duplicate
+   * ids.
    */
-  async function resolvePlainTags(names: readonly string[]): Promise<ShortId[]> {
+  async function resolvePlainTags(
+    names: readonly string[],
+    known: readonly ShortId[] = [],
+  ): Promise<ShortId[]> {
     const repo = getTagsRepository()
+    const own = (await Promise.all(known.map((id) => repo.findById(id)))).filter(
+      (tag): tag is Tag => tag !== null && tag.kind === 'tag',
+    )
     const ids: ShortId[] = []
     for (const raw of names) {
       const name = raw.trim()
       if (name === '') continue
+      const key = foldCase(name)
       const found =
-        (await repo.findByName('tag', name, null)) ??
+        own.find((tag) => [tag.name, ...tag.synonyms].some((n) => foldCase(n) === key)) ??
+        (await repo.findByName('tag', name)) ??
         (await repo.create({ kind: 'tag', name, parent_id: null, ...newTagLook('tag') }))
       if (!ids.includes(found.id)) ids.push(found.id)
     }
@@ -45,5 +69,68 @@ export const useTagsStore = defineStore('tags', () => {
     return ids
   }
 
-  return { tags, byId, load, nameOf, resolvePlainTags }
+  async function create(input: TagCreateInput): Promise<Tag> {
+    const tag = await getTagsRepository().create(input)
+    await load()
+    return tag
+  }
+
+  async function save(id: ShortId, input: TagSaveInput): Promise<void> {
+    await getTagsRepository().save(id, input)
+    await load()
+  }
+
+  async function merge(
+    sourceId: ShortId,
+    targetId: ShortId,
+    resolved?: Partial<TagDetailValues>,
+  ): Promise<void> {
+    await getTagsRepository().merge(sourceId, targetId, resolved)
+    await load()
+  }
+
+  async function remove(id: ShortId): Promise<void> {
+    await getTagsRepository().softDelete(id)
+    await load()
+  }
+
+  async function restore(id: ShortId): Promise<void> {
+    await getTagsRepository().restore(id)
+    await load()
+  }
+
+  function usageCount(id: ShortId): Promise<number> {
+    return getTagsRepository().usageCount(id)
+  }
+
+  function detailConflicts(sourceId: ShortId, targetId: ShortId): Promise<TagDetailConflict[]> {
+    return getTagsRepository().detailConflicts(sourceId, targetId)
+  }
+
+  function details(tag: Tag): Promise<TagDetailValues> {
+    return getTagDetailsRepository().values(tag.id, tag.kind)
+  }
+
+  function journeyDates(id: ShortId) {
+    return getTagDetailsRepository().journeyDates(id)
+  }
+
+  return {
+    tags,
+    loaded,
+    duplicateIds,
+    byId,
+    load,
+    nameOf,
+    resolvePlainTags,
+    create,
+    save,
+    merge,
+    remove,
+    restore,
+    usageCount,
+    detailConflicts,
+    details,
+    journeyDates,
+  }
 })

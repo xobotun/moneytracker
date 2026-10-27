@@ -182,6 +182,22 @@ describe('AccountsView', () => {
     expect(await tagsRepo.listAll()).toHaveLength(1)
   })
 
+  it('keeps a nested tag when the account is saved', async () => {
+    // A top-level namesake that is older: a lookup by name alone would pick it.
+    await tagsRepo.create({ kind: 'tag', name: 'mia' })
+    const family = await tagsRepo.create({ kind: 'tag', name: 'family' })
+    const mia = await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
+    const account = await seed('Cash')
+    await accountsRepo.update(account.id, { tags: [mia.id] })
+    await mountView()
+    ;[...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Edit'))!.click()
+    await settle()
+    buttonByText('Save').click()
+    await settle()
+    expect((await accountsRepo.findById(account.id))!.tags).toEqual([mia.id])
+    expect(await tagsRepo.listAll()).toHaveLength(3)
+  })
+
   it('shows an empty state with a way to add the first account', async () => {
     const w = await mountView()
     expect(w.text()).toContain('No accounts yet')

@@ -109,7 +109,7 @@ async function save() {
   saving.value = true
   error.value = null
   try {
-    const tagIds = await tagsStore.resolvePlainTags(clean.tags)
+    const tagIds = await tagsStore.resolvePlainTags(clean.tags, props.account?.tags)
     if (props.account) {
       const toSave = tagIdsToSave(props.account.tags, tagIds, hiddenTags.value)
       await store.update(props.account.id, patchFromDraft(props.account, clean, toSave))
