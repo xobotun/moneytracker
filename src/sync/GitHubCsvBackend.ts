@@ -79,6 +79,10 @@ export class GitHubCsvBackend implements SyncBackend {
     private readonly options: { rowsPerFileForTest?: number } = {},
   ) {}
 
+  get remoteId(): string {
+    return this.transport.remoteId
+  }
+
   async getMetadata(): Promise<SyncMetadata | null> {
     this.getMetadataCalled = true
     const headSha = await this.transport.getRef()

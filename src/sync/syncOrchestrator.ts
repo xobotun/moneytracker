@@ -1,10 +1,17 @@
-import type { Database } from '../db/Database'
+import type { Database, SqlExecutor } from '../db/Database'
 import type { RemoteState, SyncMetadata, SyncOutcome } from './types'
 import { EPOCH_UTC } from './types'
 import type { SyncBackend } from './SyncBackend'
 import { readSchemaVersion, decideSchemaAction } from './schemaVersion'
 import { mergeDatabases } from './mergeEngine'
-import { cutoffDetector } from './changeDetection'
+import { baseDetector, cutoffDetector, type ChangeDetector } from './changeDetection'
+import {
+  readSyncBase,
+  readSyncBaseInfo,
+  snapshotDatabase,
+  writeSyncBase,
+  type BaseSource,
+} from './syncBase'
 
 /** Scenario decision from "2. Sync needed" of the sync scenarios doc. */
 export type SyncDecision = 'none' | 'upload-local' | 'merge'
@@ -23,6 +30,25 @@ export function decideSync(
   if (localHash === remoteMeta.hash) return 'none'
   if (remoteMeta.device === deviceName) return 'upload-local'
   return 'merge'
+}
+
+/**
+ * How the merge tells which side changed a row: by the sync base when this
+ * device has one agreed with this remote at this schema version, otherwise by
+ * the cutoff of the last sync. A base from another remote describes another
+ * history (a stale remote's old rows would look changed, and win), and a
+ * migration changes the hash of every row.
+ */
+export async function changeDetectorFor(
+  db: SqlExecutor,
+  source: BaseSource,
+  lastKnown: RemoteState | null,
+): Promise<ChangeDetector> {
+  const info = await readSyncBaseInfo(db)
+  if (info?.remoteId === source.remoteId && info.schemaVersion === source.schemaVersion) {
+    return baseDetector(await readSyncBase(db))
+  }
+  return cutoffDetector(lastKnown?.uploadedAtUtc ?? EPOCH_UTC)
 }
 
 /** Everything `runSync` needs, injected so the orchestrator stays testable. */
@@ -58,7 +84,9 @@ function defaultSleep(ms: number): Promise<void> {
 
 /**
  * Runs the full sync algorithm (see docs/scenarios/2026-05-22-database-sync-scenarios.md).
- * Mutates `localDb` in place when a merge happens. The caller closes `localDb`.
+ * Mutates `localDb` in place when a merge happens, and keeps its sync base
+ * (syncBase.ts): the state this device last agreed on with the remote. The
+ * caller closes `localDb`.
  *
  * When another device uploads between our read and our compare-and-swap, the
  * attempt is retried from scratch (re-read the remote, re-decide, re-merge),
@@ -93,22 +121,35 @@ async function attemptSync(
   const localVersion = await readSchemaVersion(localDb)
   const localHash = await deps.backend.hashDatabase(localDb)
   const remoteMeta = await deps.backend.getMetadata()
+  // What a base written by this sync is agreed with.
+  const source: BaseSource = { remoteId: deps.backend.remoteId, schemaVersion: localVersion }
 
-  const stamp = (hash: string): SyncMetadata => ({
-    device: deps.deviceName,
-    uploadedAtUtc: deps.now().toISOString(),
-    hash,
-    migrationVersion: localVersion,
-  })
+  /**
+   * Compare-and-swap upload of the local database. On success the uploaded
+   * rows become the last-known remote state and the sync base. The snapshot
+   * is taken before the upload, so the base may be older than what was
+   * uploaded (an app write landing in between), never newer; the stamp
+   * carries the snapshot's hash.
+   */
+  const upload = async (expected: SyncMetadata | null): Promise<boolean> => {
+    const snapshot = await snapshotDatabase(localDb)
+    const meta: SyncMetadata = {
+      device: deps.deviceName,
+      uploadedAtUtc: deps.now().toISOString(),
+      hash: snapshot.databaseHash,
+      migrationVersion: localVersion,
+    }
+    if (!(await deps.backend.tryUpload(localDb, meta, expected))) return false
+    deps.saveLastKnown(remoteStateOf(meta))
+    await localDb.transaction((tx) => writeSyncBase(tx, snapshot, source))
+    return true
+  }
 
   // First sync — the remote has no database yet. Nothing to merge; upload local.
   if (remoteMeta === null) {
-    const meta = stamp(localHash)
     // Another device's first upload may win the race; then there is a remote
-    // to merge, and recording `meta` as the baseline would be a lie.
-    const ok = await deps.backend.tryUpload(localDb, meta, null)
-    if (!ok) return CAS_MISS
-    deps.saveLastKnown(remoteStateOf(meta))
+    // to merge, and recording ours as the baseline would be a lie.
+    if (!(await upload(null))) return CAS_MISS
     return { decision: 'first-sync-upload', conflicts: [], uploaded: true }
   }
 
@@ -117,16 +158,14 @@ async function attemptSync(
   // Scenario 1 — databases already identical.
   if (decision === 'none') {
     deps.saveLastKnown(remoteStateOf(remoteMeta))
+    await adoptAsBase(localDb, source, remoteMeta.hash)
     return { decision: 'none', conflicts: [], uploaded: false }
   }
 
   // Scenario 2.1 — this device was the last uploader; remote has nothing
   // foreign, so just upload the local database.
   if (decision === 'upload-local') {
-    const meta = stamp(localHash)
-    const ok = await deps.backend.tryUpload(localDb, meta, remoteMeta)
-    if (!ok) return CAS_MISS // remote moved underneath us; next attempt will merge it
-    deps.saveLastKnown(remoteStateOf(meta))
+    if (!(await upload(remoteMeta))) return CAS_MISS // remote moved underneath us; next attempt will merge it
     return { decision: 'upload-local', conflicts: [], uploaded: true }
   }
 
@@ -141,17 +180,39 @@ async function attemptSync(
     if (schemaAction === 'migrate-remote-then-merge') {
       await deps.migrate(remoteDb)
     }
-    const cutoff = deps.loadLastKnown()?.uploadedAtUtc ?? EPOCH_UTC
-    const conflicts = await mergeDatabases(localDb, remoteDb, cutoffDetector(cutoff))
+    const changes = await changeDetectorFor(localDb, source, deps.loadLastKnown())
+    // The merge also makes the remote's rows the base: should the upload
+    // lose the race, the next attempt compares with the remote it merged.
+    const conflicts = await mergeDatabases(localDb, remoteDb, changes, source)
 
-    const finalHash = await deps.backend.hashDatabase(localDb)
-    const meta = stamp(finalHash)
-
-    const ok = await deps.backend.tryUpload(localDb, meta, remoteMeta)
-    if (!ok) return CAS_MISS // another device uploaded during our merge; re-merge next attempt
-    deps.saveLastKnown(remoteStateOf(meta))
+    if (!(await upload(remoteMeta))) return CAS_MISS // another device uploaded during our merge; re-merge next attempt
     return { decision: 'merge', conflicts, uploaded: true }
   } finally {
     await remoteDb.close()
   }
+}
+
+/**
+ * When nothing needed syncing, the local rows are the remote's: make them the
+ * base, so the next merge can tell which side changed a row — unless the base
+ * already is that state. The rows are hashed again, and written only if they
+ * still are the remote's: an app write may have landed since the hash that
+ * found nothing to sync.
+ */
+async function adoptAsBase(
+  localDb: Database,
+  source: BaseSource,
+  remoteHash: string,
+): Promise<void> {
+  const info = await readSyncBaseInfo(localDb)
+  if (
+    info?.remoteId === source.remoteId &&
+    info.schemaVersion === source.schemaVersion &&
+    info.databaseHash === remoteHash
+  ) {
+    return
+  }
+  const snapshot = await snapshotDatabase(localDb)
+  if (snapshot.databaseHash !== remoteHash) return
+  await localDb.transaction((tx) => writeSyncBase(tx, snapshot, source))
 }

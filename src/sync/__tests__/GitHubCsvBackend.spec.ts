@@ -45,6 +45,11 @@ describe('GitHubCsvBackend', () => {
     return { remote, backend }
   }
 
+  it('names the remote as its transport does', () => {
+    const { backend } = setup()
+    expect(backend.remoteId).toBe('github:me/mt@main')
+  })
+
   it('getMetadata returns null on empty repo', async () => {
     const { backend } = setup()
     expect(await backend.getMetadata()).toBeNull()

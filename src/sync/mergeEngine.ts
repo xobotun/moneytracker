@@ -65,7 +65,9 @@ export async function mergeTable(
     // Only the local moved → keep the local version.
     if (localChanged && !remoteChanged) continue
 
-    // Both moved (or neither did but the rows differ) → conflict.
+    // Both moved since the two sides last agreed (the base, or the cutoff
+    // when there is none) → conflict. Neither moved but the rows differ →
+    // settled the same way; reported only when the detector is not exact.
     const { winner, resolution } = resolveConflict(
       localRow,
       remoteRow,

@@ -43,6 +43,10 @@ export class SqliteBlobBackend implements SyncBackend {
 
   constructor(private readonly transport: BlobTransport) {}
 
+  get remoteId(): string {
+    return this.transport.remoteId
+  }
+
   async getMetadata(): Promise<SyncMetadata | null> {
     this.getMetadataCalled = true
     const sidecar = await this.transport.getSidecar()

@@ -10,7 +10,7 @@ import {
   writeSyncBase,
   type RowHashes,
 } from '../syncBase'
-import { newMigratedDb, seedAccount, seedTag, seedTransaction } from './helpers'
+import { newMigratedDb, nonEmpty, seedAccount, seedTag, seedTransaction } from './helpers'
 
 const TAGS = { name: 'tags', pk: 'id' }
 const SOURCE = { remoteId: 'memory', schemaVersion: 3 }
@@ -22,11 +22,6 @@ const T1 = '2026-01-01T00:00:00.000Z'
 const T2 = '2026-02-01T00:00:00.000Z'
 const T3 = '2026-03-01T00:00:00.000Z'
 const T5 = '2026-05-01T00:00:00.000Z'
-
-/** Drops the tables without rows: `readSyncBase` only knows tables it has rows of. */
-function nonEmpty(rows: RowHashes): RowHashes {
-  return new Map([...rows].filter(([, hashes]) => hashes.size > 0))
-}
 
 describe('merging by base hashes', () => {
   let dbs: Database[] = []

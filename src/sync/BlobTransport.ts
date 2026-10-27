@@ -8,6 +8,9 @@
  * sidecar PUT is what serialises updates.
  */
 export interface BlobTransport {
+  /** Where the blob lives, without credentials: see `SyncBackend.remoteId`. */
+  readonly remoteId: string
+
   /** GET the metadata sidecar. null = not yet uploaded. */
   getSidecar(): Promise<{ text: string; etag: string } | null>
 

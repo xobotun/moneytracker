@@ -260,14 +260,17 @@ describe('tag merges on several devices', () => {
     at(minute(2))
     await a.tags.restore(x)
     at(minute(3))
-    await a.sync()
+    const onA = await a.sync()
     at(minute(4))
-    await b.sync()
+    const onB = await b.sync()
 
     await settle([a, b], 5)
     await expectSound([a, b])
     for (const d of [a, b]) {
       expect(await tagRow(d, x)).toMatchObject({ parent_id: q, deleted_at_utc: null })
     }
+    // The merge moved x's tombstone without a stamp, which is no change to it:
+    // only the restore changed x.
+    expect([...onA.conflicts, ...onB.conflicts].filter((c) => c.primaryKey === x)).toEqual([])
   })
 })

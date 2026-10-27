@@ -35,6 +35,14 @@ const cfg = {
 }
 
 describe('SupabaseStorageTransport', () => {
+  it('names the remote by project URL, bucket and blob key, without the anon key', () => {
+    const { fetchFn } = captureFetch()
+    const remoteId = new SupabaseStorageTransport(cfg, 'db.sqlite', 'db.sqlite.json', fetchFn)
+      .remoteId
+    expect(remoteId).toBe('supabase:https://proj.supabase.co/moneytracker/db.sqlite')
+    expect(remoteId).not.toContain(cfg.anonKey)
+  })
+
   it('getSidecar reads JSON and parses the ETag', async () => {
     const { fetchFn } = captureFetch()
     const t = new SupabaseStorageTransport(cfg, 'db.sqlite', 'db.sqlite.json', fetchFn)

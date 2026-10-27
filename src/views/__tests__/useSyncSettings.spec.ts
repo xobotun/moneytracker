@@ -3,9 +3,7 @@ import { shallowRef } from 'vue'
 import { useSyncSettings } from '../useSyncSettings'
 import { Database } from '../../db/Database'
 import type { SyncBackend } from '../../sync/SyncBackend'
-import { runMigrations } from '../../db/migrations'
-import { migration as settingsMigration } from '../../db/migrations/001_settings'
-import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
+import { ALL_MIGRATIONS, runMigrations } from '../../db/migrations'
 import { FakeSyncBackend } from '../../sync/__tests__/fakes'
 import {
   saveLastKnownRemoteState,
@@ -20,13 +18,14 @@ import {
 async function migratedDb(): Promise<Database> {
   const db = new Database()
   await db.init()
-  await runMigrations(db, [settingsMigration, domainMigration])
+  await runMigrations(db, ALL_MIGRATIONS)
   return db
 }
 
 // A minimal backend stub — only the method the composable uses.
 function fakeBackend(hash: string): SyncBackend {
   return {
+    remoteId: 'stub',
     getMetadata: async () => null,
     downloadDatabase: async () => {
       throw new Error('not used here')
@@ -176,6 +175,7 @@ describe('useSyncSettings — syncNow + lastSyncError', () => {
   it('syncNow records an error when the backend throws', async () => {
     const db = await migratedDb()
     const failingBackend = {
+      remoteId: 'failing',
       getMetadata: async () => {
         throw new Error('boom')
       },
@@ -209,6 +209,7 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
   /** A remote written by a newer app version: runSync aborts without merging. */
   function newerSchemaBackend(): SyncBackend {
     return {
+      remoteId: 'newer',
       getMetadata: async () => ({
         device: 'other-device',
         uploadedAtUtc: '2026-05-20T10:00:00.000Z',
@@ -288,6 +289,7 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
     let releaseMetadata!: () => void
     let syncsStarted = 0
     const slowBackend: SyncBackend = {
+      remoteId: 'slow',
       getMetadata: () =>
         new Promise((resolve) => {
           syncsStarted++

@@ -41,6 +41,14 @@ function captureFetch() {
 }
 
 describe('S3Transport', () => {
+  it('names the remote by endpoint, bucket and object key, without the credentials', () => {
+    const { fetchFn } = captureFetch()
+    const remoteId = new S3Transport(cfg, 'db.sqlite', 'db.sqlite.json', fetchFn).remoteId
+    expect(remoteId).toBe('s3:https://r2.example.com/mt/db.sqlite')
+    expect(remoteId).not.toContain(cfg.accessKeyId)
+    expect(remoteId).not.toContain(cfg.secretKey)
+  })
+
   it('getSidecar returns text + etag on 200', async () => {
     const { fetchFn } = captureFetch()
     const t = new S3Transport(cfg, 'db.sqlite', 'db.sqlite.json', fetchFn)

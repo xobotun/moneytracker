@@ -38,6 +38,11 @@ export class GitHubTransport {
     this.fetch = withSyncFetchPolicy(fetchFn)
   }
 
+  /** Where the data lives, without the token: see `SyncBackend.remoteId`. */
+  get remoteId(): string {
+    return `github:${this.cfg.repo}@${this.cfg.branch}`
+  }
+
   async validate(): Promise<void> {
     const res = await this.req(`/repos/${this.cfg.repo}`, { method: 'GET' })
     if (!res.ok) throw await asError(res, 'validate')

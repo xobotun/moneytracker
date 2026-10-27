@@ -26,6 +26,14 @@ import type { SyncMetadata } from './types'
  *    use whatever backend it has without reaching into the helper module.
  */
 export interface SyncBackend {
+  /**
+   * Which remote this is — provider and location, never a token or key
+   * (`github:<repo>@<branch>`, `s3:<endpoint>/<bucket>/<key>`,
+   * `supabase:<url>/<bucket>/<key>`). The sync base is used only with the
+   * remote it was agreed with: another remote has a history of its own.
+   */
+  readonly remoteId: string
+
   /** Current remote metadata, or null when nothing has ever been uploaded. */
   getMetadata(): Promise<SyncMetadata | null>
 
