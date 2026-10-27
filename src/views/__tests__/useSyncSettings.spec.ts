@@ -252,12 +252,14 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
       hash: await hashDatabase(old),
       migrationVersion: 2,
     })
-    // The schema version of the downloaded copy when the sync is done with it.
+    // The schema version of the downloaded copy as downloaded, and when the
+    // sync is done with it.
+    let downloadedVersion: number | null = null
     let mergedVersion: number | null = null
     const download = backend.downloadDatabase.bind(backend)
     backend.downloadDatabase = async () => {
       const remote = await download()
-      expect(await readSchemaVersion(remote)).toBe(2)
+      downloadedVersion = await readSchemaVersion(remote)
       const close = remote.close.bind(remote)
       remote.close = async () => {
         mergedVersion = await readSchemaVersion(remote)
@@ -271,6 +273,7 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
 
     expect(s.lastSyncError.value).toBeNull()
     expect(s.lastSyncOutcome.value).toMatchObject({ decision: 'merge', uploaded: true })
+    expect(downloadedVersion).toBe(2)
     expect(mergedVersion).toBe(await readSchemaVersion(db))
     expect(backend.peekMeta()?.migrationVersion).toBe(await readSchemaVersion(db))
     expect(await db.exec('SELECT id FROM tags')).toEqual([{ id: 'tag000000001' }])
