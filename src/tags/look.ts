@@ -32,22 +32,56 @@ export function newTagLook(kind: TagKind, random: () => number = Math.random): T
  * tree always gets the same colour on every device.
  */
 export function effectiveLook(tag: Tag, byId: ReadonlyMap<ShortId, Tag>): TagLook {
-  let colour: string | null = null
-  let icon: string | null = null
-  let top = tag
+  const { colour, icon } = lookFrom(tag, tag.kind, tag.id, byId)
+  return { colour, icon }
+}
+
+/** A look with the tags its colour and icon come from; null = the default. */
+export interface InheritedLook extends TagLook {
+  colourFrom: Tag | null
+  iconFrom: Tag | null
+}
+
+/**
+ * What a tag of `kind` that sets neither colour nor icon shows under
+ * `parentId` (null: at the top level), and which tags that comes from — for
+ * showing an inherited look as derived. `selfId` is the tag's own id (null
+ * for a new one); the default colour of a top-level tag is picked by it.
+ */
+export function inheritedLook(
+  kind: TagKind,
+  parentId: ShortId | null,
+  selfId: ShortId | null,
+  byId: ReadonlyMap<ShortId, Tag>,
+): InheritedLook {
+  return lookFrom(parentId === null ? undefined : byId.get(parentId), kind, selfId ?? '', byId)
+}
+
+/** The first colour and icon set on the way up from `start`; defaults by `kind` and the topmost id reached. */
+function lookFrom(
+  start: Tag | undefined,
+  kind: TagKind,
+  topId: string,
+  byId: ReadonlyMap<ShortId, Tag>,
+): InheritedLook {
+  let colourFrom: Tag | null = null
+  let iconFrom: Tag | null = null
+  let top = topId
   // Sync can leave a parent loop until it is repaired; never walk one twice.
   const seen = new Set<ShortId>()
-  for (let current: Tag | undefined = tag; current && !seen.has(current.id); ) {
+  for (let current = start; current && !seen.has(current.id); ) {
     seen.add(current.id)
-    top = current
-    colour ??= current.colour
-    icon ??= current.icon
-    if (colour !== null && icon !== null) break
+    top = current.id
+    if (colourFrom === null && current.colour !== null) colourFrom = current
+    if (iconFrom === null && current.icon !== null) iconFrom = current
+    if (colourFrom !== null && iconFrom !== null) break
     current = current.parent_id === null ? undefined : byId.get(current.parent_id)
   }
   return {
-    colour: colour ?? COLOUR_PRESETS[stringHash(top.id) % COLOUR_PRESETS.length]!,
-    icon: icon ?? KIND_ICONS[tag.kind],
+    colour: colourFrom?.colour ?? COLOUR_PRESETS[stringHash(top) % COLOUR_PRESETS.length]!,
+    icon: iconFrom?.icon ?? KIND_ICONS[kind],
+    colourFrom,
+    iconFrom,
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { COLOUR_PRESETS } from '@/format/colours'
-import { KIND_ICONS, effectiveLook, newTagLook } from '../look'
+import { KIND_ICONS, effectiveLook, inheritedLook, newTagLook } from '../look'
 import { byId, tag } from './fixtures'
 import { asShortId } from '@/db/shortId'
 
@@ -73,5 +73,37 @@ describe('newTagLook', () => {
 
   it('picks a preset by default', () => {
     expect(COLOUR_PRESETS).toContain(newTagLook('category').colour)
+  })
+})
+
+describe('inheritedLook', () => {
+  it('names the ancestors the colour and the icon come from', () => {
+    const food = tag('food', { colour: '#ef4444' })
+    const groceries = tag('groceries', { parent_id: food.id, icon: 'shopping-cart' })
+    const look = inheritedLook('category', groceries.id, null, byId(food, groceries))
+    expect(look).toEqual({
+      colour: '#ef4444',
+      icon: 'shopping-cart',
+      colourFrom: food,
+      iconFrom: groceries,
+    })
+  })
+
+  it('is what the tag will show once saved under that parent', () => {
+    const food = tag('food')
+    const snacks = tag('snacks', { parent_id: food.id })
+    const map = byId(food, snacks)
+    const { colour, icon } = inheritedLook('category', food.id, snacks.id, map)
+    expect({ colour, icon }).toEqual(effectiveLook(snacks, map))
+  })
+
+  it('at the top level is the default: the kind icon and a preset by the tag id', () => {
+    const own = tag('abc', { kind: 'merchant' })
+    expect(inheritedLook('merchant', null, own.id, byId(own))).toEqual({
+      ...effectiveLook(own, byId(own)),
+      icon: KIND_ICONS.merchant,
+      colourFrom: null,
+      iconFrom: null,
+    })
   })
 })
