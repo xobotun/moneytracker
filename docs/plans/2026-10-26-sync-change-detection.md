@@ -22,6 +22,23 @@ this device's last sync. A change made offline and uploaded later slips through.
 | 6 | A syncs and merges B's upload. Remote T was deleted at minute 1, before A's last sync, so it counts as **unchanged**; local T was edited at minute 5, so it counts as **changed**. "Only the local side moved" → A keeps its live T and uploads it. Delete-wins never runs; no conflict is reported. |
 | 7 | B syncs (last sync minute 4). Remote T (edited at 5) counts as changed, its own tombstone (1) as unchanged → B takes the live T. **The delete is lost on both devices, silently.** |
 
+```mermaid
+sequenceDiagram
+    participant B as Device B
+    participant R as Remote
+    participant A as Device A
+    Note over B: m1 offline, deletes T<br/>(tombstone stamped m1)
+    A->>R: m3 uploads something unrelated
+    Note over A: A's last sync is now m3
+    B->>R: m4 pulls, merges, pushes the delete
+    Note over A: m5 edits T (stamped m5)
+    R->>A: m6 B's upload
+    Note over A: remote T stamped m1, before m3: "unchanged"<br/>local T stamped m5, after m3: "changed"<br/>keeps the live T, reports nothing
+    A->>R: m6 uploads the live T
+    R->>B: m7 A's upload
+    Note over B: remote T stamped m5, after m4: "changed"<br/>own tombstone stamped m1, before m4: "unchanged"<br/>takes the live T: the delete is lost
+```
+
 The same path loses a manual exchange rate: B types a manual EUR/USD rate offline, A's
 resolver later upgrades its own row of that day to an ECB rate; the override — which
 `ROW_RANK` promises is never lost to a resolver — disappears on both devices.
@@ -59,6 +76,25 @@ discarded edit is reported.
   compare-and-swap and unchanged-file detection) but never reads the commit this device
   last synced against. The Supabase / S3 backends keep no history at all.
 
+How a row counts as changed, today and under option A below:
+
+```mermaid
+flowchart LR
+    subgraph today["Today: timestamps against the cutoff"]
+        direction TB
+        t1["the row's created / updated / deleted time"] --> t2{"after this device's<br/>last sync?"}
+        t2 -- yes --> t3["changed"]
+        t2 -- no --> t4["unchanged,<br/>even if this device never saw it"]
+    end
+    subgraph optionA["Option A: hashes against the agreed base"]
+        direction TB
+        a1["hash of the row now"] --> a2{"same as the hash both<br/>devices last agreed on?"}
+        a2 -- no --> a3["changed"]
+        a2 -- yes --> a4["unchanged"]
+    end
+    today ~~~ optionA
+```
+
 Consequences beyond the two tests: every "both sides changed" case where one side's edit
 predates the other device's cutoff is treated as one-sided. Delete-wins and rank rules are
 skipped (the outcome changes), and for plain edits the outcome is usually the same
@@ -76,6 +112,22 @@ every successful sync from the database that was uploaded.
 During a merge: changed locally ⇔ `hash(local row) ≠ base`; changed remotely ⇔
 `hash(remote row) ≠ base`; a row absent from the base is new on the side that has it.
 Then the existing rules decide (delete wins → rank → newer → tie by content).
+
+```mermaid
+flowchart TD
+    s1["sync starts"] --> s2["for every row: compare the local and the<br/>remote hash with the row's hash in sync_base"]
+    s2 --> s3{"changed on"}
+    s3 -- "one side" --> s4["take that side"]
+    s3 -- "both sides" --> s5["conflict rules: delete wins, rank,<br/>newer, tie by content; reported"]
+    s3 -- "neither" --> s6["keep"]
+    s4 & s5 & s6 --> s7["tag repairs, then compare-and-swap upload"]
+    s7 -- "upload accepted" --> s8["rewrite sync_base from the uploaded rows"]
+    s7 -- "another device uploaded meanwhile" --> s1
+```
+
+In the example of section 1, at minute 6 the base holds T as both devices last agreed on it
+(live, unedited). Remote T (deleted) differs from it, and so does local T (edited): both
+sides changed, so delete-wins keeps the tombstone and the discarded edit is reported.
 
 - **Upsides**
   - No clocks in change detection: late uploads, offline periods and clock skew stop mattering.
