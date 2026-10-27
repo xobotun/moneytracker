@@ -116,6 +116,34 @@ describe('TagEditDialog', () => {
     expect(await tagsRepo.findById(snacks.id)).toMatchObject({ name: 'Treats', parent_id: fun.id })
   })
 
+  it('moves a child back to the top level', async () => {
+    const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
+    const snacks = await tagsRepo.create({ kind: 'category', name: 'Snacks', parent_id: food.id })
+    await open('category', snacks)
+    await choose('tag-parent', 'None (top level)')
+    await save()
+    expect(await tagsRepo.findById(snacks.id)).toMatchObject({ parent_id: null })
+  })
+
+  it('keeps Save disabled when the details could not be read', async () => {
+    const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
+    await detailsRepo.setLocation(shop.id, {
+      address: 'Weg 1',
+      latitude: 52.5,
+      longitude: 13.4,
+      merchant_id: null,
+    })
+    vi.spyOn(detailsRepo, 'values').mockRejectedValue(new Error('disk on fire'))
+    await open('location', shop)
+    expect(text()).toContain("Could not load the location's details. disk on fire")
+    expect(button('Save').disabled).toBe(true)
+    // Saving the empty details would have wiped the stored ones.
+    expect(await detailsRepo.getLocation(shop.id)).toMatchObject({
+      address: 'Weg 1',
+      latitude: 52.5,
+    })
+  })
+
   it('does not offer the tag itself or its descendants as a parent', async () => {
     const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
     await tagsRepo.create({ kind: 'category', name: 'Groceries', parent_id: food.id })

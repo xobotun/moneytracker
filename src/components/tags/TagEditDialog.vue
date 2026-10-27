@@ -50,6 +50,8 @@ const carried = ref<string[]>([])
 // A journey's dates as derived from its transactions: what a reset goes back to.
 const derivedDates = ref<{ start: string | null; end: string | null }>({ start: null, end: null })
 const loading = ref(false)
+// The details could not be read: saving the empty draft would wipe them.
+const loadFailed = ref(false)
 const submitted = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -71,6 +73,7 @@ watch(
 async function reset() {
   submitted.value = false
   error.value = null
+  loadFailed.value = false
   confirmingDelete.value = false
   positionError.value = null
   derivedDates.value = { start: null, end: null }
@@ -92,6 +95,7 @@ async function reset() {
       derivedDates.value = { start: dates.derivedStart, end: dates.derivedEnd }
     }
   } catch (e) {
+    loadFailed.value = true
     error.value = `Could not load the ${noun.value}'s details. ${(e as Error).message}`
   } finally {
     loading.value = false
@@ -214,6 +218,7 @@ function saveError(e: unknown): string {
 }
 
 async function save() {
+  if (loading.value || loadFailed.value) return
   submitted.value = true
   if (Object.keys(errors.value).length > 0) return
   saving.value = true
@@ -608,7 +613,7 @@ function merge() {
           type="submit"
           :label="tag ? 'Save' : `Add ${noun}`"
           :loading="saving"
-          :disabled="loading"
+          :disabled="loading || loadFailed"
         />
       </div>
     </form>
