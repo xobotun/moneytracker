@@ -86,7 +86,9 @@ describe('the sync base', () => {
   it('keeps a restore made while a merged upload loses the race', async () => {
     // A merges B's delete of t; before A's upload lands, B restores t and
     // uploads. A's retry compares with the remote it merged, where t was
-    // already deleted: only B changed t since, so the restore is kept.
+    // already deleted: only B changed t since, so the restore is kept. A's
+    // own edit of u survives too: the lost upload left the base alone (a base
+    // of the rows A tried to upload would make the edit look unchanged).
     let race: (() => Promise<void>) | null = null
     let uploadsTried = 0
     const racing = (backend: SyncBackend, device: string): SyncBackend =>
@@ -107,14 +109,17 @@ describe('the sync base', () => {
           }
     world = await openWorld(['A', 'B'], 'memory', racing)
     const [a, b] = world.devices as [Device, Device]
-    let t!: ShortId
+    let t!: ShortId, u!: ShortId
     await start(world, async ({ tags }) => {
       t = (await tags.create({ kind: 'tag', name: 'trip' })).id
+      u = (await tags.create({ kind: 'tag', name: 'home' })).id
     })
     at(minute(1))
     await b.tags.softDelete(t)
     at(minute(2))
     expect((await b.sync()).decision).toBe('upload-local')
+    at(minute(2.5))
+    await a.tags.update(u, { name: 'house' })
     at(minute(3))
     race = async () => {
       at(minute(3.5))
@@ -129,9 +134,13 @@ describe('the sync base', () => {
     expect(uploadsTried).toBe(2)
     expect(onA.decision).toBe('merge')
     expect(await tagRow(a, t)).toMatchObject({ deleted_at_utc: null })
+    expect(await tagRow(a, u)).toMatchObject({ name: 'house' })
 
     await settle([a, b], 6)
-    for (const d of [a, b]) expect(await tagRow(d, t)).toMatchObject({ deleted_at_utc: null })
+    for (const d of [a, b]) {
+      expect(await tagRow(d, t)).toMatchObject({ deleted_at_utc: null })
+      expect(await tagRow(d, u)).toMatchObject({ name: 'house' })
+    }
   })
 
   it('falls back to the cutoff on a device without a base, and writes one', async () => {
@@ -151,7 +160,11 @@ describe('the sync base', () => {
     at(minute(3))
     await a.tags.update(x, { name: 'x by A' })
     at(minute(4))
-    expect((await a.sync()).decision).toBe('merge')
+    const onA = await a.sync()
+    expect(onA.decision).toBe('merge')
+    // Each tag changed on one side only since A's last sync. An empty base
+    // would count every row as changed on both sides: two conflicts.
+    expect(onA.conflicts).toEqual([])
 
     expect(await tagRow(a, x)).toMatchObject({ name: 'x by A' })
     expect(await tagRow(a, y)).toMatchObject({ name: 'y by B' })

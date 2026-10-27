@@ -14,7 +14,9 @@ import {
   snapshotDatabase,
   writeSyncBase,
   type BaseSource,
+  type RowHashes,
   type Snapshot,
+  type SyncBaseInfo,
 } from '../syncBase'
 
 const META = (over: Partial<SyncMetadata> = {}): SyncMetadata => ({
@@ -307,22 +309,39 @@ describe('runSync keeps the sync base', () => {
     expect(await readSyncBase(local)).toEqual(nonEmpty(before.rows))
   })
 
-  const noBaseForThisRemote: [string, BaseSource | null][] = [
+  /** Writes a base described by `info` that holds a marker row no snapshot of real rows would. */
+  async function writeMarkedBase(info: SyncBaseInfo): Promise<RowHashes> {
+    const marked: Snapshot = {
+      databaseHash: info.databaseHash,
+      rows: new Map([['tags', new Map([['marker', 'not-a-row']])]]),
+    }
+    await local.transaction((tx) => writeSyncBase(tx, marked, info))
+    return marked.rows
+  }
+
+  /** No base, or one that differs from this remote's current state in one field. */
+  const notThisRemotesState: [string, Partial<SyncBaseInfo> | null][] = [
     ['without a base', null],
-    ['with a base from another remote', { remoteId: 'github:me/mt@main', schemaVersion: 3 }],
+    ['with a base from another remote', { remoteId: 'github:me/mt@main' }],
+    ['with a base from another schema version', { schemaVersion: 2 }],
+    ['with an older base of this remote', { databaseHash: 'sha256:older' }],
   ]
 
-  it.each(noBaseForThisRemote)(
+  it.each(notThisRemotesState)(
     'adopts the remote as the base when nothing needs syncing, %s',
-    async (_, source) => {
+    async (_, differs) => {
       local = await newMigratedDb()
       backend = new FakeSyncBackend()
       await seedHome(local)
-      if (source) {
-        const snapshot = await snapshotDatabase(local)
-        await local.transaction((tx) => writeSyncBase(tx, snapshot, source))
-      }
       const remoteHash = await remoteOf(seedHome, 'dev-B')
+      if (differs) {
+        await writeMarkedBase({
+          remoteId: 'memory',
+          schemaVersion: 3,
+          databaseHash: remoteHash,
+          ...differs,
+        })
+      }
 
       expect((await runSync(local, deps())).decision).toBe('none')
 
@@ -335,18 +354,15 @@ describe('runSync keeps the sync base', () => {
     backend = new FakeSyncBackend()
     await seedHome(local)
     const remoteHash = await remoteOf(seedHome, 'dev-B')
-    // A marker row no snapshot of these rows would hold.
-    const marked: Snapshot = {
+    const marked = await writeMarkedBase({
+      remoteId: 'memory',
+      schemaVersion: 3,
       databaseHash: remoteHash,
-      rows: new Map([['tags', new Map([['marker', 'not-a-row']])]]),
-    }
-    await local.transaction((tx) =>
-      writeSyncBase(tx, marked, { remoteId: 'memory', schemaVersion: 3 }),
-    )
+    })
 
     expect((await runSync(local, deps())).decision).toBe('none')
 
-    expect(await readSyncBase(local)).toEqual(marked.rows)
+    expect(await readSyncBase(local)).toEqual(marked)
   })
 
   it('writes no base when nothing needs syncing but the rows changed after they were hashed', async () => {

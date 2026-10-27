@@ -1,16 +1,13 @@
 import { Database, type SqlExecutor } from '../../db/Database'
 import type { TagKind } from '../../db/types'
-import { runMigrations } from '../../db/migrations'
-import { migration as settingsMigration } from '../../db/migrations/001_settings'
-import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
-import { migration as syncBaseMigration } from '../../db/migrations/003_sync_base'
+import { ALL_MIGRATIONS, runMigrations } from '../../db/migrations'
 import type { RowHashes } from '../syncBase'
 
 /** A fresh in-memory database with all migrations applied. */
 export async function newMigratedDb(): Promise<Database> {
   const db = new Database()
   await db.init()
-  await runMigrations(db, [settingsMigration, domainMigration, syncBaseMigration])
+  await runMigrations(db, ALL_MIGRATIONS)
   return db
 }
 

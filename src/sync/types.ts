@@ -44,9 +44,8 @@ export type ConflictResolution =
  * the cutoff when there is none), or a tag whose change the post-merge repair
  * undid. `local` / `remote` are the row as each side had it before the merge
  * — an empty object when a side lacked it (only a repair can involve such a
- * row). `winner` is the side whose version
- * was kept; for `loop-undone` and `delete-undone`, the side whose parent or
- * liveness the tag went back to.
+ * row). `winner` is the side whose version was kept; for `loop-undone` and
+ * `delete-undone`, the side whose parent or liveness the tag went back to.
  */
 export interface SyncConflict {
   table: string
