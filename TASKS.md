@@ -361,7 +361,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Create — expense, income, transfer
     - Dual-currency input (account currency + purchase currency)
     - Amounts show the currency symbol where one exists (`currencySymbol`: $, €, ₽), the code otherwise; lists of accounts keep the code
-    - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc)
+    - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc, §2.4: a negative part warns; whether the rate warning shows next to the sum warning is decided with this view's design)
     - Merchant, location and journey fields (merchant hidden on income and transfers by default); #tag picker with autocomplete (a synonym finds the tag, the main name is shown)
     - Date/time + timezone picker; date-override field
     - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position
@@ -369,7 +369,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Typed vs. derived values (the UI rule in CLAUDE.md)
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
-- Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
+- Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; merged names listed, each removable only while nothing uses it (decisions §2.5); duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
     - Before merge ships: `TagsRepository.merge` refuses to fill the target's empty detail with the source's link to a deleted tag (`DeletedTagError`), and `detailConflicts` does not report it. Spec §2.5: the source's details fill the ones the target lacks — skip the liveness check for a value either tag already has; keep it for a `resolved` value that is on neither side (left open by the tags-and-categories final review)
 
 ### Exchange rates
@@ -379,7 +379,7 @@ Decided 2026-10-25 — see [docs/plans/2026-10-25-exchange-rates-decisions.md](d
 Phases 1 and 2 (the app side) are done (see Done above). Next:
 
 2. Rates repo — live at [xobotun/exchange-rates](https://github.com/xobotun/exchange-rates) (its README is the contract; updated twice a day; history is being backfilled one year at a time). The app reads ECB, NBG, NBK, CBA and CBR from it since 2026-10-26 (see Done). Left:
-    - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days)
+    - When a new provider or older data arrives, re-resolve the non-final `applied_rates` rows older than 8 days too (`refresh` only covers the last 8 days). Only converted totals change; stored amounts and balances do not
     - Backfill history from the year files (`v1/<bank>/years/<YYYY>/…`, one request per bank and year) instead of one day file per date, once reports or a statement import need many past dates
 3. openexchangerates (App ID per device; priority 30)
 4. UI for manual overrides (`setManual` / `removeManual` exist) and the review list (`applied_rates` rows with `via` set or a NULL rate)

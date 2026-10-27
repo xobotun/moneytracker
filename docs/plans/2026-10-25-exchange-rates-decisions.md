@@ -161,6 +161,8 @@ For a currency pair on a date:
   level yet; that is to be fixed before phase 2 adds the bank level (see
   TASKS.md).
 - Review-list rows are re-checked about once a day.
+- An improved rate changes only converted totals: the stored amounts of
+  transactions and the account balances never depend on rates.
 
 ### Refresh
 
