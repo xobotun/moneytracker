@@ -420,6 +420,17 @@ the app's automatic flows and the polished UI.
   Sync now click.
 - Blocking overlay during sync with a "use the local database"
   interrupt button.
+- Freeze edits while a sync runs: disable every control that writes
+  (buttons, forms, drag-to-reorder) and show that a sync is in progress.
+  The upload exports a copy, so a later write only waits for the next
+  sync, but the sync base must describe exactly the rows the upload
+  exported (a few milliseconds apart today:
+  docs/plans/2026-10-26-sync-change-detection.md §6). Background writers
+  bypass the UI — `RateService` filling `applied_rates` — so gate writes
+  in the stores, not only in the views. `syncing` in `useSyncSettings.ts`
+  already tracks a running sync at module scope; move it to a store the
+  views can read. Unfreeze on every exit (done, error, gave up after
+  retries), and let the overlay's interrupt button end a long upload.
 - Network state / metered-connection detection (PWA heuristic) and the
   auto-sync trigger policy that uses it.
 - Conflict-notification email (needs a Supabase Edge Function so the
