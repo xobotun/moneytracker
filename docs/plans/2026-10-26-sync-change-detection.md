@@ -1,7 +1,7 @@
 # Sync: Telling Which Side Changed a Row
 
 **Status:** Built 2026-10-27 (option A). Sections 1 to 4 are the record of the decision;
-section 5 says what was built. It was a known bug, pinned by two `it.fails` tests in
+section 6 says what was built. It was a known bug, pinned by two `it.fails` tests in
 `src/sync/__tests__/cornerCases/cutoff.spec.ts`, which are plain `it` tests now. Found by the
 sync corner-case tests of the tags-and-categories plan (Task A6).
 
@@ -158,7 +158,7 @@ sides changed, so delete-wins keeps the tombstone and the discarded edit is repo
     current rows alike), or record such rewrites in the base. A lift is no merge
     chain: it needs the second way, or the same normalisation over deleted parents.
     (As built, neither is needed: a tombstone is hashed by identity and delete time only,
-    see section 5.)
+    see section 6.)
 
 ### B. Full base copy (three-way merge)
 
@@ -223,7 +223,7 @@ E.g. cutoff = last sync − 7 days, or the oldest upload time any device reporte
 **Decided 2026-10-27: option A**, with today's cutoff as the fallback when no base exists.
 Consider B later only if column-level merging becomes a goal.
 
-## As built
+## 6. As built
 
 Code: `src/sync/syncBase.ts` (row hashes, the base tables), `src/sync/changeDetection.ts`
 (the two detectors), `mergeDatabases` in `src/sync/mergeEngine.ts`, and `changeDetectorFor`,

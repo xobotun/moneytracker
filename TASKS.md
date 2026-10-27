@@ -460,11 +460,12 @@ Known sync defects, postponed (review 2026-10-18):
   a device to another device's name is unsupported): a device with a
   duplicate name and a smaller or empty database takes `upload-local`, which
   can drop data and leave stale trailing CSV files.
-- **Clock skew:** the merge cutoff compares timestamps from different
-  devices' clocks. Accepted for now; concurrent edits expected to be rare.
-  (Exact ties no longer flip-flop: they are broken by row content, the same
-  on every device. The cutoff itself is the postponed "Sync: tell which side
-  changed a row without timestamps" above.)
+- **Clock skew:** "latest wins" compares timestamps from different devices'
+  clocks. Accepted for now; concurrent edits expected to be rare. (Which side
+  changed a row no longer depends on clocks: the sync base tells it, and the
+  timestamp cutoff is only the fallback when there is no base — see
+  docs/plans/2026-10-26-sync-change-detection.md. Exact ties are broken by
+  row content, the same on every device.)
 
 
 ### Import
