@@ -55,10 +55,21 @@ describe('rowHash', () => {
   })
 
   it('ignores the columns the merge ignores', async () => {
-    const account: SyncRow = { id: 'acc000000001', name: 'Cash', balance_value: 100, balance_scale: 2 }
+    const account: SyncRow = {
+      id: 'acc000000001',
+      name: 'Cash',
+      balance_value: 100,
+      balance_scale: 2,
+    }
     const before = await rowHash(table('accounts'), account)
     expect(await rowHash(table('accounts'), { ...account, balance_value: 5 })).toBe(before)
-    const rate: SyncRow = { id: 'r1', rate: 1.5, created_at_utc: T1, updated_at_utc: T1, deleted_at_utc: null }
+    const rate: SyncRow = {
+      id: 'r1',
+      rate: 1.5,
+      created_at_utc: T1,
+      updated_at_utc: T1,
+      deleted_at_utc: null,
+    }
     expect(await rowHash(table('applied_rates'), { ...rate, updated_at_utc: T3 })).toBe(
       await rowHash(table('applied_rates'), rate),
     )
@@ -67,7 +78,9 @@ describe('rowHash', () => {
   it('hashes a deleted row by identity and delete time only', async () => {
     const dead: SyncRow = { ...liveTag, deleted_at_utc: T2, updated_at_utc: T2 }
     const h = await rowHash(table('tags'), dead)
-    expect(await rowHash(table('tags'), { ...dead, parent_id: 'tag000000009', name: 'Other' })).toBe(h)
+    expect(
+      await rowHash(table('tags'), { ...dead, parent_id: 'tag000000009', name: 'Other' }),
+    ).toBe(h)
     expect(await rowHash(table('tags'), { ...dead, deleted_at_utc: T3 })).not.toBe(h)
     expect(await rowHash(table('tags'), { ...dead, deleted_at_utc: null })).not.toBe(h)
     expect(await rowHash(table('tags'), liveTag)).not.toBe(h)
@@ -111,7 +124,13 @@ describe('sync base', () => {
     const first: Snapshot = {
       databaseHash: 'sha256:aa',
       rows: new Map([
-        ['tags', new Map([['t1', 'h1'], ['t2', 'h2']])],
+        [
+          'tags',
+          new Map([
+            ['t1', 'h1'],
+            ['t2', 'h2'],
+          ]),
+        ],
         ['accounts', new Map([['a1', 'h3']])],
       ]),
     }
@@ -123,7 +142,10 @@ describe('sync base', () => {
       databaseHash: 'sha256:aa',
     })
 
-    const second: Snapshot = { databaseHash: 'sha256:bb', rows: new Map([['tags', new Map([['t1', 'h9']])]]) }
+    const second: Snapshot = {
+      databaseHash: 'sha256:bb',
+      rows: new Map([['tags', new Map([['t1', 'h9']])]]),
+    }
     await db.transaction((tx) => writeSyncBase(tx, second, { remoteId: 'r2', schemaVersion: 4 }))
     expect(await readSyncBase(db)).toEqual(second.rows)
     expect(await readSyncBaseInfo(db)).toEqual({

@@ -15,11 +15,7 @@ export interface Migration {
  * must use this single list — a second, independently maintained copy would
  * silently drift the moment a new migration is added to only one of them.
  */
-export const ALL_MIGRATIONS: Migration[] = [
-  settingsMigration,
-  domainMigration,
-  syncBaseMigration,
-]
+export const ALL_MIGRATIONS: Migration[] = [settingsMigration, domainMigration, syncBaseMigration]
 
 export async function runMigrations(db: Database, migrations: Migration[]): Promise<void> {
   await db.run(`

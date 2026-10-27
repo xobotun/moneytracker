@@ -45,9 +45,9 @@ export async function rowHash(table: SyncTable, row: SyncRow): Promise<string> {
       ? canonicalLine(table, row)
       : `${table.name} ${JSON.stringify([row[table.pk], row.deleted_at_utc])}`
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(line))
-  return Array.from(new Uint8Array(digest).slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join(
-    '',
-  )
+  return Array.from(new Uint8Array(digest).slice(0, 16), (b) =>
+    b.toString(16).padStart(2, '0'),
+  ).join('')
 }
 
 /**
@@ -78,9 +78,11 @@ export async function snapshotDatabase(db: Database): Promise<Snapshot> {
 
 /** The base's description; null when this device has no base. */
 export async function readSyncBaseInfo(db: SqlExecutor): Promise<SyncBaseInfo | null> {
-  const [info] = await db.exec<{ remote_id: string; database_hash: string; schema_version: number }>(
-    'SELECT remote_id, database_hash, schema_version FROM sync_base_info',
-  )
+  const [info] = await db.exec<{
+    remote_id: string
+    database_hash: string
+    schema_version: number
+  }>('SELECT remote_id, database_hash, schema_version FROM sync_base_info')
   if (!info) return null
   return {
     remoteId: info.remote_id,
