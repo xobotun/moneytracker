@@ -1,5 +1,6 @@
 import { computed, ref, toValue, type ComputedRef, type MaybeRefOrGetter, type Ref } from 'vue'
 import type { Database } from '@/db/Database'
+import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import type { SyncBackend } from '@/sync/SyncBackend'
 import {
   getDeviceName,
@@ -141,16 +142,7 @@ export function useSyncSettings(deps: SyncSettingsDeps): SyncSettings {
         backend,
         deviceName: deviceName.value,
         now: () => new Date(),
-        migrate: async () => {
-          // PLAN-MANDATED STUB: real schema migration of a remote DB is
-          // deferred to a follow-up plan (see Task 16 brief + design doc's
-          // Out of scope). If the schema gate ever asks for migration in
-          // the UI path, we surface it as a loud error rather than silently
-          // proceed with the wrong schema.
-          throw new Error(
-            'useSyncSettings.syncNow: schema migration of remote DB is not wired in the minimal UI slice — surface this to the user',
-          )
-        },
+        migrate: (remote) => runMigrations(remote, ALL_MIGRATIONS),
         loadLastKnown: loadLastKnownRemoteState,
         saveLastKnown: saveLastKnownRemoteState,
       })

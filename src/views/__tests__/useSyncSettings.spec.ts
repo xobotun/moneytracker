@@ -5,6 +5,9 @@ import { Database } from '../../db/Database'
 import type { SyncBackend } from '../../sync/SyncBackend'
 import { ALL_MIGRATIONS, runMigrations } from '../../db/migrations'
 import { FakeSyncBackend } from '../../sync/__tests__/fakes'
+import { seedTag } from '../../sync/__tests__/helpers'
+import { hashDatabase } from '../../sync/hashDatabase'
+import { readSchemaVersion } from '../../sync/schemaVersion'
 import {
   saveLastKnownRemoteState,
   saveLastFetchedRemoteSnapshot,
@@ -232,6 +235,47 @@ describe('useSyncSettings — sync outcome, live backend, shared guard', () => {
     expect(s.lastSyncError.value?.message).toMatch(/newer version/i)
     expect(loadSyncError()?.message).toMatch(/newer version/i)
     await db.close()
+  })
+
+  it('migrates a remote written by an older app version, then merges it', async () => {
+    const db = await migratedDb()
+    const backend = new FakeSyncBackend()
+    // As GitHubCsvBackend builds it: the migrations up to the remote's version.
+    const old = new Database()
+    await old.init()
+    await runMigrations(old, ALL_MIGRATIONS.slice(0, 2))
+    const at = '2026-05-21T00:00:00.000Z'
+    await seedTag(old, { id: 'tag000000001', name: 'Home', created: at, updated: at })
+    await backend.setRemote(old, {
+      device: 'older app',
+      uploadedAtUtc: at,
+      hash: await hashDatabase(old),
+      migrationVersion: 2,
+    })
+    // The schema version of the downloaded copy when the sync is done with it.
+    let mergedVersion: number | null = null
+    const download = backend.downloadDatabase.bind(backend)
+    backend.downloadDatabase = async () => {
+      const remote = await download()
+      expect(await readSchemaVersion(remote)).toBe(2)
+      const close = remote.close.bind(remote)
+      remote.close = async () => {
+        mergedVersion = await readSchemaVersion(remote)
+        await close()
+      }
+      return remote
+    }
+    const s = useSyncSettings({ db, backend })
+
+    await s.syncNow()
+
+    expect(s.lastSyncError.value).toBeNull()
+    expect(s.lastSyncOutcome.value).toMatchObject({ decision: 'merge', uploaded: true })
+    expect(mergedVersion).toBe(await readSchemaVersion(db))
+    expect(backend.peekMeta()?.migrationVersion).toBe(await readSchemaVersion(db))
+    expect(await db.exec('SELECT id FROM tags')).toEqual([{ id: 'tag000000001' }])
+    await db.close()
+    await backend.close()
   })
 
   it('exposes a summary of the last successful sync', async () => {

@@ -427,9 +427,6 @@ the app's automatic flows and the polished UI.
 - See [2026-05-22-database-sync-scenarios.md](docs/scenarios/2026-05-22-database-sync-scenarios.md)
 
 Follow-up items flagged for the next plan:
-- Real schema migration in `useSyncSettings.syncNow` — currently a
-  plan-mandated stub that throws. Real cross-schema migration on
-  downloaded remote DBs is deferred.
 - Live verification: every backend is unit-tested against in-memory fakes
   only; none has been run against the real service yet (CORS, ETag
   exposure, rate limits). First real target: GitHub.
