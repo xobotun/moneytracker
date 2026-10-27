@@ -329,24 +329,11 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - Split calculator for the form: `src/money/split.ts` (typed vs. derived parts, the spec's worked example)
 - Sync: deferred FKs for self-referencing tags; `repairTags` after every merge (merge cycles, redirects, categories in use, lifts, parent loops); exact ties broken by row content, the same on every device; two-device convergence tests and sync corner-case tests (`src/sync/__tests__/cornerCases/`)
 
+### Sync — change detection
+
+- Which side changed a row is told by per-row base hashes, not timestamps (`src/sync/syncBase.ts`, `changeDetection.ts`); the cutoff stays as the fallback when there is no base. Decision and as-built notes: [docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md)
+
 ## To Do
-
-### Sync: tell which side changed a row without timestamps
-
-Known bug, postponed 2026-10-26. A change made offline and uploaded after another device's
-last sync counts as "unchanged" on that device, so delete-wins and rank rules are skipped and
-the discarded change is not reported: a delete or a manual exchange rate is lost on both
-devices, even with synchronised clocks. Problem, why the current mechanisms miss it, options
-with their upsides and downsides, and the choice — option A, per-row base hashes (decided 2026-10-27, not built yet):
-[docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md).
-
-- Deliberately failing tests until this is done: the two `it.fails` in
-  `src/sync/__tests__/cornerCases/cutoff.spec.ts` — turn them into `it(...)` when fixed
-- Revisit `src/sync/__tests__/convergence.spec.ts` "after a redirect whose merged tag comes
-  back" and "after a lift whose deleted parent comes back", which rely on today's cutoff
-- Keep `src/sync/__tests__/cornerCases/merges.spec.ts` "keeps a restore when the other device
-  merged the restored tag's parent" passing: the user's merge rewrites the tombstone without a
-  timestamp bump, so compare rows through the merge-chain map (see the doc, option A)
 
 ### Domain model gaps
 

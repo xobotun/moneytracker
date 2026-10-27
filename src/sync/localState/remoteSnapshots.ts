@@ -5,8 +5,10 @@ import { nullableJsonStore } from './storage'
 // Settings UI as read-only displays:
 //
 //  - lastKnownRemoteState     — the orchestrator writes this after every
-//                               successful sync. Used by the merge cutoff and
-//                               displayed in Settings as "Last sync (this device)".
+//                               successful sync. Feeds the fallback
+//                               merge cutoff (used when there is no valid
+//                               sync base) and is displayed in Settings as
+//                               "Last sync (this device)".
 //
 //  - lastFetchedRemoteSnapshot — populated by the future app-launch fetch
 //                               (deferred to the External-sync plan). Settings

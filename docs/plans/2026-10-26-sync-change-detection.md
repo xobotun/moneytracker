@@ -1,9 +1,9 @@
 # Sync: Telling Which Side Changed a Row
 
-**Status:** Postponed 2026-10-26; **option A chosen 2026-10-27** (not built yet). Known bug, pinned by two deliberately failing tests
-(`it.fails`) in `src/sync/__tests__/cornerCases/cutoff.spec.ts`; tracked in TASKS.md as
-"Sync: tell which side changed a row without timestamps". Found by the sync corner-case
-tests of the tags-and-categories plan (Task A6).
+**Status:** Built 2026-10-27 (option A). Sections 1 to 4 are the record of the decision;
+section 5 says what was built. It was a known bug, pinned by two `it.fails` tests in
+`src/sync/__tests__/cornerCases/cutoff.spec.ts`, which are plain `it` tests now. Found by the
+sync corner-case tests of the tags-and-categories plan (Task A6).
 
 ---
 
@@ -157,6 +157,8 @@ sides changed, so delete-wins keeps the tombstone and the discarded edit is repo
     normalised through the merge-chain map (apply the redirects to the base hashes and to the
     current rows alike), or record such rewrites in the base. A lift is no merge
     chain: it needs the second way, or the same normalisation over deleted parents.
+    (As built, neither is needed: a tombstone is hashed by identity and delete time only,
+    see section 5.)
 
 ### B. Full base copy (three-way merge)
 
@@ -221,15 +223,62 @@ E.g. cutoff = last sync − 7 days, or the oldest upload time any device reporte
 **Decided 2026-10-27: option A**, with today's cutoff as the fallback when no base exists.
 Consider B later only if column-level merging becomes a goal.
 
-When implementing:
-- Flip the two `it.fails` in `cutoff.spec.ts` to `it`, and revisit two `convergence.spec.ts`
-  tests that rely on today's cutoff: "after a redirect whose merged tag comes back" (a live
-  row winning over an older remote merge) and "after a lift whose deleted parent comes back"
-  (A's rename of d wins only because B's tombstone of d predates A's cutoff; with real change
-  detection both sides changed d, delete-wins keeps it deleted, and the test's last
-  assertion flips).
-- Keep `cornerCases/merges.spec.ts` "keeps a restore when the other device merged the
-  restored tag's parent" passing: it fails if the rewrites without a timestamp bump count as
-  changes (see option A's downsides).
-- Update the scenarios doc (algorithm step 5, "Merge cutoff"; conflict definition).
-- Remove the TASKS.md entry.
+## As built
+
+Code: `src/sync/syncBase.ts` (row hashes, the base tables), `src/sync/changeDetection.ts`
+(the two detectors), `mergeDatabases` in `src/sync/mergeEngine.ts`, and `changeDetectorFor`,
+`upload` and `adoptAsBase` in `src/sync/syncOrchestrator.ts`. The base lives in the
+device-local tables `sync_base` (one hash per row) and `sync_base_info` (migration 003).
+They are not in `SYNC_TABLES`, so they are never merged or written to CSV.
+
+1. **Row hash.** The first 16 bytes of SHA-256 over the row's line, in hex. A live row uses
+   the line `hashDatabase` already writes for it, shared through one function so the two
+   cannot drift. A deleted row hashes as its identity and its delete time only.
+   This replaces the merge-chain normalisation of section 4. A tombstone changes only by
+   being deleted or restored. The rewrites without a timestamp bump that matter (a user's tag
+   merge, the sync repair's redirect) touch the references of a tombstone, never its delete
+   time, so they stay invisible and a concurrent restore is kept (`merges.spec.ts`). The
+   normalisation would have needed the base rows, which option A does not keep. Such rewrites
+   of live rows (redirect, lift) still count as changes. They meet a real edit as a
+   conflict, which latest-wins settles correctly because the repair kept the older stamp;
+   the cost is a reported conflict, not a lost change.
+2. **Rows neither side changed that still differ.** With the base this can only be two
+   tombstones that differ in what the hash leaves out. They are settled by `resolveConflict`
+   and not reported. With the cutoff they stay reported conflicts, as before.
+3. **When the base is used.** Only when `sync_base_info` names this remote and this schema
+   version. Otherwise the merge uses the cutoff, as before: `lastKnown?.uploadedAtUtc`, or
+   the epoch. A base from another remote describes another history (a stale remote's old rows
+   would look changed and win). After a migration every row's line changes.
+4. **When the base is written.** Always the whole base and its info row, in one transaction.
+   - In the merge transaction, after the repairs: the remote's rows. They are the common
+     ancestor of the merged database and anything uploaded after it, so a compare-and-swap
+     retry compares against the remote it just merged, and a failed merge rolls the base back.
+   - After every successful upload (first upload, upload-local, merge): a snapshot of the
+     local rows taken just before the upload.
+   - On decision `none`, unless the info already names this remote, this schema version and
+     the remote's hash: a snapshot, written only if its database hash equals the remote's.
+   If writing the base fails after a successful upload, the sync reports an error. The next
+   sync (decision `none` or `upload-local`) rewrites the base.
+5. **Remote identity.** `SyncBackend.remoteId`, a string without secrets:
+   `github:<repo>@<branch>`, `s3:<endpoint>/<bucket>/<object key>`,
+   `supabase:<url>/<bucket>/<blob key>`.
+6. **Upload stamps.** An upload's metadata hash is the snapshot's database hash, which
+   equals `hashDatabase` of the same rows. One walk instead of two, and the stamp describes
+   the rows the base holds.
+
+Effects on the outcomes:
+- A conflict is reported once, by the device whose merge meets it. With the cutoff both
+  devices often reported the same pair. The merge-cycle case in `convergence.spec.ts` is
+  reported on the device that first merges both changes; the other device later takes the
+  repaired rows as a one-sided change.
+- Two convergence tests changed outcome on purpose, as predicted here: a rename of a tag that
+  the other device deleted or merged now loses to the delete (delete wins, reported) instead
+  of bringing the tag back.
+
+What is left:
+- The base may be older than the upload: an app write between the snapshot and the export, or
+  a crash between the upload and the base write. The next merge then over-reports changed
+  rows for one sync. In that window only, a delete can win over a concurrent restore.
+- A SQLite-blob upload carries the device's `sync_base` tables along. Nobody reads them there.
+- No base (first sync after install, cleared site data, another provider or schema version):
+  one sync uses the cutoff and has its known gap.
