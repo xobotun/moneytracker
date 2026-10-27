@@ -33,7 +33,8 @@ async function loadPapa() {
  * files to a few hundred KB, readable and diffable on github.com; only
  * GitHub's 100 MB blob limit binds. For tables with time-ordered UUIDv7 keys, new
  * rows land in the last file and earlier files stay byte-identical (git
- * stores them once); not so for tags (natural key) or applied_rates (UUIDv5).
+ * stores them once); not so for tables keyed by random short ids (tags and
+ * their side tables, accounts, account groups) or by UUIDv5 (applied_rates).
  *
  * This is a fixed format constant: NEVER change it. Uploads never delete
  * files, so a LARGER value leaves stale trailing files whose rows are also in
@@ -163,11 +164,13 @@ export async function exportAllTables(
  * Import every domain table from a Map<name, csv files> in FK order (parents before
  * children, per SYNC_TABLES). Wrapped in a single BEGIN/COMMIT so a mid-
  * import failure (FK violation, malformed CSV, missing entry) rolls back
- * cleanly rather than leaving a partially-populated DB.
+ * cleanly rather than leaving a partially-populated DB. Foreign keys are
+ * checked at COMMIT: a tag's parent can sort after it, into a later file.
  */
 export async function importAllTables(db: Database, bundle: Map<string, string[]>): Promise<void> {
   await loadPapa() // before the lock — see exportAllTables
   await db.transaction(async (tx) => {
+    await tx.run('PRAGMA defer_foreign_keys = ON')
     for (const t of SYNC_TABLES) {
       const csvs = bundle.get(t.name)
       if (csvs === undefined) {

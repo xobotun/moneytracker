@@ -2,6 +2,8 @@ import type { Database, SqlExecutor } from '../Database'
 import { recalculateBalances } from '../balances'
 import type { Transaction } from '../types'
 import {
+  categoryPartsFromColumn,
+  categoryPartsToColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -14,10 +16,13 @@ import {
   moneyFromRow,
   moneyToColumns,
   optionalTextToColumn,
+  shortIdFromColumn,
+  shortIdFromNullableColumn,
   uuidFromColumn,
-  uuidFromNullableColumn,
 } from '../columnMappers'
 import { newId, type UUID } from '../uuid'
+import type { ShortId } from '../shortId'
+import { assertTransactionRules } from './transactionRules'
 
 type TransactionRow = {
   id: string
@@ -34,9 +39,12 @@ type TransactionRow = {
   date_override_local: string | null
   date_override_zone: string | null
   tags: string
+  categories: string
+  merchant_id: string | null
   location_lat: number | null
   location_lon: number | null
   location_id: string | null
+  journey_id: string | null
   description__user: string | null
   description__auto: string | null
   created_at_utc: string
@@ -44,17 +52,21 @@ type TransactionRow = {
   deleted_at_utc: string | null
 }
 
-// The descriptions may be left out of create() (none).
+// The merchant, the journey and the descriptions may be left out of create() (none).
 type TransactionCreateInput = Omit<
   Transaction,
   | 'id'
+  | 'merchant_id'
+  | 'journey_id'
   | 'description__user'
   | 'description__auto'
   | 'created_at_utc'
   | 'updated_at_utc'
   | 'deleted_at_utc'
 > &
-  Partial<Pick<Transaction, 'description__user' | 'description__auto'>>
+  Partial<
+    Pick<Transaction, 'merchant_id' | 'journey_id' | 'description__user' | 'description__auto'>
+  >
 
 type TransactionUpdateInput = Partial<
   Omit<Transaction, 'id' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'>
@@ -63,8 +75,8 @@ type TransactionUpdateInput = Partial<
 function rowToTransaction(row: TransactionRow): Transaction {
   return {
     id: uuidFromColumn(row.id),
-    account_id__from: uuidFromNullableColumn(row.account_id__from),
-    account_id__to: uuidFromNullableColumn(row.account_id__to),
+    account_id__from: shortIdFromNullableColumn(row.account_id__from),
+    account_id__to: shortIdFromNullableColumn(row.account_id__to),
     amount__from: moneyFromRow('amount__from', {
       amount_value__from: row.amount_value__from,
       amount_scale__from: row.amount_scale__from,
@@ -83,16 +95,29 @@ function rowToTransaction(row: TransactionRow): Transaction {
       date_override_local: row.date_override_local,
       date_override_zone: row.date_override_zone,
     }),
-    tags: jsonArrayFromColumn<string>(row.tags),
+    tags: jsonArrayFromColumn<string>(row.tags).map(shortIdFromColumn),
+    categories: categoryPartsFromColumn(
+      row.categories,
+      row.amount_currency__from,
+      row.amount_currency__to,
+    ),
+    merchant_id: shortIdFromNullableColumn(row.merchant_id),
     location_lat: row.location_lat,
     location_lon: row.location_lon,
-    location_id: uuidFromNullableColumn(row.location_id),
+    location_id: shortIdFromNullableColumn(row.location_id),
+    journey_id: shortIdFromNullableColumn(row.journey_id),
     description__user: row.description__user,
     description__auto: jsonObjectFromNullableColumn<unknown>(row.description__auto),
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
+}
+
+/** `stored` with the fields `patch` sets: an undefined field keeps its value, null clears it. */
+function withPatch(stored: Transaction, patch: TransactionUpdateInput): Transaction {
+  const set = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined))
+  return { ...stored, ...set } as Transaction
 }
 
 /**
@@ -119,6 +144,8 @@ export class TransactionsRepository {
   async create(input: TransactionCreateInput): Promise<Transaction> {
     const id = newId()
     const now = instantToColumn(new Date())
+    const merchantId = input.merchant_id ?? null
+    const journeyId = input.journey_id ?? null
 
     const amountFromColumns = moneyToColumns('amount__from', input.amount__from)
     const amountToColumns = moneyToColumns('amount__to', input.amount__to)
@@ -126,8 +153,13 @@ export class TransactionsRepository {
     const dateOverrideColumns = localMomentToColumns('date_override', input.date_override)
     const tagsJson = jsonArrayToColumn(input.tags)
 
-    await this.writeRefreshingBalances(id, (tx) =>
-      tx.run(
+    await this.writeRefreshingBalances(id, async (tx) => {
+      await assertTransactionRules(
+        tx,
+        { ...input, merchant_id: merchantId, journey_id: journeyId },
+        null,
+      )
+      await tx.run(
         `INSERT INTO transactions (
         id,
         account_id__from, account_id__to,
@@ -135,11 +167,11 @@ export class TransactionsRepository {
         amount_value__to, amount_scale__to, amount_currency__to,
         transaction_at_local, transaction_at_zone,
         date_override_local, date_override_zone,
-        tags,
-        location_lat, location_lon, location_id,
+        tags, categories, merchant_id,
+        location_lat, location_lon, location_id, journey_id,
         description__user, description__auto,
         created_at_utc, updated_at_utc
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           input.account_id__from,
@@ -155,16 +187,19 @@ export class TransactionsRepository {
           dateOverrideColumns.date_override_local,
           dateOverrideColumns.date_override_zone,
           tagsJson,
+          categoryPartsToColumn(input.categories),
+          merchantId,
           input.location_lat,
           input.location_lon,
           input.location_id,
+          journeyId,
           optionalTextToColumn(input.description__user),
           jsonObjectToNullableColumn(input.description__auto ?? null),
           now,
           now,
         ],
-      ),
-    )
+      )
+    })
 
     return (await this.findById(id))!
   }
@@ -184,7 +219,7 @@ export class TransactionsRepository {
           'SELECT account_id__from AS a, account_id__to AS b FROM transactions WHERE id = ?',
           [id],
         )
-      ).flatMap((r) => [r.a, r.b].filter((v): v is string => v !== null).map(uuidFromColumn))
+      ).flatMap((r) => [r.a, r.b].filter((v): v is string => v !== null).map(shortIdFromColumn))
     await this.db.transaction(async (tx) => {
       const before = await accountsOf(tx)
       await write(tx)
@@ -209,7 +244,7 @@ export class TransactionsRepository {
   }
 
   /** How many live transactions have a leg on `accountId`. */
-  async countByAccountId(accountId: UUID): Promise<number> {
+  async countByAccountId(accountId: ShortId): Promise<number> {
     const rows = await this.db.exec<{ n: number }>(
       `SELECT COUNT(*) AS n FROM transactions
        WHERE deleted_at_utc IS NULL AND (account_id__from = ? OR account_id__to = ?)`,
@@ -219,7 +254,7 @@ export class TransactionsRepository {
   }
 
   async listByAccountId(
-    accountId: UUID,
+    accountId: ShortId,
     sortBy: TransactionSortMode = 'transaction_at',
   ): Promise<Transaction[]> {
     const rows = await this.db.exec<TransactionRow>(
@@ -232,6 +267,11 @@ export class TransactionsRepository {
     return rows.map(rowToTransaction)
   }
 
+  /**
+   * Changes the given fields. The rules are checked on the row as it will be,
+   * so a patch that changes an amount sends the category parts along (the
+   * parts must keep adding up to it).
+   */
   async update(id: UUID, patch: TransactionUpdateInput): Promise<void> {
     const sets: string[] = []
     const params: unknown[] = []
@@ -287,6 +327,16 @@ export class TransactionsRepository {
       params.push(jsonArrayToColumn(patch.tags))
     }
 
+    if (patch.categories !== undefined) {
+      sets.push('categories = ?')
+      params.push(categoryPartsToColumn(patch.categories))
+    }
+
+    if (patch.merchant_id !== undefined) {
+      sets.push('merchant_id = ?')
+      params.push(patch.merchant_id)
+    }
+
     if (patch.location_lat !== undefined) {
       sets.push('location_lat = ?')
       params.push(patch.location_lat)
@@ -300,6 +350,11 @@ export class TransactionsRepository {
     if (patch.location_id !== undefined) {
       sets.push('location_id = ?')
       params.push(patch.location_id)
+    }
+
+    if (patch.journey_id !== undefined) {
+      sets.push('journey_id = ?')
+      params.push(patch.journey_id)
     }
 
     if (patch.description__user !== undefined) {
@@ -318,9 +373,13 @@ export class TransactionsRepository {
     params.push(instantToColumn(new Date()))
     params.push(id)
 
-    await this.writeRefreshingBalances(id, (tx) =>
-      tx.run(`UPDATE transactions SET ${sets.join(', ')} WHERE id = ?`, params),
-    )
+    await this.writeRefreshingBalances(id, async (tx) => {
+      const rows = await tx.exec<TransactionRow>('SELECT * FROM transactions WHERE id = ?', [id])
+      if (rows.length === 0) throw new Error(`Transaction ${id} not found`)
+      const stored = rowToTransaction(rows[0]!)
+      await assertTransactionRules(tx, withPatch(stored, patch), stored)
+      await tx.run(`UPDATE transactions SET ${sets.join(', ')} WHERE id = ?`, params)
+    })
   }
 
   async softDelete(id: UUID): Promise<void> {

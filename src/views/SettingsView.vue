@@ -349,7 +349,7 @@ async function onValidateS3(): Promise<void> {
             <template v-if="sync.lastSyncOutcome.value.conflicts > 0">
               {{ sync.lastSyncOutcome.value.conflicts }} conflicting
               {{ sync.lastSyncOutcome.value.conflicts === 1 ? 'row was' : 'rows were' }}
-              resolved (deletions win, otherwise the latest edit wins).
+              resolved automatically by the sync rules.
             </template>
           </Message>
         </div>

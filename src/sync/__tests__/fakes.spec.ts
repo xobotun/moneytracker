@@ -64,8 +64,8 @@ describe('FakeSyncBackend', () => {
     backend = new FakeSyncBackend()
     const seed = await migratedDb()
     await seed.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'X', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'X', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
       ['loc-1'],
     )
     await backend.setRemote(seed, META())
@@ -73,11 +73,11 @@ describe('FakeSyncBackend', () => {
     const downloaded = await backend.downloadDatabase()
     cleanups.push(() => downloaded.close())
     // Mutate the clone — must not affect the simulated remote.
-    await downloaded.run('DELETE FROM locations WHERE id = ?', ['loc-1'])
+    await downloaded.run('DELETE FROM tags WHERE id = ?', ['loc-1'])
 
     const downloadedAgain = await backend.downloadDatabase()
     cleanups.push(() => downloadedAgain.close())
-    const rows = await downloadedAgain.exec('SELECT * FROM locations')
+    const rows = await downloadedAgain.exec('SELECT * FROM tags')
     expect(rows).toHaveLength(1)
   })
 

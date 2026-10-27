@@ -5,13 +5,21 @@ import { migration as settingsMigration } from '../../migrations/001_settings'
 import { migration as domainMigration } from '../../migrations/002_domain_schema'
 import { AccountsRepository } from '../AccountsRepository'
 import { AccountGroupingsRepository } from '../AccountGroupingsRepository'
+import { TagsRepository } from '../TagsRepository'
 import { moneyAmount } from '../../MoneyAmount'
-import { asUuid, type UUID } from '../../uuid'
+import { asShortId, type ShortId } from '../../shortId'
+import {
+  DeletedTagError,
+  DuplicateReferenceError,
+  TagKindMismatchError,
+  TagNotFoundError,
+} from '../../errors'
 
 describe('AccountsRepository', () => {
   let db: Database
   let repo: AccountsRepository
   let groupings: AccountGroupingsRepository
+  let tags: TagsRepository
 
   beforeEach(async () => {
     db = new Database()
@@ -19,7 +27,11 @@ describe('AccountsRepository', () => {
     await runMigrations(db, [settingsMigration, domainMigration])
     repo = new AccountsRepository(db)
     groupings = new AccountGroupingsRepository(db)
+    tags = new TagsRepository(db)
   })
+
+  /** A live plain tag's id. */
+  const plainTag = async (name: string) => (await tags.create({ kind: 'tag', name })).id
 
   afterEach(async () => {
     await db.close()
@@ -35,7 +47,7 @@ describe('AccountsRepository', () => {
       colour: '#000',
       icon: 'bank',
     })
-    expect(account.id).toBeDefined()
+    expect(account.id).toMatch(/^[0-9A-Za-z]{12}$/)
     expect(account.name).toBe('Checking')
     expect(account.balance.value).toBe(10000)
     expect(account.balance.scale).toBe(2)
@@ -47,7 +59,7 @@ describe('AccountsRepository', () => {
   })
 
   it('returns null for a missing account', async () => {
-    expect(await repo.findById(asUuid('nonexistent'))).toBeNull()
+    expect(await repo.findById(asShortId('nonexistent'))).toBeNull()
   })
 
   it('round-trips balance MoneyAmount with scale=2', async () => {
@@ -83,17 +95,19 @@ describe('AccountsRepository', () => {
   })
 
   it('round-trips tags JSON array', async () => {
+    const savings = await plainTag('savings')
+    const emergency = await plainTag('emergency')
     const account = await repo.create({
       name: 'Tagged Account',
       balance: moneyAmount(5000, 2, 'USD'),
-      tags: ['savings', 'emergency'],
+      tags: [savings, emergency],
       location_id: null,
       grouping_id: null,
       colour: '#0FF',
       icon: 'wallet',
     })
     const found = await repo.findById(account.id)
-    expect(found?.tags).toEqual(['savings', 'emergency'])
+    expect(found?.tags).toEqual([savings, emergency])
   })
 
   it('is not cash unless told, and round-trips is_cash', async () => {
@@ -160,10 +174,11 @@ describe('AccountsRepository', () => {
   })
 
   it('update changes only provided fields', async () => {
+    const original = await plainTag('original')
     const account = await repo.create({
       name: 'Test',
       balance: moneyAmount(1000, 2, 'USD'),
-      tags: ['original'],
+      tags: [original],
       location_id: null,
       grouping_id: null,
       colour: '#000',
@@ -172,8 +187,75 @@ describe('AccountsRepository', () => {
     await repo.update(account.id, { name: 'Changed' })
     const after = await repo.findById(account.id)
     expect(after?.name).toBe('Changed')
-    expect(after?.tags).toEqual(['original'])
+    expect(after?.tags).toEqual([original])
     expect(after?.colour).toBe('#000')
+  })
+
+  describe('tag references', () => {
+    const input = {
+      name: 'Wallet',
+      balance: moneyAmount(0, 2, 'EUR'),
+      tags: [] as ShortId[],
+      location_id: null as ShortId | null,
+      grouping_id: null,
+      colour: '#000',
+      icon: 'wallet',
+    }
+
+    it('takes live plain tags, each once, and a live location', async () => {
+      const daily = await plainTag('daily')
+      const berlin = (await tags.create({ kind: 'location', name: 'Berlin' })).id
+      const food = (await tags.create({ kind: 'category', name: 'Food' })).id
+
+      const account = await repo.create({ ...input, tags: [daily], location_id: berlin })
+      expect(await repo.findById(account.id)).toMatchObject({ tags: [daily], location_id: berlin })
+
+      await expect(repo.create({ ...input, tags: [food] })).rejects.toThrow(TagKindMismatchError)
+      await expect(repo.create({ ...input, location_id: daily })).rejects.toThrow(
+        TagKindMismatchError,
+      )
+      await expect(repo.create({ ...input, tags: [asShortId('NoSuchTag123')] })).rejects.toThrow(
+        TagNotFoundError,
+      )
+      await expect(repo.create({ ...input, tags: [daily, daily] })).rejects.toThrow(
+        DuplicateReferenceError,
+      )
+      await expect(repo.update(account.id, { tags: [food] })).rejects.toThrow(TagKindMismatchError)
+      await expect(repo.update(account.id, { location_id: food })).rejects.toThrow(
+        TagKindMismatchError,
+      )
+      expect(await repo.list()).toHaveLength(1)
+      expect(await repo.findById(account.id)).toMatchObject({ tags: [daily], location_id: berlin })
+    })
+
+    it('keeps a deleted tag the account has but refuses adding one', async () => {
+      const daily = await plainTag('daily')
+      const trip = await plainTag('trip')
+      const berlin = (await tags.create({ kind: 'location', name: 'Berlin' })).id
+      const account = await repo.create({ ...input, tags: [daily], location_id: berlin })
+      const other = await repo.create({ ...input, name: 'Card' })
+      await tags.softDelete(daily)
+      await tags.softDelete(trip)
+      await tags.softDelete(berlin)
+
+      // The account keeps them through its edits...
+      await repo.update(account.id, { name: 'Pocket' })
+      await repo.update(account.id, { tags: [daily], location_id: berlin })
+      expect(await repo.findById(account.id)).toMatchObject({
+        name: 'Pocket',
+        tags: [daily],
+        location_id: berlin,
+      })
+
+      // ...but nothing can newly reference them.
+      await expect(repo.update(account.id, { tags: [daily, trip] })).rejects.toThrow(
+        DeletedTagError,
+      )
+      await expect(repo.update(other.id, { tags: [daily] })).rejects.toThrow(DeletedTagError)
+      await expect(repo.update(other.id, { location_id: berlin })).rejects.toThrow(DeletedTagError)
+      await expect(repo.create({ ...input, tags: [daily] })).rejects.toThrow(DeletedTagError)
+      expect(await repo.findById(other.id)).toMatchObject({ tags: [], location_id: null })
+    })
   })
 
   it('updates balance MoneyAmount', async () => {
@@ -209,7 +291,7 @@ describe('AccountsRepository', () => {
   })
 
   describe('order and groups (grouping_id, sort_order)', () => {
-    function createNamed(name: string, grouping_id: UUID | null = null) {
+    function createNamed(name: string, grouping_id: ShortId | null = null) {
       return repo.create({
         name,
         balance: moneyAmount(0, 2, 'USD'),
@@ -224,7 +306,7 @@ describe('AccountsRepository', () => {
     const createGrouping = (name: string) =>
       groupings.create({ name, colour: '#000', icon: 'folder' })
 
-    const namesIn = async (groupingId: UUID | null) =>
+    const namesIn = async (groupingId: ShortId | null) =>
       (await repo.list()).filter((a) => a.grouping_id === groupingId).map((a) => a.name)
 
     it('appends a new account after the existing ones', async () => {
@@ -255,7 +337,7 @@ describe('AccountsRepository', () => {
     })
 
     it('rejects a group that does not exist', async () => {
-      await expect(createNamed('Orphan', asUuid('no-such-grouping'))).rejects.toThrow()
+      await expect(createNamed('Orphan', asShortId('no-such-grp'))).rejects.toThrow()
     })
 
     it('arrange() stores the given order', async () => {
@@ -332,17 +414,18 @@ describe('AccountsRepository', () => {
     })
   })
 
-  it('throws when creating with non-existent location_id (FK violation)', async () => {
+  it('throws when creating with non-existent location_id', async () => {
     await expect(
       repo.create({
         name: 'Bad Location',
         balance: moneyAmount(1000, 2, 'USD'),
         tags: [],
-        location_id: asUuid('nonexistent-location-id'),
+        location_id: asShortId('nonexistent-location-id'),
         grouping_id: null,
         colour: '#000',
         icon: 'bank',
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(TagNotFoundError)
+    expect(await repo.list()).toEqual([])
   })
 })

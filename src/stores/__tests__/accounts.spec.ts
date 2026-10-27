@@ -5,9 +5,10 @@ import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
+import { TagsRepository } from '@/db/repositories/TagsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
-import type { UUID } from '@/db/uuid'
+import type { ShortId } from '@/db/shortId'
 import { useAccountsStore } from '../accounts'
 
 // Real repositories over an in-memory database, so the store is tested
@@ -35,6 +36,7 @@ function input(name: string) {
 
 describe('useAccountsStore', () => {
   let db: Database
+  let categoryId: ShortId // every transaction needs a category
 
   beforeEach(async () => {
     setActivePinia(createPinia())
@@ -44,6 +46,7 @@ describe('useAccountsStore', () => {
     accountsRepo = new AccountsRepository(db)
     groupingsRepo = new AccountGroupingsRepository(db)
     transactionsRepo = new TransactionsRepository(db)
+    categoryId = (await new TagsRepository(db).create({ kind: 'category', name: 'Misc' })).id
   })
 
   afterEach(async () => {
@@ -206,6 +209,13 @@ describe('useAccountsStore', () => {
       transaction_at: localMoment('2026-10-01T12:00:00.000+02:00', 'Europe/Berlin'),
       date_override: null,
       tags: [],
+      categories: [
+        {
+          category_id: categoryId,
+          amount__from: moneyAmount(500, 2, 'EUR'),
+          amount__to: moneyAmount(500, 2, 'EUR'),
+        },
+      ],
       location_lat: null,
       location_lon: null,
       location_id: null,
@@ -216,7 +226,7 @@ describe('useAccountsStore', () => {
   })
 
   describe('balances', () => {
-    const income = (to: UUID, cents: number) =>
+    const income = (to: ShortId, cents: number) =>
       transactionsRepo.create({
         account_id__from: null,
         account_id__to: to,
@@ -225,6 +235,13 @@ describe('useAccountsStore', () => {
         transaction_at: localMoment('2026-10-01T12:00:00.000+02:00', 'Europe/Berlin'),
         date_override: null,
         tags: [],
+        categories: [
+          {
+            category_id: categoryId,
+            amount__from: moneyAmount(cents, 2, 'EUR'),
+            amount__to: moneyAmount(cents, 2, 'EUR'),
+          },
+        ],
         location_lat: null,
         location_lon: null,
         location_id: null,

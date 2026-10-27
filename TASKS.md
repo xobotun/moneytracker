@@ -320,19 +320,43 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 ---
 
+### Tags and categories — data layer
+
+- Decided in [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md), built per [docs/plans/2026-10-26-tags-and-categories-plan.md](docs/plans/2026-10-26-tags-and-categories-plan.md)
+- One `tags` table for five kinds (category, merchant, location, journey, tag) with short ids, a hierarchy within each kind (no loops), synonyms, merging into another tag (details asked on conflict: `detailConflicts` / `MergeConflictError`), soft delete and restore, duplicates listed; side tables `location_details` (address, coordinates, merchant, nearest-location query), `merchant_details` (default category), `journey_details` (dates; derived ones cover child journeys). The `locations` table is gone
+- Short ids (12 base-62 characters) for tags, accounts and account groups; accounts reference plain tags by id (`useTagsStore`)
+- Transactions: category parts as JSON (`categories`, at least one, adding up exactly to both totals), merchant / location / journey ids, plain-tag ids (`transactionRules.ts`)
+- Split calculator for the form: `src/money/split.ts` (typed vs. derived parts, the spec's worked example)
+- Sync: deferred FKs for self-referencing tags; `repairTags` after every merge (merge cycles, redirects, categories in use, lifts, parent loops); exact ties broken by row content, the same on every device; two-device convergence tests and sync corner-case tests (`src/sync/__tests__/cornerCases/`)
+
 ## To Do
+
+### Sync: tell which side changed a row without timestamps
+
+Known bug, postponed 2026-10-26. A change made offline and uploaded after another device's
+last sync counts as "unchanged" on that device, so delete-wins and rank rules are skipped and
+the discarded change is not reported: a delete or a manual exchange rate is lost on both
+devices, even with synchronised clocks. Problem, why the current mechanisms miss it, options
+with their upsides and downsides, and the recommendation (per-row base hashes):
+[docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md).
+
+- Deliberately failing tests until this is done: the two `it.fails` in
+  `src/sync/__tests__/cornerCases/cutoff.spec.ts` — turn them into `it(...)` when fixed
+- Revisit `src/sync/__tests__/convergence.spec.ts` "after a redirect whose merged tag comes
+  back" and "after a lift whose deleted parent comes back", which rely on today's cutoff
+- Keep `src/sync/__tests__/cornerCases/merges.spec.ts` "keeps a restore when the other device
+  merged the restored tag's parent" passing: the user's merge rewrites the tombstone without a
+  timestamp bump, so compare rows through the merge-chain map (see the doc, option A)
 
 ### Domain model gaps
 
 Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema:
 
-- **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now, part of the tags refactor below
+- **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now (journey tags with dates; data layer done, see Done)
 - **Cash vs. non-cash flag** on transactions (maybe not needed yet)
-- **Categories** on transactions: at least one per transaction, splittable across several with a *from* and a *to* amount per part. Decided 2026-10-26, see [docs/plans/2026-10-26-category-vs-tag-decisions.md](docs/plans/2026-10-26-category-vs-tag-decisions.md); the tables are not designed yet
-- **Tags refactor** (decided 2026-10-26, same doc; tables not designed yet): one `tags` table with a `kind` (category, merchant, location, journey, tag) and short ids; a hierarchy within each kind (no loops, also after sync); synonyms as extra names and merging (with a redirect for devices that sync later); a soft delete that hides a tag but keeps its references. The `locations` table becomes location tags plus a side table (address, coordinates, merchant); merchants get a default category; journeys get start and end dates and a per-device "on a journey" switch
-- **Short ids** for tags, accounts and account groups: 12 random base-62 characters instead of UUIDv7, since they are created rarely and referenced often. Touches the schema (migration 002 edited in place), `src/db/uuid.ts` (a generator and branded type next to `newId`), `types.ts`, `columnMappers.ts`, the repositories, `src/stores/accounts.ts`, `AccountsView.vue`, the sync descriptors, and the primary-key convention in CLAUDE.md
+- Categories, tags of five kinds and short ids: the data layer is done (see "Tags and categories — data layer" under Done); the Tags page, the transaction form and reports are below
 - Later: **fractional category splits** (a part given as a fraction of the transaction) and **recurring transactions** (same doc, TODO)
-- Location granularity at FIAS level (current `locations` table covers country/city/lat/lon/address — FIAS-specific structure TBD) (good as is for now)
+- Location granularity at FIAS level (location tags cover it now: a hierarchy such as country > city > store, with address and coordinates in `location_details` — FIAS-specific structure TBD) (good as is for now)
 
 ### Pinia stores over repositories
 
@@ -359,6 +383,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
 - Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
+    - Before merge ships: `TagsRepository.merge` refuses to fill the target's empty detail with the source's link to a deleted tag (`DeletedTagError`), and `detailConflicts` does not report it. Spec §2.5: the source's details fill the ones the target lacks — skip the liveness check for a value either tag already has; keep it for a `resolved` value that is on neither side (left open by the tags-and-categories final review)
 
 ### Exchange rates
 
@@ -377,7 +402,7 @@ Phases 1 and 2 (the app side) are done (see Done above). Next:
 - Follow-ups from the phase-1 review (minor):
     - `isFinal` freezes a fallback row (resolved from the previous day's data) once its date is before yesterday, even when that date's own publication was never fetched — freeze only once the library holds a top-level row dated on or after it (ECB / CBA weekend rows still need a freeze)
     - The rates store loads the table only after the service's `ensure` (which may wait on the network), and one pair's failure skips the reload (`Promise.all`); load first, or in `finally`
-    - Settings' conflict text ("deletions win, otherwise the latest edit wins") omits `rank-wins`; applied rates two devices resolved at different times of day (different `reference_date`) count as conflicts — don't count machine-written rows, or break ties by the fresher `reference_date`
+    - Applied rates two devices resolved at different times of day (different `reference_date`) count as conflicts in Settings' sync result — don't count machine-written rows, or break ties by the fresher `reference_date`
     - A failed fetch is remembered as "nothing there" until Refresh or a reload; no `online` listener. `refreshIfStale` does not check `navigator.onLine`
     - `refresh` can fetch `latest` twice (keyed under today and yesterday) and re-fetch up to 8 dated files to re-check NULL rows; `resolveRate()` is used only by tests (the service has its own level loop)
     - `CHECK (currency_a < currency_b)` uses SQLite's UTF-8 byte order, the code JS's UTF-16 order: they differ for some pairs of exotic non-ASCII custom codes (an emoji and a U+E000–U+FFFF character)
@@ -448,10 +473,11 @@ Known sync defects, postponed (review 2026-10-18):
   a device to another device's name is unsupported): a device with a
   duplicate name and a smaller or empty database takes `upload-local`, which
   can drop data and leave stale trailing CSV files.
-- **Clock skew / ties:** the merge cutoff compares timestamps from
-  different devices' clocks, and equal timestamps resolve to the local side
-  (two devices can flip-flop). Accepted for now; concurrent edits expected
-  to be rare.
+- **Clock skew:** the merge cutoff compares timestamps from different
+  devices' clocks. Accepted for now; concurrent edits expected to be rare.
+  (Exact ties no longer flip-flop: they are broken by row content, the same
+  on every device. The cutoff itself is the postponed "Sync: tell which side
+  changed a row without timestamps" above.)
 
 
 ### Import
@@ -475,7 +501,6 @@ Known sync defects, postponed (review 2026-10-18):
 
 ### Known defects / open decisions
 
-- A soft-deleted tag cannot be re-created (the tag name is the primary key); with sync, delete-wins also removes a tag re-created offline. Goes away with tag ids (tags refactor)
 - `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
 - A sync conflict on an `accounts` row (edited on two devices) captures both sides' cached balance in its snapshot; the two may differ for no data reason. Cosmetic — matters only once a conflict viewer exists (strip `DERIVED_COLUMNS` from the snapshots then)
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)

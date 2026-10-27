@@ -11,7 +11,7 @@ import type {
   AccountGroupingCreateInput,
   AccountGroupingUpdateInput,
 } from '@/db/repositories/AccountGroupingsRepository'
-import type { UUID } from '@/db/uuid'
+import type { ShortId } from '@/db/shortId'
 
 /** One block of the accounts page: a group with its accounts, or (grouping null) the rest. */
 export interface AccountSection {
@@ -38,7 +38,7 @@ export const useAccountsStore = defineStore('accounts', () => {
    * group is deleted or missing (a sync merge can leave that) goes there too.
    */
   const sections = computed<AccountSection[]>(() => {
-    const byGrouping = new Map<UUID, Account[]>(groupings.value.map((g) => [g.id, []]))
+    const byGrouping = new Map<ShortId, Account[]>(groupings.value.map((g) => [g.id, []]))
     const ungrouped: Account[] = []
     for (const account of accounts.value) {
       const members = account.grouping_id === null ? undefined : byGrouping.get(account.grouping_id)
@@ -73,7 +73,7 @@ export const useAccountsStore = defineStore('accounts', () => {
    * transactions use it: their amounts are in the old currency, and the
    * balance would silently stop counting them.
    */
-  async function update(id: UUID, patch: AccountUpdateInput): Promise<void> {
+  async function update(id: ShortId, patch: AccountUpdateInput): Promise<void> {
     const current = accounts.value.find((a) => a.id === id)
     if (patch.balance && current && patch.balance.currency !== current.balance.currency) {
       const used = await getTransactionsRepository().countByAccountId(id)
@@ -95,12 +95,12 @@ export const useAccountsStore = defineStore('accounts', () => {
   }
 
   /** How many live transactions use account `id`. */
-  function transactionCount(id: UUID): Promise<number> {
+  function transactionCount(id: ShortId): Promise<number> {
     return getTransactionsRepository().countByAccountId(id)
   }
 
   /** Rebuilds one account's cached balance; returns whether it changed. */
-  async function recalculateBalance(id: UUID): Promise<boolean> {
+  async function recalculateBalance(id: ShortId): Promise<boolean> {
     const changed = await getAccountsRepository().recalculateBalances([id])
     await load()
     return changed > 0
@@ -111,7 +111,7 @@ export const useAccountsStore = defineStore('accounts', () => {
    * delete skips the foreign-key check, so they would silently point at a
    * deleted account.
    */
-  async function remove(id: UUID): Promise<void> {
+  async function remove(id: ShortId): Promise<void> {
     const used = await getTransactionsRepository().countByAccountId(id)
     if (used > 0) {
       throw new Error(`It is still used by ${used} transaction${used === 1 ? '' : 's'}.`)
@@ -124,7 +124,11 @@ export const useAccountsStore = defineStore('accounts', () => {
    * Puts account `id` into the section of `groupingId` (null = the ungrouped
    * accounts) at `index`, clamped into that section.
    */
-  async function moveAccount(id: UUID, groupingId: UUID | null, index: number): Promise<void> {
+  async function moveAccount(
+    id: ShortId,
+    groupingId: ShortId | null,
+    index: number,
+  ): Promise<void> {
     const target = sections.value.find((s) => (s.grouping?.id ?? null) === groupingId)
     if (!target) return
     const ids = target.accounts.map((a) => a.id).filter((other) => other !== id)
@@ -138,7 +142,10 @@ export const useAccountsStore = defineStore('accounts', () => {
    * its section, or over the edge into the neighbouring section — the end of
    * the one above, the start of the one below. Null at the very start or end.
    */
-  function stepTarget(id: UUID, step: -1 | 1): { groupingId: UUID | null; index: number } | null {
+  function stepTarget(
+    id: ShortId,
+    step: -1 | 1,
+  ): { groupingId: ShortId | null; index: number } | null {
     const all = sections.value
     const sectionIndex = all.findIndex((s) => s.accounts.some((a) => a.id === id))
     if (sectionIndex === -1) return null
@@ -152,11 +159,11 @@ export const useAccountsStore = defineStore('accounts', () => {
     return { groupingId: next.grouping?.id ?? null, index: step === 1 ? 0 : next.accounts.length }
   }
 
-  function canMoveAccountBy(id: UUID, step: -1 | 1): boolean {
+  function canMoveAccountBy(id: ShortId, step: -1 | 1): boolean {
     return stepTarget(id, step) !== null
   }
 
-  async function moveAccountBy(id: UUID, step: -1 | 1): Promise<void> {
+  async function moveAccountBy(id: ShortId, step: -1 | 1): Promise<void> {
     const target = stepTarget(id, step)
     if (target) await moveAccount(id, target.groupingId, target.index)
   }
@@ -169,19 +176,19 @@ export const useAccountsStore = defineStore('accounts', () => {
     return grouping
   }
 
-  async function updateGrouping(id: UUID, patch: AccountGroupingUpdateInput): Promise<void> {
+  async function updateGrouping(id: ShortId, patch: AccountGroupingUpdateInput): Promise<void> {
     await getAccountGroupingsRepository().update(id, patch)
     await load()
   }
 
   /** Deletes the group; its accounts move below the groups and are kept. */
-  async function removeGrouping(id: UUID): Promise<void> {
+  async function removeGrouping(id: ShortId): Promise<void> {
     await getAccountGroupingsRepository().softDelete(id)
     await load()
   }
 
   /** Moves group `id` to position `toIndex` (clamped) among the groups. */
-  async function moveGrouping(id: UUID, toIndex: number): Promise<void> {
+  async function moveGrouping(id: ShortId, toIndex: number): Promise<void> {
     const ids = groupings.value.map((g) => g.id)
     const from = ids.indexOf(id)
     if (from === -1) return

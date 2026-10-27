@@ -42,9 +42,9 @@ describe('sqliteBlobCodec', () => {
     const locId = newId()
     const accId = newId()
     await src.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Home', '["a","b"]', ?, ?)`,
-      [locId, CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '["a","b"]', ?, ?, ?)`,
+      [locId, CUTOFF, CUTOFF, CUTOFF],
     )
     await src.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
@@ -71,9 +71,9 @@ describe('sqliteBlobCodec', () => {
     const src = await migratedDb()
     dbs.push(src)
     await src.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'X', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'X', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const hSrc = await hashDatabase(src)
     const blob = await exportDatabaseToBlob(src)
@@ -86,9 +86,9 @@ describe('sqliteBlobCodec', () => {
     const db = await migratedDb()
     dbs.push(db)
     await db.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'X', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'X', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const before = db.mutationCounter
     await exportDatabaseToBlob(db)

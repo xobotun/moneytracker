@@ -9,10 +9,14 @@ const EXPECTED_TABLES = [
   'transactions',
   'exchange_rates',
   'tags',
-  'locations',
+  'location_details',
+  'merchant_details',
+  'journey_details',
   'account_groupings',
   'applied_rates',
 ]
+
+const AT = '2026-05-20T00:00:00.000Z'
 
 describe('domain schema migration', () => {
   let db: Database
@@ -27,43 +31,92 @@ describe('domain schema migration', () => {
     await db.close()
   })
 
-  it('creates all seven domain tables', async () => {
+  it('creates the domain tables and nothing else (no locations table)', async () => {
     const rows = await db.exec<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN " +
-        `(${EXPECTED_TABLES.map(() => '?').join(',')}) ORDER BY name`,
-      EXPECTED_TABLES,
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+         AND name NOT IN ('settings', 'migrations')`,
     )
     expect(rows.map((r) => r.name).sort()).toEqual([...EXPECTED_TABLES].sort())
   })
 
-  it('rejects malformed JSON in tags column (json_valid CHECK)', async () => {
-    await expect(
+  describe('tags', () => {
+    const insertTag = (id: string, kind: string, parentId: string | null = null, synonyms = '[]') =>
       db.run(
-        `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?)`,
-        ['loc1', 'X', 'not json', '2026-05-20T00:00:00.000Z', '2026-05-20T00:00:00.000Z'],
-      ),
-    ).rejects.toThrow(/CHECK constraint failed/)
+        `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, synonyms,
+                           created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, kind, `Tag ${id}`, parentId, AT, synonyms, AT, AT],
+      )
+
+    it('accepts the five kinds', async () => {
+      for (const kind of ['category', 'merchant', 'location', 'journey', 'tag']) {
+        await insertTag(`id-${kind}`, kind)
+      }
+      expect(await db.exec('SELECT id FROM tags')).toHaveLength(5)
+    })
+
+    it("rejects any other kind (kind = 'shop')", async () => {
+      await expect(insertTag('t1', 'shop')).rejects.toThrow(/CHECK constraint failed/)
+    })
+
+    it('rejects a parent_id pointing nowhere', async () => {
+      await expect(insertTag('t1', 'tag', 'missing')).rejects.toThrow(
+        /FOREIGN KEY constraint failed/,
+      )
+    })
+
+    it('rejects a tag that is its own parent', async () => {
+      await expect(insertTag('t1', 'tag', 't1')).rejects.toThrow(/CHECK constraint failed/)
+    })
+
+    it('rejects malformed JSON in synonyms (json_valid CHECK)', async () => {
+      await expect(insertTag('t1', 'tag', null, 'not json')).rejects.toThrow(
+        /CHECK constraint failed/,
+      )
+    })
+
+    it('rejects details of a tag that does not exist', async () => {
+      await expect(
+        db.run(
+          `INSERT INTO location_details (tag_id, created_at_utc, updated_at_utc) VALUES (?, ?, ?)`,
+          ['missing', AT, AT],
+        ),
+      ).rejects.toThrow(/FOREIGN KEY constraint failed/)
+    })
   })
 
-  it('enforces FK from accounts.location_id to locations.id', async () => {
-    await expect(
+  it('enforces FK from accounts.location_id to tags.id', async () => {
+    await db.run(
+      `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES ('loc', 'location', 'Home', ?, ?, ?)`,
+      [AT, AT, AT],
+    )
+    const insertAccount = (id: string, locationId: string) =>
       db.run(
         `INSERT INTO accounts (id, name, currency, balance_value, balance_scale,
                                location_id, colour, icon, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          'a1',
-          'Acc',
-          'USD',
-          0,
-          2,
-          'missing-loc',
-          '#FFFFFF',
-          'cash',
-          '2026-05-20T00:00:00.000Z',
-          '2026-05-20T00:00:00.000Z',
-        ],
+         VALUES (?, 'Acc', 'USD', 0, 2, ?, '#FFFFFF', 'cash', ?, ?)`,
+        [id, locationId, AT, AT],
+      )
+    await insertAccount('a0', 'loc')
+    expect(await db.exec('SELECT id FROM accounts')).toHaveLength(1)
+    await expect(insertAccount('a1', 'missing-loc')).rejects.toThrow(
+      /FOREIGN KEY constraint failed/,
+    )
+  })
+
+  it('enforces FK from transactions.location_id to tags.id', async () => {
+    await expect(
+      db.run(
+        `INSERT INTO transactions (id,
+                                   amount_value__from, amount_scale__from, amount_currency__from,
+                                   amount_value__to, amount_scale__to, amount_currency__to,
+                                   transaction_at_local, transaction_at_zone,
+                                   location_id, created_at_utc, updated_at_utc)
+         VALUES ('t1', 100, 2, 'USD', 100, 2, 'USD',
+                 '2026-05-20T12:00:00.000+02:00', 'Europe/Berlin', 'missing-loc', ?, ?)`,
+        [AT, AT],
       ),
     ).rejects.toThrow(/FOREIGN KEY constraint failed/)
   })

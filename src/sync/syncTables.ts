@@ -6,11 +6,15 @@ export interface SyncTable {
 
 /**
  * Domain tables to merge, ordered parents-before-children so that applying
- * upserts in this order never violates a foreign key (algorithm step 6):
- *   - accounts reference locations and account_groupings
- *   - transactions reference accounts and locations
- * `applied_rates` has no foreign keys and sits in the first tier with the
- * other parent-free tables.
+ * upserts in this order never violates a foreign key between tables
+ * (algorithm step 6):
+ *   - the side tables (`*_details`) reference tags
+ *   - accounts reference tags (location) and account_groupings
+ *   - transactions reference accounts and tags (location)
+ * `tags` also references itself (parent_id, merged_into_id), which no table
+ * order can settle: `mergeDatabases` and `importAllTables` check foreign keys
+ * at COMMIT. `applied_rates` has no foreign keys and sits with the other
+ * parent-free tables.
  *
  * The `settings` and `migrations` tables are intentionally absent: settings are
  * device-local-ish and ride along inside the uploaded blob without row merge;
@@ -19,8 +23,10 @@ export interface SyncTable {
  * again (it still rides along inside an uploaded blob, never merged).
  */
 export const SYNC_TABLES: readonly SyncTable[] = [
-  { name: 'locations', pk: 'id' },
-  { name: 'tags', pk: 'tag' },
+  { name: 'tags', pk: 'id' },
+  { name: 'location_details', pk: 'tag_id' },
+  { name: 'merchant_details', pk: 'tag_id' },
+  { name: 'journey_details', pk: 'tag_id' },
   { name: 'applied_rates', pk: 'id' },
   { name: 'account_groupings', pk: 'id' },
   { name: 'accounts', pk: 'id' },

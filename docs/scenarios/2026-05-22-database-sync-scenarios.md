@@ -87,7 +87,8 @@ User may interrupt the sync at any time, the app will have to use the local data
     last known remote state). Only rows whose `created_at_utc`, `updated_at_utc`, or `deleted_at_utc` is newer than this
     cutoff need to be considered on either side. Over-including rows is harmless (re-applying an identical row is a no-op).
 6. **Merge, parent tables before child tables** so foreign keys (`ON DELETE RESTRICT`) are never violated mid-merge:
-   1. locations, tags (and other referenced lookup tables such as currencies)
+   1. tags and the tag side tables (location, merchant and journey details), and the other parent tables
+      (applied rates, account groups); tags also reference each other, so foreign keys are checked at COMMIT
    2. accounts
    3. transactions
    For each candidate row:
@@ -115,7 +116,12 @@ the remote side since the merge cutoff.
 
 - If the two versions are byte-identical, it is not a real conflict — pick either.
 - If one side deleted the row and the other updated it, **the delete wins** — keep the tombstone.
+- Some rows outrank others whatever the timestamps (`ROW_RANK`). For tags: when both sides deleted the tag,
+  a **merged tombstone wins over a plain delete** — it remembers where the tag's references go.
 - Otherwise, the row with the latest `updated_at_utc` / `deleted_at_utc` wins.
+- On an exact tie, the version whose content sorts greater wins (columns in name order, the merge's
+  ignored columns left out), so every device picks the same one — never "local", which would let two
+  devices keep their own copies forever.
 
 Every conflicting row (the chosen winner and the discarded loser) is collected and included in an **email to the user** 
 so the discarded change is never lost silently. Email sending is deferred — it needs a Supabase Edge Function and will
@@ -125,6 +131,29 @@ be implemented later.
 > devices edited different fields of the same row" from a true overwrite,
 > because there is no stored common ancestor — that is an accepted limitation of
 > the PoC. The conflict email is the safety net.
+
+## Tag repairs
+
+Taking each tag row whole from one side can combine changes into states no device produced. After the table
+merge, in the same transaction, `repairTags` mends them in this order:
+
+1. **Merge cycles** (X merged into Y on one device, Y into X on another) are broken by undoing the later merge:
+   the tag with the latest `updated_at_utc` is restored from the side where it was live, stamped
+   `max(the cycle's latest updated_at_utc + 1 ms, that row's updated_at_utc)`. Reported as `loop-undone`.
+2. **References to merged tags** move to the end of each merge chain (transactions, accounts, the details
+   tables, child tags). No timestamp is bumped.
+3. **Categories in use** are restored: a deleted, unmerged category that a live transaction uses comes back from
+   the side where it was live (or as its tombstone, when no side had it live), stamped
+   `max(deleted_at_utc + 1 ms, that row's updated_at_utc)`. Reported as `delete-undone`.
+4. **Children of deleted or merged tags** are lifted to the nearest live ancestor, or to the top level. No
+   timestamp is bumped.
+5. **Parent loops** are undone at the tag moved last (the greatest `moved_at_utc`, which only the user's moves
+   set; ties: the greatest id): it goes back to its parent on the other side, or to the top level, and its
+   `updated_at_utc` is bumped to now. Reported as `loop-undone`.
+
+The stamps of steps 1 and 3 come from the rows, not the clock, and steps 2 and 4 keep timestamps, so every
+device that meets the same state writes the same rows — including a device that restores another device's
+restore again.
 
 # Abstract sync provider API
 

@@ -12,7 +12,7 @@ import {
 import { SYNC_TABLES } from '../syncTables'
 import { rowsEqual } from '../rows'
 import { newId } from '../../db/uuid'
-import { seedLocations } from './helpers'
+import { seedTag, seedTags } from './helpers'
 import Papa from 'papaparse'
 import { hashDatabase } from '../hashDatabase'
 
@@ -40,18 +40,18 @@ describe('csvCodec', () => {
       const id1 = '0193ffffffffffffffffffffffffff01'
       const id2 = '0194000000000000000000000000a002'
       await db.run(
-        `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'Two', '[]', ?, ?)`,
-        [id2, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'Two', '[]', ?, ?, ?)`,
+        [id2, CUTOFF, CUTOFF, CUTOFF],
       )
       await db.run(
-        `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'One', '[]', ?, ?)`,
-        [id1, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'One', '[]', ?, ?, ?)`,
+        [id1, CUTOFF, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(db, { name: 'locations', pk: 'id' }))[0]!
+      const csv = (await exportTableToCsvFiles(db, { name: 'tags', pk: 'id' }))[0]!
       const lines = csv.split('\n').filter((l) => l.length > 0)
-      expect(lines[0]).toMatch(/^id,name,/)
+      expect(lines[0]).toMatch(/^id,kind,name,/)
       expect(lines[1]!).toContain(id1)
       expect(lines[2]!).toContain(id2)
     })
@@ -60,11 +60,11 @@ describe('csvCodec', () => {
       const db = await migratedDb()
       dbs.push(db)
       await db.run(
-        `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-         VALUES (?, ?, '[]', ?, ?)`,
-        [newId(), 'Smith, "Jr."\nNYC', CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', ?, '[]', ?, ?, ?)`,
+        [newId(), 'Smith, "Jr."\nNYC', CUTOFF, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(db, { name: 'locations', pk: 'id' }))[0]!
+      const csv = (await exportTableToCsvFiles(db, { name: 'tags', pk: 'id' }))[0]!
       // The Name cell should be quoted; the embedded double quote should
       // be doubled; the embedded newline should sit inside the quoted cell.
       expect(csv).toMatch(/"Smith, ""Jr\.""\nNYC"/)
@@ -74,18 +74,18 @@ describe('csvCodec', () => {
       const db = await migratedDb()
       dbs.push(db)
       await db.run(
-        `INSERT INTO locations (id, name, city, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'X', NULL, '[]', ?, ?)`,
-        [newId(), CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, description, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'X', NULL, ?, ?, ?)`,
+        [newId(), CUTOFF, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(db, { name: 'locations', pk: 'id' }))[0]!
+      const csv = (await exportTableToCsvFiles(db, { name: 'tags', pk: 'id' }))[0]!
       const dataLine = csv.split('\n')[1]!
       expect(dataLine.split(',').some((c) => c === '')).toBe(true)
     })
   })
 
   describe('exportTableToCsvFiles chunking', () => {
-    const locations = { name: 'locations', pk: 'id' }
+    const tagsTable = { name: 'tags', pk: 'id' }
     const dataRows = (csv: string) =>
       Papa.parse<string[]>(csv, { skipEmptyLines: true }).data.slice(1)
     const header = (csv: string) => Papa.parse<string[]>(csv).data[0]!
@@ -93,8 +93,8 @@ describe('csvCodec', () => {
     it('splits 1001 rows into 1000 + 1, each with the header', async () => {
       const db = await migratedDb()
       dbs.push(db)
-      await seedLocations(db, 1001)
-      const files = await exportTableToCsvFiles(db, locations)
+      await seedTags(db, 1001)
+      const files = await exportTableToCsvFiles(db, tagsTable)
       expect(files).toHaveLength(2)
       expect(dataRows(files[0]!)).toHaveLength(1000)
       expect(dataRows(files[1]!)).toHaveLength(1)
@@ -105,23 +105,23 @@ describe('csvCodec', () => {
     it('keeps exactly 1000 rows in one file', async () => {
       const db = await migratedDb()
       dbs.push(db)
-      await seedLocations(db, 1000)
-      expect(await exportTableToCsvFiles(db, locations)).toHaveLength(1)
+      await seedTags(db, 1000)
+      expect(await exportTableToCsvFiles(db, tagsTable)).toHaveLength(1)
     })
 
     it('gives an empty table one header-only file', async () => {
       const db = await migratedDb()
       dbs.push(db)
-      const files = await exportTableToCsvFiles(db, locations)
+      const files = await exportTableToCsvFiles(db, tagsTable)
       expect(files).toHaveLength(1)
-      expect(files[0]).toMatch(/^id,name,[^\n]*\n$/)
+      expect(files[0]).toMatch(/^id,kind,name,[^\n]*\n$/)
     })
 
     it('a multi-line, quoted row at a file boundary round-trips', async () => {
       const src = await migratedDb()
       const dst = await migratedDb()
       dbs.push(src, dst)
-      await seedLocations(src, 1001, (n) => (n >= 1000 ? 'line1\nline2, "q"' : null))
+      await seedTags(src, 1001, (n) => (n >= 1000 ? 'line1\nline2, "q"' : null))
       await importAllTables(dst, await exportAllTables(src))
       expect(await hashDatabase(dst)).toBe(await hashDatabase(src))
     })
@@ -134,14 +134,15 @@ describe('csvCodec', () => {
       dbs.push(src, dst)
       const id = newId()
       await src.run(
-        `INSERT INTO locations (id, name, city, country, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'Home', 'Berlin', 'DE', '["a","b"]', ?, ?)`,
-        [id, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, description, synonyms, colour, icon,
+                           moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'Home', 'Berlin, DE', '["a","b"]', '#22c55e', 'home', ?, ?, ?)`,
+        [id, CUTOFF, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
-      await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
-      const srcRows = await src.exec<Record<string, unknown>>('SELECT * FROM locations')
-      const dstRows = await dst.exec<Record<string, unknown>>('SELECT * FROM locations')
+      const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
+      await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, csv)
+      const srcRows = await src.exec<Record<string, unknown>>('SELECT * FROM tags')
+      const dstRows = await dst.exec<Record<string, unknown>>('SELECT * FROM tags')
       expect(dstRows).toHaveLength(srcRows.length)
       expect(rowsEqual(srcRows[0]!, dstRows[0]!)).toBe(true)
     })
@@ -150,16 +151,25 @@ describe('csvCodec', () => {
       const src = await migratedDb()
       const dst = await migratedDb()
       dbs.push(src, dst)
+      const tagId = newId()
+      for (const db of [src, dst]) {
+        await db.run(
+          `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+           VALUES (?, 'location', 'GPS', ?, ?, ?)`,
+          [tagId, CUTOFF, CUTOFF, CUTOFF],
+        )
+      }
       await src.run(
-        `INSERT INTO locations (id, name, latitude, longitude, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'GPS', 52.5, 13.4, '[]', ?, ?)`,
-        [newId(), CUTOFF, CUTOFF],
+        `INSERT INTO location_details (tag_id, latitude, longitude, created_at_utc, updated_at_utc)
+         VALUES (?, 52.5, 13.4, ?, ?)`,
+        [tagId, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
-      await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
+      const details = { name: 'location_details', pk: 'tag_id' }
+      const csv = (await exportTableToCsvFiles(src, details))[0]!
+      await importCsvIntoTable(dst, details, csv)
       const row = (
         await dst.exec<{ latitude: unknown; longitude: unknown }>(
-          'SELECT latitude, longitude FROM locations',
+          'SELECT latitude, longitude FROM location_details',
         )
       )[0]!
       expect(typeof row.latitude).toBe('number')
@@ -171,37 +181,37 @@ describe('csvCodec', () => {
       const dst = await migratedDb()
       dbs.push(src, dst)
       await src.run(
-        `INSERT INTO locations (id, name, city, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'X', NULL, '[]', ?, ?)`,
-        [newId(), CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, description, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'X', NULL, ?, ?, ?)`,
+        [newId(), CUTOFF, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
-      await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
-      const row = (await dst.exec<{ city: unknown }>('SELECT city FROM locations'))[0]!
-      expect(row.city).toBeNull()
+      const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
+      await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, csv)
+      const row = (await dst.exec<{ description: unknown }>('SELECT description FROM tags'))[0]!
+      expect(row.description).toBeNull()
     })
 
-    it('preserves a JSON-literal cell (tags array)', async () => {
+    it('preserves a JSON-literal cell (synonyms array)', async () => {
       const src = await migratedDb()
       const dst = await migratedDb()
       dbs.push(src, dst)
       await src.run(
-        `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'X', ?, ?, ?)`,
-        [newId(), '["a","b","c"]', CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'X', ?, ?, ?, ?)`,
+        [newId(), '["a","b","c"]', CUTOFF, CUTOFF, CUTOFF],
       )
-      const csv = (await exportTableToCsvFiles(src, { name: 'locations', pk: 'id' }))[0]!
-      await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, csv)
-      const row = (await dst.exec<{ tags: string }>('SELECT tags FROM locations'))[0]!
-      expect(JSON.parse(row.tags)).toEqual(['a', 'b', 'c'])
+      const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
+      await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, csv)
+      const row = (await dst.exec<{ synonyms: string }>('SELECT synonyms FROM tags'))[0]!
+      expect(JSON.parse(row.synonyms)).toEqual(['a', 'b', 'c'])
     })
 
     it('imports nothing from an empty CSV (header only)', async () => {
       const dst = await migratedDb()
       dbs.push(dst)
-      const headerOnly = (await exportTableToCsvFiles(dst, { name: 'locations', pk: 'id' }))[0]!
-      await importCsvIntoTable(dst, { name: 'locations', pk: 'id' }, headerOnly)
-      expect(await dst.exec('SELECT * FROM locations')).toHaveLength(0)
+      const headerOnly = (await exportTableToCsvFiles(dst, { name: 'tags', pk: 'id' }))[0]!
+      await importCsvIntoTable(dst, { name: 'tags', pk: 'id' }, headerOnly)
+      expect(await dst.exec('SELECT * FROM tags')).toHaveLength(0)
     })
   })
 
@@ -213,14 +223,49 @@ describe('csvCodec', () => {
       const locId = newId()
       const accId = newId()
       await src.run(
-        `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-         VALUES (?, 'Home', '[]', ?, ?)`,
-        [locId, CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+        [locId, CUTOFF, CUTOFF, CUTOFF],
+      )
+      const foodId = newId()
+      const reweId = newId()
+      const tripId = newId()
+      await src.run(
+        `INSERT INTO tags (id, kind, name, description, synonyms, colour, icon,
+                           moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES (?, 'category', 'Food', NULL, '["Essen"]', '#00ff00', 'tag', ?, ?, ?),
+                (?, 'merchant', 'Rewe', 'Supermarket', '[]', NULL, NULL, ?, ?, ?),
+                (?, 'journey', 'Lisbon', NULL, '[]', NULL, 'globe', ?, ?, ?)`,
+        [
+          foodId,
+          CUTOFF,
+          CUTOFF,
+          CUTOFF,
+          reweId,
+          CUTOFF,
+          CUTOFF,
+          CUTOFF,
+          tripId,
+          CUTOFF,
+          CUTOFF,
+          CUTOFF,
+        ],
       )
       await src.run(
-        `INSERT INTO tags (tag, description, synonyms, colour, icon, created_at_utc, updated_at_utc)
-         VALUES (?, NULL, '[]', '#00ff00', 'tag', ?, ?)`,
-        ['food', CUTOFF, CUTOFF],
+        `INSERT INTO location_details (tag_id, address, latitude, longitude, merchant_id,
+                                       created_at_utc, updated_at_utc)
+         VALUES (?, 'Alexanderplatz 1', 52.5219, 13.4132, ?, ?, ?)`,
+        [locId, reweId, CUTOFF, CUTOFF],
+      )
+      await src.run(
+        `INSERT INTO merchant_details (tag_id, default_category_id, created_at_utc, updated_at_utc)
+         VALUES (?, ?, ?, ?)`,
+        [reweId, foodId, CUTOFF, CUTOFF],
+      )
+      await src.run(
+        `INSERT INTO journey_details (tag_id, start_date, end_date, created_at_utc, updated_at_utc)
+         VALUES (?, '2026-07-01', NULL, ?, ?)`,
+        [tripId, CUTOFF, CUTOFF],
       )
       const groupingId = newId()
       await src.run(
@@ -279,26 +324,95 @@ describe('csvCodec', () => {
       }
     })
 
-    it('rolls back the destination on an FK violation mid-import', async () => {
+    it('imports a child tag from an earlier CSV file than its parent', async () => {
+      const src = await migratedDb()
       const dst = await migratedDb()
-      dbs.push(dst)
-      const bundle = new Map<string, string[]>()
-      // Empty parents but a transaction referencing a non-existent account.
-      // exportTableToCsvFiles on an empty dst gives us header-only CSVs for the
-      // tables that aren't transactions.
-      for (const t of SYNC_TABLES) {
-        bundle.set(t.name, await exportTableToCsvFiles(dst, t))
-      }
-      const txnHeader = bundle.get('transactions')![0]!
-      bundle.set('transactions', [
-        txnHeader +
-          `${newId()},missing-account,,100,2,USD,100,2,USD,2026-05-01T09:00:00.000+00:00,UTC,,,[],,,,,,${CUTOFF},${CUTOFF},\n`,
+      dbs.push(src, dst)
+      // The child's id sorts first, so with one row per file it lands in the
+      // first file and its parent in the second.
+      await seedTag(src, {
+        id: 'b-parent',
+        name: 'Food',
+        kind: 'category',
+        created: CUTOFF,
+        updated: CUTOFF,
+      })
+      await seedTag(src, {
+        id: 'a-child',
+        name: 'Fruit',
+        kind: 'category',
+        parentId: 'b-parent',
+        created: CUTOFF,
+        updated: CUTOFF,
+      })
+      const bundle = await exportAllTables(src, 1)
+      expect(bundle.get('tags')).toHaveLength(2)
+
+      await importAllTables(dst, bundle)
+
+      expect(await dst.exec('SELECT id, parent_id FROM tags ORDER BY id')).toEqual([
+        { id: 'a-child', parent_id: 'b-parent' },
+        { id: 'b-parent', parent_id: null },
       ])
-      await expect(importAllTables(dst, bundle)).rejects.toThrow()
-      // Other tables also imported nothing — everything rolled back.
+    })
+
+    it('rolls back the destination on an FK violation mid-import', async () => {
+      const src = await migratedDb()
+      const dst = await migratedDb()
+      dbs.push(src, dst)
+      // A tag, so the rollback has imported rows of another table to undo.
+      await seedTag(src, {
+        id: 'food',
+        name: 'Food',
+        kind: 'category',
+        created: CUTOFF,
+        updated: CUTOFF,
+      })
+      const bundle = await exportAllTables(src)
+
+      // A transaction on an account that does not exist; every other cell is
+      // valid. Built by column name, so new columns cannot break the row.
+      const header = bundle.get('transactions')![0]!
+      const fields = Papa.parse<string[]>(header.trim()).data[0]!
+      const row: Record<string, string> = {
+        id: newId(),
+        account_id__from: 'missing-account',
+        amount_value__from: '100',
+        amount_scale__from: '2',
+        amount_currency__from: 'USD',
+        amount_value__to: '100',
+        amount_scale__to: '2',
+        amount_currency__to: 'USD',
+        transaction_at_local: '2026-05-01T09:00:00.000+00:00',
+        transaction_at_zone: 'UTC',
+        tags: '[]',
+        categories: JSON.stringify([
+          {
+            category_id: 'food',
+            amount_value__from: 100,
+            amount_scale__from: 2,
+            amount_value__to: 100,
+            amount_scale__to: 2,
+          },
+        ]),
+        created_at_utc: CUTOFF,
+        updated_at_utc: CUTOFF,
+      }
+      expect(fields).toEqual(expect.arrayContaining(Object.keys(row)))
+      bundle.set('transactions', [
+        Papa.unparse({ fields, data: [fields.map((f) => row[f] ?? '')] }, { newline: '\n' }) + '\n',
+      ])
+
+      // Foreign keys are checked at COMMIT, which fails and rolls back everything.
+      await expect(importAllTables(dst, bundle)).rejects.toThrow(/FOREIGN KEY/)
       for (const t of SYNC_TABLES) {
         expect(await dst.exec(`SELECT * FROM ${t.name}`)).toHaveLength(0)
       }
+
+      // The connection is usable afterwards: the bundle without the bad row imports.
+      bundle.set('transactions', [header])
+      await importAllTables(dst, bundle)
+      expect(await dst.exec('SELECT id FROM tags')).toEqual([{ id: 'food' }])
     })
   })
 })

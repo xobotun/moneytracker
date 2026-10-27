@@ -3,7 +3,7 @@ import { Database } from './Database'
 import { ALL_MIGRATIONS, runMigrations } from './migrations'
 import { SettingsRepository } from './repositories/SettingsRepository'
 import { TagsRepository } from './repositories/TagsRepository'
-import { LocationsRepository } from './repositories/LocationsRepository'
+import { TagDetailsRepository } from './repositories/TagDetailsRepository'
 import { AccountsRepository } from './repositories/AccountsRepository'
 import { ExchangeRatesRepository } from './repositories/ExchangeRatesRepository'
 import { AppliedRatesRepository } from './repositories/AppliedRatesRepository'
@@ -23,7 +23,7 @@ let database: Database | null = null
 const syncBackend = shallowRef<SyncBackend | null>(null)
 let settingsRepository: SettingsRepository | null = null
 let tagsRepository: TagsRepository | null = null
-let locationsRepository: LocationsRepository | null = null
+let tagDetailsRepository: TagDetailsRepository | null = null
 let accountsRepository: AccountsRepository | null = null
 let exchangeRatesRepository: ExchangeRatesRepository | null = null
 let appliedRatesRepository: AppliedRatesRepository | null = null
@@ -37,7 +37,7 @@ export async function initDatabase(): Promise<void> {
   await runMigrations(database, ALL_MIGRATIONS)
   settingsRepository = new SettingsRepository(database)
   tagsRepository = new TagsRepository(database)
-  locationsRepository = new LocationsRepository(database)
+  tagDetailsRepository = new TagDetailsRepository(database)
   accountsRepository = new AccountsRepository(database)
   exchangeRatesRepository = new ExchangeRatesRepository(database)
   appliedRatesRepository = new AppliedRatesRepository(database)
@@ -113,9 +113,9 @@ export function getTagsRepository(): TagsRepository {
   return tagsRepository
 }
 
-export function getLocationsRepository(): LocationsRepository {
-  if (!locationsRepository) throw new Error('Database not initialized. Call initDatabase() first.')
-  return locationsRepository
+export function getTagDetailsRepository(): TagDetailsRepository {
+  if (!tagDetailsRepository) throw new Error('Database not initialized. Call initDatabase() first.')
+  return tagDetailsRepository
 }
 
 export function getAccountsRepository(): AccountsRepository {
@@ -162,7 +162,7 @@ export async function closeDatabase(): Promise<void> {
   syncBackend.value = null
   settingsRepository = null
   tagsRepository = null
-  locationsRepository = null
+  tagDetailsRepository = null
   accountsRepository = null
   exchangeRatesRepository = null
   appliedRatesRepository = null

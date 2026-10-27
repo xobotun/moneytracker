@@ -55,6 +55,10 @@ export const EQUALITY_IGNORED_COLUMNS: Record<string, readonly string[]> = {
  * lost to a device that resolved the same day, a found rate never to an empty
  * row from a device that was offline, and a row the resolver improved is not
  * undone by a device with worse data (which would resolve it again, forever).
+ *
+ * A merged tag outranks a plainly deleted one. Only two tombstones get this
+ * far (a live tag is never merged), and the merged one remembers where its
+ * references go (decisions §2.5): a later plain delete must not lose that.
  */
 export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
   applied_rates: (row) =>
@@ -63,30 +67,49 @@ export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
       rate: row.rate as number | null,
       via: row.via as string | null,
     }),
+  tags: (row) => (row.merged_into_id == null ? 0 : 1),
 }
 
 export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
-  locations: [
+  tags: [
     { name: 'id', sqlType: 'TEXT', nullable: true },
+    { name: 'kind', sqlType: 'TEXT', nullable: false },
     { name: 'name', sqlType: 'TEXT', nullable: false },
+    { name: 'parent_id', sqlType: 'TEXT', nullable: true },
+    { name: 'moved_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'description', sqlType: 'TEXT', nullable: true },
-    { name: 'address', sqlType: 'TEXT', nullable: true },
-    { name: 'city', sqlType: 'TEXT', nullable: true },
-    { name: 'country', sqlType: 'TEXT', nullable: true },
-    { name: 'latitude', sqlType: 'REAL', nullable: true },
-    { name: 'longitude', sqlType: 'REAL', nullable: true },
-    { name: 'tags', sqlType: 'TEXT', nullable: false },
+    { name: 'synonyms', sqlType: 'TEXT', nullable: false },
+    { name: 'colour', sqlType: 'TEXT', nullable: true },
+    { name: 'icon', sqlType: 'TEXT', nullable: true },
+    { name: 'merged_into_id', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
   ],
 
-  tags: [
-    { name: 'tag', sqlType: 'TEXT', nullable: true },
-    { name: 'description', sqlType: 'TEXT', nullable: true },
-    { name: 'synonyms', sqlType: 'TEXT', nullable: false },
-    { name: 'colour', sqlType: 'TEXT', nullable: false },
-    { name: 'icon', sqlType: 'TEXT', nullable: false },
+  location_details: [
+    { name: 'tag_id', sqlType: 'TEXT', nullable: true },
+    { name: 'address', sqlType: 'TEXT', nullable: true },
+    { name: 'latitude', sqlType: 'REAL', nullable: true },
+    { name: 'longitude', sqlType: 'REAL', nullable: true },
+    { name: 'merchant_id', sqlType: 'TEXT', nullable: true },
+    { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
+  ],
+
+  merchant_details: [
+    { name: 'tag_id', sqlType: 'TEXT', nullable: true },
+    { name: 'default_category_id', sqlType: 'TEXT', nullable: true },
+    { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
+  ],
+
+  journey_details: [
+    { name: 'tag_id', sqlType: 'TEXT', nullable: true },
+    { name: 'start_date', sqlType: 'TEXT', nullable: true },
+    { name: 'end_date', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
@@ -150,9 +173,12 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'date_override_local', sqlType: 'TEXT', nullable: true },
     { name: 'date_override_zone', sqlType: 'TEXT', nullable: true },
     { name: 'tags', sqlType: 'TEXT', nullable: false },
+    { name: 'categories', sqlType: 'TEXT', nullable: false },
+    { name: 'merchant_id', sqlType: 'TEXT', nullable: true },
     { name: 'location_lat', sqlType: 'REAL', nullable: true },
     { name: 'location_lon', sqlType: 'REAL', nullable: true },
     { name: 'location_id', sqlType: 'TEXT', nullable: true },
+    { name: 'journey_id', sqlType: 'TEXT', nullable: true },
     { name: 'description__user', sqlType: 'TEXT', nullable: true },
     { name: 'description__auto', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },

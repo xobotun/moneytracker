@@ -32,7 +32,7 @@ Every kind except categories belongs to the whole transaction; only categories a
 - **Ids:** a short random id of 12 base-62 characters (about 71 bits, for example `4kQ9xZr2BvLm`), so a tag can be renamed. Tags are created rarely and referenced often, so a short id keeps the rows that reference them small. Accounts and account groups get the same kind of id (scheduled in TASKS.md).
 - **Names** are unique among the live tags of the same kind and parent, synonyms included. A location and a journey can both be called Berlin.
 - **Hierarchy:** a tag can have a parent of the same kind. Any level can be used on a transaction: Everyday food and Posh food are subcategories of Food, but an expensive meal during an 8-hour layover is neither, so it is filed under Food itself.
-- **Colour and icon** are inherited from the parent unless the tag sets its own. A new top-level tag gets a random colour from the colour presets and its kind's icon (category: tag, merchant: shop, location: map marker, journey: plane).
+- **Colour and icon** are inherited from the parent unless the tag sets its own. A new top-level tag gets a random colour from the colour presets and its kind's icon (category: tag, merchant: shop, location: map marker, journey: globe — PrimeIcons has no plane).
 
 ### 2.2 Categories
 
@@ -90,6 +90,7 @@ In step 5, Groceries' 200 AMD cannot change (Gifts' 600 AMD and the 800 AMD tota
   - X's transactions move to Y. When one transaction has both as category parts, the parts are added together (Everyday food 5 € + Groceries 3 € → Groceries 8 €).
   - X's children move under Y.
   - X's name and synonyms become synonyms of Y; Y keeps its colour, icon and description.
+  - X's details (a location's address, coordinates and merchant; a merchant's default category; a journey's dates) fill the ones Y lacks. Where both have a value and the values differ, the merge asks the user which to keep, or lets them type a third value. A merge only ever happens on the user's initiative, never automatically.
   - X is soft-deleted and remembers Y, so a device that used X before it synced the merge is redirected to Y on its next sync.
   - Merging a tag into one of its own descendants is refused, and the UI shows the path (X > A > Y).
 - **Duplicates** (same kind, parent and name, for example Rewe created on two devices while offline) are highlighted on the Tags page. The users merge them by hand; the app does not offer it.

@@ -5,7 +5,7 @@ import { migration as settingsMigration } from '../../db/migrations/001_settings
 import { migration as domainMigration } from '../../db/migrations/002_domain_schema'
 import { GitHubCsvBackend } from '../GitHubCsvBackend'
 import { exportTableToCsvFiles } from '../csvCodec'
-import { seedLocations } from './helpers'
+import { seedTags } from './helpers'
 import { FakeGitHubRemote } from './fakes'
 import { rowsEqual } from '../rows'
 import { SYNC_TABLES } from '../syncTables'
@@ -55,9 +55,9 @@ describe('GitHubCsvBackend', () => {
     const local = await migratedDb()
     dbs.push(local)
     await local.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Home', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const localHash = await backend.hashDatabase(local)
 
@@ -66,7 +66,7 @@ describe('GitHubCsvBackend', () => {
     expect(ok).toBe(true)
     expect(remote.headSha()).not.toBeNull()
     expect(remote.blobAt('metadata.json')).toContain('"device":"dev-A"')
-    expect(remote.blobAt('data/locations-0001.csv')).toContain('Home')
+    expect(remote.blobAt('data/tags-0001.csv')).toContain('Home')
     expect(remote.blobAt('README.md')).toMatch(/Moneytracker/)
     expect(remote.blobAt('.gitattributes')).toMatch(/\.csv text eol=lf/)
   })
@@ -107,9 +107,9 @@ describe('GitHubCsvBackend', () => {
     const locId = newId()
     const accId = newId()
     await src.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Home', '[]', ?, ?)`,
-      [locId, CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [locId, CUTOFF, CUTOFF, CUTOFF],
     )
     await src.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
@@ -140,9 +140,9 @@ describe('GitHubCsvBackend', () => {
     const src = await migratedDb()
     dbs.push(src)
     await src.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'A', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'A', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const srcHash = await backend.hashDatabase(src)
     await backend.getMetadata()
@@ -176,9 +176,9 @@ describe('GitHubCsvBackend', () => {
     const b = await migratedDb()
     dbs.push(b)
     await b.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'B', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'B', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     const ok = await backend.tryUpload(
       b,
@@ -223,29 +223,29 @@ describe('GitHubCsvBackend', () => {
     const src = await migratedDb()
     dbs.push(src)
     await src.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Home', '[]', ?, ?)`,
-      [newId(), CUTOFF, CUTOFF],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), CUTOFF, CUTOFF, CUTOFF],
     )
     await backend.getMetadata()
     await backend.tryUpload(src, META({ hash: await backend.hashDatabase(src) }), null)
     await backend.getMetadata()
 
-    // A foreign commit empties locations and rewrites metadata after our getMetadata().
+    // A foreign commit empties tags and rewrites metadata after our getMetadata().
     const empty = await migratedDb()
     dbs.push(empty)
-    const locations = SYNC_TABLES.find((t) => t.name === 'locations')!
+    const tags = SYNC_TABLES.find((t) => t.name === 'tags')!
     remote.injectForeignCommit([
       {
-        path: 'data/locations-0001.csv',
-        content: (await exportTableToCsvFiles(empty, locations))[0]!,
+        path: 'data/tags-0001.csv',
+        content: (await exportTableToCsvFiles(empty, tags))[0]!,
       },
       { path: 'metadata.json', content: JSON.stringify(META({ device: 'dev-X' })) },
     ])
 
     const downloaded = await backend.downloadDatabase()
     dbs.push(downloaded)
-    const rows = await downloaded.exec<{ name: string }>('SELECT name FROM locations')
+    const rows = await downloaded.exec<{ name: string }>('SELECT name FROM tags')
     expect(rows.map((r) => r.name)).toEqual(['Home'])
   })
 
@@ -304,12 +304,12 @@ describe('GitHubCsvBackend', () => {
       const { backend, remote } = setup({ rowsPerFileForTest: 1 })
       const a = await migratedDb()
       dbs.push(a)
-      await seedLocations(a, 4)
+      await seedTags(a, 4)
       await uploadFrom(backend, a)
       for (const n of ['0001', '0002', '0003', '0004']) {
-        expect(remote.blobAt(`data/locations-${n}.csv`), n).not.toBeNull()
+        expect(remote.blobAt(`data/tags-${n}.csv`), n).not.toBeNull()
       }
-      expect(remote.blobAt('data/locations-0005.csv')).toBeNull()
+      expect(remote.blobAt('data/tags-0005.csv')).toBeNull()
       const downloaded = await backend.downloadDatabase()
       dbs.push(downloaded)
       expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
@@ -319,12 +319,12 @@ describe('GitHubCsvBackend', () => {
       const { backend, remote } = setup()
       const a = await migratedDb()
       dbs.push(a)
-      await seedLocations(a, 2001)
+      await seedTags(a, 2001)
       await uploadFrom(backend, a)
       for (const n of ['0001', '0002', '0003']) {
-        expect(remote.blobAt(`data/locations-${n}.csv`), n).not.toBeNull()
+        expect(remote.blobAt(`data/tags-${n}.csv`), n).not.toBeNull()
       }
-      expect(remote.blobAt('data/locations-0004.csv')).toBeNull()
+      expect(remote.blobAt('data/tags-0004.csv')).toBeNull()
       const downloaded = await backend.downloadDatabase()
       dbs.push(downloaded)
       expect(await backend.hashDatabase(downloaded)).toBe(await backend.hashDatabase(a))
@@ -334,12 +334,12 @@ describe('GitHubCsvBackend', () => {
       const { backend, remote } = setup()
       const a = await migratedDb()
       dbs.push(a)
-      await seedLocations(a, 2001)
+      await seedTags(a, 2001)
       await uploadFrom(backend, a) // leaves the snapshot on the uploaded commit
       await a.run(
-        `INSERT INTO tags (tag, synonyms, colour, icon, created_at_utc, updated_at_utc)
-         VALUES ('new', '[]', '#000', 'x', ?, ?)`,
-        [CUTOFF, CUTOFF],
+        `INSERT INTO account_groupings (id, name, colour, icon, created_at_utc, updated_at_utc)
+         VALUES (?, 'New', '#000', 'x', ?, ?)`,
+        [newId(), CUTOFF, CUTOFF],
       )
 
       const postsBefore = remote.blobPosts
@@ -347,7 +347,7 @@ describe('GitHubCsvBackend', () => {
       expect(
         await backend.tryUpload(a, { ...meta, hash: await backend.hashDatabase(a) }, META()),
       ).toBe(true)
-      // metadata.json + data/tags-0001.csv; the three locations files are unchanged.
+      // metadata.json + data/account_groupings-0001.csv; the three tags files are unchanged.
       expect(remote.blobPosts - postsBefore).toBe(2)
 
       await backend.getMetadata()
@@ -360,11 +360,11 @@ describe('GitHubCsvBackend', () => {
       const { backend, remote } = setup()
       const a = await migratedDb()
       dbs.push(a)
-      await seedLocations(a, 2001)
+      await seedTags(a, 2001)
       await uploadFrom(backend, a)
-      remote.removePath('data/locations-0002.csv')
+      remote.removePath('data/tags-0002.csv')
       await backend.getMetadata()
-      await expect(backend.downloadDatabase()).rejects.toThrow(/missing data\/locations-0002\.csv/)
+      await expect(backend.downloadDatabase()).rejects.toThrow(/missing data\/tags-0002\.csv/)
     })
 
     it('download ignores an old-layout data/<table>.csv', async () => {
@@ -376,9 +376,9 @@ describe('GitHubCsvBackend', () => {
       const withTag = await migratedDb()
       dbs.push(withTag)
       await withTag.run(
-        `INSERT INTO tags (tag, description, synonyms, colour, icon, created_at_utc, updated_at_utc)
-         VALUES ('old', NULL, '[]', '#00ff00', 'tag', ?, ?)`,
-        [CUTOFF, CUTOFF],
+        `INSERT INTO tags (id, kind, name, colour, icon, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES ('old000000001', 'tag', 'old', '#00ff00', 'tag', ?, ?, ?)`,
+        [CUTOFF, CUTOFF, CUTOFF],
       )
       remote.injectForeignCommit([
         { path: 'data/tags.csv', content: (await exportTableToCsvFiles(withTag, tags))[0]! },
@@ -386,7 +386,7 @@ describe('GitHubCsvBackend', () => {
       await backend.getMetadata()
       const downloaded = await backend.downloadDatabase()
       dbs.push(downloaded)
-      expect(await downloaded.exec('SELECT tag FROM tags')).toEqual([])
+      expect(await downloaded.exec('SELECT id FROM tags')).toEqual([])
     })
   })
 })

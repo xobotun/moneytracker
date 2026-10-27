@@ -42,9 +42,9 @@ describe('hashDatabase', () => {
     dbs.push(db)
     const before = await hashDatabase(db)
     await db.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Home', '[]', ?, ?)`,
-      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
     )
     const after = await hashDatabase(db)
     expect(after).not.toBe(before)
@@ -59,23 +59,23 @@ describe('hashDatabase', () => {
     // Insert in order id1, id2 into `a`; id2, id1 into `b`. ORDER BY pk
     // in hashDatabase should yield the same sequence either way.
     await a.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'One', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'One', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
       [id1],
     )
     await a.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Two', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Two', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
       [id2],
     )
     await b.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Two', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Two', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
       [id2],
     )
     await b.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'One', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'One', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
       [id1],
     )
     expect(await hashDatabase(a)).toBe(await hashDatabase(b))
@@ -99,8 +99,8 @@ describe('hashDatabase', () => {
     dbs.push(db)
     const before = await hashDatabase(db)
     await db.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'X', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'X', '[]', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z')`,
       [newId()],
     )
     const after = await hashDatabase(db)
@@ -111,12 +111,12 @@ describe('hashDatabase', () => {
     const db = await migratedDb()
     dbs.push(db)
     // Start hashing; the write below queues behind the first table read, so it
-    // lands after `locations` was already hashed but before the walk finishes.
+    // lands after `tags` was already hashed but before the walk finishes.
     const during = hashDatabase(db)
     await db.run(
-      `INSERT INTO locations (id, name, tags, created_at_utc, updated_at_utc)
-       VALUES (?, 'Home', '[]', ?, ?)`,
-      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
+      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
+       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
+      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
     )
     const hashMissingTheRow = await during
     // The row is now in the DB, so the next hash must reflect it.

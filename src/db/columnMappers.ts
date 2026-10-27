@@ -1,6 +1,8 @@
 import { type MoneyAmount, moneyAmount } from './MoneyAmount'
 import { type LocalMoment, localMoment } from './LocalMoment'
 import { type UUID, asUuid } from './uuid'
+import { type ShortId, asShortId } from './shortId'
+import type { CategoryPart } from './types'
 
 // ---------- MoneyAmount ↔ three columns ----------
 
@@ -83,6 +85,48 @@ export function jsonObjectFromNullableColumn<V>(text: string | null): Record<str
   return text === null ? null : jsonObjectFromColumn<V>(text)
 }
 
+// ---------- CategoryPart[] ↔ JSON array column ----------
+//
+// A transaction's category parts live in its `categories` column. Each part
+// keeps its two amounts as value + scale; the currencies are the
+// transaction's own and are not repeated. The key order is fixed, so the same
+// parts are always the same text (the database hash and the CSV compare it).
+
+type CategoryPartJson = {
+  category_id: string
+  amount_value__from: number
+  amount_scale__from: number
+  amount_value__to: number
+  amount_scale__to: number
+}
+
+export function categoryPartsToColumn(parts: CategoryPart[]): string {
+  return jsonArrayToColumn(
+    parts.map(
+      (p): CategoryPartJson => ({
+        category_id: p.category_id,
+        amount_value__from: p.amount__from.value,
+        amount_scale__from: p.amount__from.scale,
+        amount_value__to: p.amount__to.value,
+        amount_scale__to: p.amount__to.scale,
+      }),
+    ),
+  )
+}
+
+/** Reads the parts back, in the transaction's currencies `currencyFrom` / `currencyTo`. */
+export function categoryPartsFromColumn(
+  text: string,
+  currencyFrom: string,
+  currencyTo: string,
+): CategoryPart[] {
+  return jsonArrayFromColumn<CategoryPartJson>(text).map((p) => ({
+    category_id: asShortId(p.category_id),
+    amount__from: moneyAmount(p.amount_value__from, p.amount_scale__from, currencyFrom),
+    amount__to: moneyAmount(p.amount_value__to, p.amount_scale__to, currencyTo),
+  }))
+}
+
 // ---------- boolean ↔ INTEGER 0/1 column ----------
 //
 // SQLite has no boolean type (`BOOLEAN` silently resolves to NUMERIC), so flags
@@ -141,6 +185,19 @@ export function uuidFromColumn(text: string): UUID {
 
 export function uuidFromNullableColumn(text: string | null): UUID | null {
   return text === null ? null : asUuid(text)
+}
+
+// ---------- ShortId ↔ TEXT column ----------
+//
+// Short random ids (tags) are plain TEXT too; the branded `ShortId` keeps them
+// apart from UUIDs and raw strings at compile time.
+
+export function shortIdFromColumn(text: string): ShortId {
+  return asShortId(text)
+}
+
+export function shortIdFromNullableColumn(text: string | null): ShortId | null {
+  return text === null ? null : asShortId(text)
 }
 
 // ---------- helpers ----------

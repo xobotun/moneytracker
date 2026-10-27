@@ -14,7 +14,10 @@ import {
   jsonObjectFromNullableColumn,
   booleanToColumn,
   booleanFromColumn,
+  categoryPartsToColumn,
+  categoryPartsFromColumn,
 } from '../columnMappers'
+import { asShortId } from '../shortId'
 
 describe('moneyToColumns / moneyFromRow', () => {
   it('flattens a MoneyAmount into prefixed columns', () => {
@@ -112,6 +115,46 @@ describe('jsonObjectToNullableColumn / jsonObjectFromNullableColumn', () => {
     expect(jsonObjectFromNullableColumn(jsonObjectToNullableColumn(auto))).toEqual(auto)
     expect(jsonObjectToNullableColumn(null)).toBeNull()
     expect(jsonObjectFromNullableColumn(null)).toBeNull()
+  })
+})
+
+describe('categoryPartsToColumn / categoryPartsFromColumn', () => {
+  const groceries = asShortId('Groceries123')
+  const gifts = asShortId('Gifts1234567')
+
+  it('stores each part without its currencies, in the pinned shape and key order', () => {
+    const text = categoryPartsToColumn([
+      {
+        category_id: groceries,
+        amount__from: moneyAmount(1005000, 6, 'EUR'),
+        amount__to: moneyAmount(400, 0, 'AMD'),
+      },
+    ])
+    expect(text).toBe(
+      '[{"category_id":"Groceries123","amount_value__from":1005000,"amount_scale__from":6,' +
+        '"amount_value__to":400,"amount_scale__to":0}]',
+    )
+  })
+
+  it("reads parts back with the transaction's currencies, keeping their scales", () => {
+    const parts = [
+      {
+        category_id: groceries,
+        amount__from: moneyAmount(1005000, 6, 'EUR'),
+        amount__to: moneyAmount(400, 0, 'AMD'),
+      },
+      {
+        category_id: gifts,
+        amount__from: moneyAmount(1005000, 6, 'EUR'),
+        amount__to: moneyAmount(4000, 1, 'AMD'),
+      },
+    ]
+    expect(categoryPartsFromColumn(categoryPartsToColumn(parts), 'EUR', 'AMD')).toEqual(parts)
+  })
+
+  it('stores no parts as an empty array', () => {
+    expect(categoryPartsToColumn([])).toBe('[]')
+    expect(categoryPartsFromColumn('[]', 'EUR', 'EUR')).toEqual([])
   })
 })
 
