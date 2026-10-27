@@ -290,6 +290,11 @@ export async function writeDetailValues(
 export class TagDetailsRepository {
   constructor(private db: Database) {}
 
+  /** The tag's details as one value set (all empty for a kind without details). */
+  values(id: ShortId, kind: TagKind): Promise<TagDetailValues> {
+    return readDetailValues(this.db, id, kind)
+  }
+
   getLocation(id: ShortId): Promise<LocationDetails | null> {
     return readLocation(this.db, id)
   }

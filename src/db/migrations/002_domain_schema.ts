@@ -22,6 +22,7 @@ export const migration: Migration = {
       moved_at_utc    TEXT NOT NULL,                                     -- ISO 8601 UTC instant: when parent_id was last set by the user
       description     TEXT,
       synonyms        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(synonyms)), -- JSON array of extra names
+      retired_names   TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(retired_names)), -- JSON array of names that no longer find this tag through a tag merged into it
       colour          TEXT,                                              -- NULL = inherited from the parent
       icon            TEXT,                                              -- PrimeIcons name without 'pi-'; NULL = inherited from the parent
       merged_into_id  TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of the tag this one was merged into (set with deleted_at_utc); NULL = not merged

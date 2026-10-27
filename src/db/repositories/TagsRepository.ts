@@ -20,7 +20,7 @@ import {
   writeDetailValues,
 } from './TagDetailsRepository'
 import { countTagUsage, redirectTagReferences } from '../tagReferences'
-import { cleanOtherNames, foldCase } from '@/tags/otherNames'
+import { applyOtherNames, carriedNames, foldCase, retiredAfterMerge } from '@/tags/otherNames'
 import {
   instantFromColumn,
   instantFromNullableColumn,
@@ -40,6 +40,7 @@ export type TagRow = {
   moved_at_utc: string
   description: string | null
   synonyms: string
+  retired_names: string
   colour: string | null
   icon: string | null
   merged_into_id: string | null
@@ -65,7 +66,7 @@ export type TagSaveInput = {
   name: string
   parent_id: ShortId | null
   description: string | null
-  /** The synonyms to keep; cleaned like `cleanOtherNames`. */
+  /** The synonyms and merged names to keep (see `applyOtherNames`). */
   otherNames: string[]
   colour: string | null // null = inherited
   icon: string | null // null = inherited
@@ -90,6 +91,7 @@ export function rowToTag(row: TagRow): Tag {
     moved_at_utc: instantFromColumn(row.moved_at_utc),
     description: row.description,
     synonyms: jsonArrayFromColumn<string>(row.synonyms),
+    retired_names: jsonArrayFromColumn<string>(row.retired_names),
     colour: row.colour,
     icon: row.icon,
     merged_into_id: shortIdFromNullableColumn(row.merged_into_id),
@@ -293,17 +295,23 @@ export class TagsRepository {
    * Saves what the edit dialog shows, in one transaction: the tag's fields,
    * its parent and its details, so a refusal changes nothing. Names are
    * checked at the parent the tag ends up under — all of them when it moves,
-   * only new ones when it stays. Only what changed is written: an unchanged
-   * save stamps nothing. A link the details already have is not checked again
-   * (see `assertDetailLinks`).
+   * only new ones when it stays. A merged name left out of `otherNames` is
+   * retired, so it stops finding the tag (src/tags/otherNames.ts). Only what
+   * changed is written: an unchanged save stamps nothing. A link the details
+   * already have is not checked again (see `assertDetailLinks`).
    */
   async save(id: ShortId, input: TagSaveInput): Promise<void> {
     const now = instantToColumn(new Date())
     const name = input.name.trim()
     const parentId = input.parent_id
-    const synonyms = cleanOtherNames(name, input.otherNames)
     await this.db.transaction(async (tx) => {
       const tag = await liveTagOrThrow(tx, id, 'Tag')
+      const kindRows = await tx.exec<TagRow>('SELECT * FROM tags WHERE kind = ?', [tag.kind])
+      const { synonyms, retired_names: retired } = applyOtherNames(
+        { name, synonyms: tag.synonyms, retired_names: tag.retired_names },
+        carriedNames(id, kindRows.map(rowToTag)),
+        input.otherNames,
+      )
       const moves = parentId !== tag.parent_id
       if (moves && parentId !== null) {
         await assertParent(tx, tag.kind, parentId)
@@ -325,6 +333,9 @@ export class TagsRepository {
       if (description !== tag.description) set('description', description)
       if (JSON.stringify(synonyms) !== JSON.stringify(tag.synonyms)) {
         set('synonyms', jsonArrayToColumn(synonyms))
+      }
+      if (JSON.stringify(retired) !== JSON.stringify(tag.retired_names)) {
+        set('retired_names', jsonArrayToColumn(retired))
       }
       const colour = optionalTextToColumn(input.colour)
       if (colour !== tag.colour) set('colour', colour)
@@ -390,6 +401,8 @@ export class TagsRepository {
    * so with `parentId` null it may not be a top-level one. A merge gives the
    * target the source's names, but sync does not carry them along a chain
    * merged on two devices (X into Y here, Y into Z there: Z lacks X's names).
+   * A match is skipped when a tag on its chain, the end included, has retired
+   * the name (its `retired_names`: the user removed it).
    */
   async findByName(kind: TagKind, name: string, parentId?: ShortId | null): Promise<Tag | null> {
     const key = foldCase(name)
@@ -397,14 +410,30 @@ export class TagsRepository {
     if (live.length > 0) return live[0]!
     const merged = byName(await this.selectNamed(kind, 'merged_into_id IS NOT NULL', parentId), key)
     if (merged.length === 0) return null
-    const links = await this.db.exec<{ id: string; merged_into_id: string | null; live: number }>(
-      'SELECT id, merged_into_id, deleted_at_utc IS NULL AS live FROM tags WHERE kind = ?',
+    const links = await this.db.exec<{
+      id: string
+      merged_into_id: string | null
+      retired_names: string
+      live: number
+    }>(
+      `SELECT id, merged_into_id, retired_names, deleted_at_utc IS NULL AS live
+       FROM tags WHERE kind = ?`,
       [kind],
     )
     const byId = new Map(links.map((link) => [link.id, link]))
+    const retires = (id: string) =>
+      jsonArrayFromColumn<string>(byId.get(id)?.retired_names ?? '[]').some(
+        (retired) => foldCase(retired) === key,
+      )
     for (const tag of merged) {
-      const end = mergeChainEnd(tag.id, (id) => byId.get(id)?.merged_into_id ?? null)
-      if (end !== null && byId.get(end)?.live === 1) return selectTag(this.db, asShortId(end), true)
+      // mergeChainEnd asks for every tag on the way, the end included.
+      const chain: string[] = []
+      const end = mergeChainEnd(tag.id, (id) => {
+        chain.push(id)
+        return byId.get(id)?.merged_into_id ?? null
+      })
+      if (end === null || byId.get(end)?.live !== 1 || chain.some(retires)) continue
+      return selectTag(this.db, asShortId(end), true)
     }
     return null
   }
@@ -470,6 +499,13 @@ export class TagsRepository {
         })
         const added = next.filter((name) => !had.has(foldCase(name)))
         await assertNamesFree(tx, tag.kind, tag.parent_id, added, id)
+        // A name the tag has again is no longer retired.
+        const nextKeys = new Set(next.map(foldCase))
+        const retired = tag.retired_names.filter((name) => !nextKeys.has(foldCase(name)))
+        if (retired.length !== tag.retired_names.length) {
+          sets.unshift('retired_names = ?')
+          params.unshift(jsonArrayToColumn(retired))
+        }
       }
       await tx.run(`UPDATE tags SET ${sets.join(', ')} WHERE id = ?`, params)
     })
@@ -569,12 +605,15 @@ export class TagsRepository {
         taken.add(foldCase(name))
         added.push(name)
       }
-      if (added.length > 0) {
-        await tx.run('UPDATE tags SET synonyms = ?, updated_at_utc = ? WHERE id = ?', [
-          jsonArrayToColumn([...target.synonyms, ...added]),
-          now,
-          targetId,
-        ])
+      const synonyms = [...target.synonyms, ...added]
+      // A name the source retired stays retired on the target, unless the
+      // target now has it as a name.
+      const retired = retiredAfterMerge(target, source, synonyms)
+      if (added.length > 0 || JSON.stringify(retired) !== JSON.stringify(target.retired_names)) {
+        await tx.run(
+          'UPDATE tags SET synonyms = ?, retired_names = ?, updated_at_utc = ? WHERE id = ?',
+          [jsonArrayToColumn(synonyms), jsonArrayToColumn(retired), now, targetId],
+        )
       }
       await tx.run(
         `UPDATE tags SET merged_into_id = ?, deleted_at_utc = ?, updated_at_utc = ?

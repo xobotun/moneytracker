@@ -15,6 +15,7 @@ import {
 } from '../../errors'
 import { asShortId, type ShortId } from '../../shortId'
 import type { TagKind } from '../../types'
+import { mergedNames } from '@/tags/otherNames'
 import { localMoment } from '../../LocalMoment'
 import { moneyAmount, zeroMoney } from '../../MoneyAmount'
 import { AccountsRepository } from '../AccountsRepository'
@@ -669,7 +670,7 @@ describe('TagsRepository', () => {
         name: tag.name,
         parent_id: tag.parent_id,
         description: tag.description,
-        otherNames: tag.synonyms,
+        otherNames: [...tag.synonyms, ...mergedNames(tag, await repo.listAll())],
         colour: tag.colour,
         icon: tag.icon,
         details: await readDetailValues(db, id, tag.kind),
@@ -858,6 +859,115 @@ describe('TagsRepository', () => {
       const input = await asIs(food.id)
       await repo.softDelete(food.id)
       await expect(repo.save(food.id, input)).rejects.toThrow(DeletedTagError)
+    })
+
+    describe('retired names', () => {
+      it('a removed merged name no longer finds the tag', async () => {
+        const job = await repo.create({ kind: 'tag', name: 'job', synonyms: ['occupation'] })
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await repo.merge(job.id, work.id)
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: ['occupation'] })
+
+        expect(await repo.findById(work.id)).toMatchObject({
+          synonyms: ['occupation'],
+          retired_names: ['job'],
+        })
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+        expect((await repo.findByName('tag', 'occupation'))?.id).toBe(work.id)
+        expect((await repo.findByName('tag', 'work'))?.id).toBe(work.id)
+      })
+
+      it('retires a name only the merged tag holds', async () => {
+        // A chain merged on two devices: the end never got the name as a synonym.
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await insertRaw({
+          id: 'job000000001',
+          kind: 'tag',
+          name: 'job',
+          deleted: AT,
+          mergedInto: work.id,
+        })
+        expect((await repo.findByName('tag', 'job'))?.id).toBe(work.id)
+
+        await repo.save(work.id, await asIs(work.id)) // lists it: nothing changes
+        expect((await repo.findById(work.id))!.retired_names).toEqual([])
+
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        expect((await repo.findById(work.id))!.retired_names).toEqual(['job'])
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+      })
+
+      it('keeps a merged-only name that is listed', async () => {
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await insertRaw({
+          id: 'job000000001',
+          kind: 'tag',
+          name: 'job',
+          deleted: AT,
+          mergedInto: work.id,
+        })
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: ['job'] })
+        expect(await repo.findById(work.id)).toMatchObject({ synonyms: [], retired_names: [] })
+        expect((await repo.findByName('tag', 'job'))?.id).toBe(work.id)
+      })
+
+      it('a name typed again finds the tag again', async () => {
+        const job = await repo.create({ kind: 'tag', name: 'job' })
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await repo.merge(job.id, work.id)
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: ['Job'] })
+        expect(await repo.findById(work.id)).toMatchObject({
+          synonyms: ['Job'],
+          retired_names: [],
+        })
+
+        await repo.update(work.id, { synonyms: [] })
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        await repo.update(work.id, { synonyms: ['job'] })
+        expect((await repo.findById(work.id))!.retired_names).toEqual([])
+      })
+
+      it('a retired name stays retired after a further merge', async () => {
+        const job = await repo.create({ kind: 'tag', name: 'job' })
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        const employment = await repo.create({ kind: 'tag', name: 'employment' })
+        await repo.merge(job.id, work.id)
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        await repo.merge(work.id, employment.id)
+
+        expect(await repo.findById(employment.id)).toMatchObject({
+          synonyms: ['work'],
+          retired_names: ['job'],
+        })
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+        expect((await repo.findByName('tag', 'work'))?.id).toBe(employment.id)
+      })
+
+      it('is skipped on any tag of the chain, not only at its end', async () => {
+        const end = await repo.create({ kind: 'tag', name: 'employment' })
+        await db.run(
+          `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, synonyms, retired_names,
+                             merged_into_id, created_at_utc, updated_at_utc, deleted_at_utc)
+           VALUES ('work00000001', 'tag', 'work', NULL, ?, '[]', '["job"]', ?, ?, ?, ?)`,
+          [AT, end.id, AT, AT, AT],
+        )
+        await insertRaw({
+          id: 'job000000001',
+          kind: 'tag',
+          name: 'job',
+          deleted: AT,
+          mergedInto: 'work00000001',
+        })
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+        expect((await repo.findByName('tag', 'work'))?.id).toBe(end.id)
+      })
+
+      it('defaults to none and round-trips', async () => {
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        expect(work.retired_names).toEqual([])
+        expect((await repo.listAll())[0]!.retired_names).toEqual([])
+      })
     })
   })
 

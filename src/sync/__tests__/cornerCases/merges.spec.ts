@@ -53,6 +53,47 @@ describe('tag merges on several devices', () => {
     }
   })
 
+  // The removal is stored on the live target (`retired_names`): edits to the
+  // merged tag's own row would not sync, as a tombstone hashes by id and
+  // delete time only.
+  it('a removed merged name stops finding the tag on the other device too', async () => {
+    const [a, b] = (world = await openPair()).devices
+    let x!: ShortId, y!: ShortId
+    await start(world, async (d) => {
+      x = (await d.tags.create({ kind: 'tag', name: 'job' })).id
+      y = (await d.tags.create({ kind: 'tag', name: 'work' })).id
+    })
+    at(minute(1))
+    await a.tags.merge(x, y)
+    at(minute(2))
+    await a.sync()
+    await b.sync()
+    expect((await b.tags.findByName('tag', 'job'))?.id).toBe(y)
+
+    at(minute(3))
+    const work = (await a.tags.findById(y))!
+    await a.tags.save(y, {
+      name: work.name,
+      parent_id: null,
+      description: null,
+      otherNames: [],
+      colour: null,
+      icon: null,
+      details: await a.details.values(y, 'tag'),
+    })
+    at(minute(4))
+    await a.sync()
+    await b.sync()
+
+    await settle([a, b], 5)
+    await expectSound([a, b])
+    for (const d of [a, b]) {
+      expect((await d.tags.findById(y))?.retired_names).toEqual(['job'])
+      expect(await d.tags.findByName('tag', 'job')).toBeNull()
+      expect((await d.tags.findByName('tag', 'work'))?.id).toBe(y)
+    }
+  })
+
   it('leaves one live tag of a merge cycle over three devices', async () => {
     const [a, b, c] = (world = await openTrio()).devices
     let x!: ShortId, y!: ShortId, z!: ShortId

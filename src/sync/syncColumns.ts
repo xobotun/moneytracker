@@ -79,6 +79,7 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'moved_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'description', sqlType: 'TEXT', nullable: true },
     { name: 'synonyms', sqlType: 'TEXT', nullable: false },
+    { name: 'retired_names', sqlType: 'TEXT', nullable: false },
     { name: 'colour', sqlType: 'TEXT', nullable: true },
     { name: 'icon', sqlType: 'TEXT', nullable: true },
     { name: 'merged_into_id', sqlType: 'TEXT', nullable: true },

@@ -36,6 +36,7 @@ export interface Tag {
   moved_at_utc: Date // when the user last set parent_id: on create, move, or a merge of the parent; repairs leave it
   description: string | null
   synonyms: string[] // extra names that find the tag; transactions show `name`
+  retired_names: string[] // names that no longer find the tag through a tag merged into it (src/tags/otherNames.ts)
   colour: string | null // null = inherited from the parent (see src/tags/look.ts)
   icon: string | null // PrimeIcons name without `pi-`; null = inherited from the parent
   merged_into_id: ShortId | null // the tag this one was merged into (then also deleted); null = not merged
