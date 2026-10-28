@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import Button from 'primevue/button'
 import PrimeTag from 'primevue/tag'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
@@ -10,15 +9,16 @@ import { DERIVED_CLASS } from '@/components/derived'
 
 /**
  * One tag on the Tags page, indented by depth, with its badge and buttons.
- * Detailed: its name and what it links to, then its other names and
- * description, then its details (`facts`), each line only when it has any,
- * wrapped rather than cut. Slim: one line, adding the link from `sm` and the
- * other names and description from `md`, cut to fit.
+ * Detailed: its name and what it links to, then its other names as outlined
+ * pills, then its description with its line breaks, then its details
+ * (`facts`), each line only when it has any, wrapped rather than cut. Slim:
+ * one line, adding the link from `sm` and the pills and description from
+ * `md`, cut to fit.
  */
-const props = defineProps<{
+defineProps<{
   row: TreeRow
   look: TagLook
-  /** Synonyms and merged names, shown on the second line. */
+  /** Synonyms and merged names, one outlined pill each. */
   otherNames: readonly string[]
   /** Shown as plain text after the name: no link, the row stays one target. */
   link: RowLink | null
@@ -31,12 +31,9 @@ const props = defineProps<{
 
 const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
-// The second line: other names, then the description.
-const more = computed(() =>
-  [props.otherNames.join(', '), props.row.tag.description ?? '']
-    .filter((part) => part !== '')
-    .join(' · '),
-)
+// An outline, unlike the filled link chip.
+const PILL =
+  'rounded border border-gray-300 px-1.5 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-300'
 const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
 </script>
 
@@ -85,17 +82,50 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
           </span>
           <span v-if="link.deleted" class="shrink-0">{{ ' (deleted)' }}</span>
         </span>
-        <span
-          v-if="!detailed && more"
-          class="hidden min-w-0 truncate text-sm text-gray-500 md:block dark:text-gray-400"
-          :title="more"
-        >
-          {{ more }}
-        </span>
+        <template v-if="!detailed">
+          <!-- Cut at the edge rather than wrapped: the row stays one line. -->
+          <ul
+            v-if="otherNames.length > 0"
+            data-names
+            aria-label="Other names"
+            class="hidden min-w-0 shrink-[3] items-center gap-1 overflow-hidden md:flex"
+          >
+            <li
+              v-for="(name, i) in otherNames"
+              :key="i"
+              :class="PILL"
+              class="shrink-0 whitespace-nowrap"
+            >
+              {{ name }}
+            </li>
+          </ul>
+          <!-- Only the room left over; newlines collapse into the one line. -->
+          <span
+            v-if="row.tag.description"
+            class="hidden min-w-0 flex-1 truncate text-sm text-gray-500 md:block dark:text-gray-400"
+            :title="row.tag.description"
+          >
+            {{ row.tag.description }}
+          </span>
+        </template>
       </div>
       <template v-if="detailed">
-        <p v-if="more" data-more class="text-sm break-words text-gray-500 dark:text-gray-400">
-          {{ more }}
+        <ul
+          v-if="otherNames.length > 0"
+          data-names
+          aria-label="Other names"
+          class="mt-0.5 flex flex-wrap gap-1"
+        >
+          <li v-for="(name, i) in otherNames" :key="i" :class="PILL" class="max-w-full break-words">
+            {{ name }}
+          </li>
+        </ul>
+        <p
+          v-if="row.tag.description"
+          data-description
+          class="text-sm break-words whitespace-pre-line text-gray-500 dark:text-gray-400"
+        >
+          {{ row.tag.description }}
         </p>
         <p
           v-if="facts.length > 0"

@@ -161,21 +161,28 @@ describe('TagsView', () => {
     expect(pageText()).toContain('Nothing matches “zzz”.')
   })
 
+  /** The list item of the tag called `name`. */
+  const rowOf = (name: string) =>
+    [...document.querySelectorAll('li')].find(
+      (li) => li.querySelector('.font-medium')?.textContent?.trim() === name,
+    )!
+
+  /** The other names on the row of `name`, one per pill. */
+  const namesOn = (name: string) =>
+    [...rowOf(name).querySelectorAll('[data-names] > li')].map((pill) => pill.textContent?.trim())
+
   it('shows other names, merged ones included', async () => {
     const lunch = await tagsRepo.create({ kind: 'category', name: 'Lunch' })
     const food = await tagsRepo.create({ kind: 'category', name: 'Food', synonyms: ['Eats'] })
     await tagsRepo.merge(lunch.id, food.id)
     await mountView()
     expect(treeRows()).toEqual(['Food'])
-    expect(pageText()).toContain('Eats, Lunch')
+    expect(namesOn('Food')).toEqual(['Eats', 'Lunch'])
   })
 
   /** The linked tag shown on the row of `name`, as its text. */
   function linkOn(name: string): string | undefined {
-    const row = [...document.querySelectorAll('li')].find(
-      (li) => li.querySelector('.font-medium')?.textContent?.trim() === name,
-    )
-    return row?.querySelector('[data-link]')?.textContent?.replace(/\s+/g, ' ').trim()
+    return rowOf(name).querySelector('[data-link]')?.textContent?.replace(/\s+/g, ' ').trim()
   }
 
   it("shows a merchant's default category, as plain text", async () => {
@@ -214,23 +221,33 @@ describe('TagsView', () => {
     expect(linkOn('Rewe Mitte')).toBe('merchant: Rewe (deleted)')
   })
 
-  it('shows other names and the description on a second line, on every tab', async () => {
+  it('shows other names as pills, then the description, on every tab', async () => {
     await tagsRepo.create({
       kind: 'tag',
       name: 'mia',
-      synonyms: ['Mia K.'],
+      synonyms: ['Mia K.', 'Mimi'],
       description: 'Our daughter',
     })
     await tagsRepo.create({ kind: 'tag', name: 'plain' })
     await mountView('/tags?kind=tag')
-    const second = (name: string) =>
-      [...document.querySelectorAll('li')]
-        .find((li) => li.querySelector('.font-medium')?.textContent?.trim() === name)
-        ?.querySelector('[data-more]')
-        ?.textContent?.replace(/\s+/g, ' ')
-        .trim()
-    expect(second('mia')).toBe('Mia K. · Our daughter')
-    expect(second('plain')).toBeUndefined()
+    // One pill per name, in a list screen readers announce as other names.
+    expect(namesOn('mia')).toEqual(['Mia K.', 'Mimi'])
+    expect(rowOf('mia').querySelector('[data-names]')!.getAttribute('aria-label')).toBe(
+      'Other names',
+    )
+    expect(rowOf('mia').querySelector('[data-description]')?.textContent?.trim()).toBe(
+      'Our daughter',
+    )
+    expect(rowOf('plain').querySelector('[data-names]')).toBeNull()
+    expect(rowOf('plain').querySelector('[data-description]')).toBeNull()
+  })
+
+  it('keeps the line breaks of a description on detailed rows', async () => {
+    await tagsRepo.create({ kind: 'tag', name: 'mia', description: 'Our daughter\nBorn in May' })
+    await mountView('/tags?kind=tag')
+    const description = rowOf('mia').querySelector('[data-description]')!
+    expect(description.textContent).toContain('Our daughter\nBorn in May')
+    expect(description.className).toContain('whitespace-pre-line')
   })
 
   describe('row style', () => {
@@ -245,31 +262,47 @@ describe('TagsView', () => {
       await detailsRepo.setMerchant(merchant.id, { default_category_id: food.id })
     }
 
-    const rowOf = (name: string) =>
-      [...document.querySelectorAll('li')].find(
-        (li) => li.querySelector('.font-medium')?.textContent?.trim() === name,
-      )!
-
     it('slim rows keep to one line, showing more on wider screens', async () => {
       await rewe()
       await useLayoutStore().setTagRows('slim')
       await mountView('/tags?kind=merchant')
       const row = rowOf('Rewe')
-      expect(row.querySelector('[data-more]')).toBeNull()
+      expect(row.querySelector('[data-description]')).toBeNull()
       expect(row.querySelector('[data-facts]')).toBeNull()
       // The link from sm up, the other names and description from md up.
       expect(row.querySelector('[data-link]')!.className).toContain('hidden sm:flex')
-      const inline = row.querySelector('.md\\:block')!
-      expect(inline.textContent?.trim()).toBe('REWE Markt · The supermarket')
+      const names = row.querySelector('[data-names]')!
+      expect(names.className).toContain('hidden')
+      expect(names.className).toContain('md:flex')
+      // On the name's line, cut at its edge rather than wrapped.
+      expect(names.parentElement).toBe(row.querySelector('.font-medium')!.parentElement)
+      expect(names.className).toContain('overflow-hidden')
+      expect(names.className).not.toContain('flex-wrap')
+      expect(namesOn('Rewe')).toEqual(['REWE Markt'])
+      const description = row.querySelector('.md\\:block')!
+      expect(description.parentElement).toBe(names.parentElement)
+      expect(description.textContent?.trim()).toBe('The supermarket')
+      expect(description.className).toContain('truncate')
+    })
+
+    it('slim rows keep a multi-line description on their one line', async () => {
+      await tagsRepo.create({ kind: 'tag', name: 'mia', description: 'Our daughter\nBorn in May' })
+      await useLayoutStore().setTagRows('slim')
+      await mountView('/tags?kind=tag')
+      const row = rowOf('mia')
+      expect(row.querySelector('[data-description]')).toBeNull()
+      const description = row.querySelector('.md\\:block')!
+      expect(description.parentElement).toBe(row.querySelector('.font-medium')!.parentElement)
+      expect(description.className).not.toContain('whitespace-pre-line')
     })
 
     it('switches with the selector and keeps the choice on this device', async () => {
       await rewe()
       await mountView('/tags?kind=merchant')
-      expect(rowOf('Rewe').querySelector('[data-more]')).not.toBeNull()
+      expect(rowOf('Rewe').querySelector('[data-description]')).not.toBeNull()
       button('Slim').click()
       await settle()
-      expect(rowOf('Rewe').querySelector('[data-more]')).toBeNull()
+      expect(rowOf('Rewe').querySelector('[data-description]')).toBeNull()
       expect(await settingsRepo.get(LayoutKeys.tagRows)).toBe('slim')
     })
 

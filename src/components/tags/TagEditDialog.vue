@@ -18,10 +18,11 @@ import { useTagsStore } from '@/stores/tags'
 import { CategoryInUseError, DuplicateTagNameError, TagLoopError } from '@/db/errors'
 import { DEFAULT_LOCATION_RADIUS_METRES, noDetails } from '@/db/repositories/TagDetailsRepository'
 import LocationMap from './LocationMap.vue'
+import TagOptionLabel from './TagOptionLabel.vue'
 import type { LatLon } from './mapView'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
-import { inheritedLook } from '@/tags/look'
+import { effectiveLook, inheritedLook, type TagLook } from '@/tags/look'
 import { carriedNames, foldCase, mergedNames } from '@/tags/otherNames'
 import { subtreeIds, tagOptions } from '@/tags/tree'
 import {
@@ -177,15 +178,22 @@ const parentOptions = computed(() => [
   ),
 ])
 
-/** Live tags of `kind`, plus the one linked now when it is deleted (saving keeps that link). */
+/**
+ * Live tags of `kind` with their look, plus the one linked now when it is
+ * deleted (saving keeps that link). 'None' has no look.
+ */
 function linkOptions(kind: TagKind, linked: ShortId | null) {
-  const options: { id: ShortId | null; label: string }[] = [
+  const options: ({ id: ShortId | null; label: string } & Partial<TagLook>)[] = [
     { id: null, label: 'None' },
     ...tagOptions(store.tags, kind),
   ]
   const tag = linked === null ? undefined : store.byId.get(linked)
   if (tag && tag.deleted_at_utc !== null) {
-    options.push({ id: tag.id, label: `${tag.name} (deleted)` })
+    options.push({
+      id: tag.id,
+      label: `${tag.name} (deleted)`,
+      ...effectiveLook(tag, store.byId),
+    })
   }
   return options
 }
@@ -543,7 +551,17 @@ function merge() {
             placeholder="None"
             filter
             fluid
-          />
+          >
+            <template #value="{ value, placeholder }">
+              <TagOptionLabel
+                :option="merchantOptions.find((o) => o.id === value)"
+                :placeholder="placeholder"
+              />
+            </template>
+            <template #option="{ option }">
+              <TagOptionLabel :option="option" />
+            </template>
+          </Select>
         </div>
       </template>
 
@@ -559,7 +577,17 @@ function merge() {
             placeholder="None"
             filter
             fluid
-          />
+          >
+            <template #value="{ value, placeholder }">
+              <TagOptionLabel
+                :option="categoryOptions.find((o) => o.id === value)"
+                :placeholder="placeholder"
+              />
+            </template>
+            <template #option="{ option }">
+              <TagOptionLabel :option="option" />
+            </template>
+          </Select>
         </div>
         <div class="flex items-start gap-2">
           <Checkbox v-model="draft.auto_match" input-id="tag-auto-match" binary class="mt-0.5" />
