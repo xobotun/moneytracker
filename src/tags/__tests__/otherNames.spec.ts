@@ -9,6 +9,8 @@ import {
   namesAddedByMerge,
   namesFindingTargetAfterMerge,
   retiredAfterMerge,
+  looksLikeTypoFix,
+  withOtherName,
 } from '../otherNames'
 import { merged, tag } from './fixtures'
 
@@ -201,5 +203,45 @@ describe('namesFindingTargetAfterMerge', () => {
       'work',
       'job',
     ])
+  })
+})
+
+describe('withOtherName', () => {
+  it('adds the name at the end, trimmed, unless it is there ignoring case', () => {
+    expect(withOtherName(['Tinkoff Bank'], ' Tinkoff ')).toEqual(['Tinkoff Bank', 'Tinkoff'])
+    expect(withOtherName(['TINKOFF', 'TCS'], 'Tinkoff')).toEqual(['TINKOFF', 'TCS'])
+    expect(withOtherName([], 'Tinkoff')).toEqual(['Tinkoff'])
+  })
+})
+
+describe('looksLikeTypoFix', () => {
+  it('is true for one or two letters added, dropped, changed or swapped', () => {
+    expect(looksLikeTypoFix('Reve', 'Rewe')).toBe(true) // changed
+    expect(looksLikeTypoFix('Rewee', 'Rewe')).toBe(true) // dropped
+    expect(looksLikeTypoFix('Edka', 'Edeka')).toBe(true) // added
+    expect(looksLikeTypoFix('Lidl', 'Lild')).toBe(true) // two neighbours swapped: one edit
+    expect(looksLikeTypoFix('Starbcuks Cofee', 'Starbucks Coffee')).toBe(true) // a swap and an addition
+    expect(looksLikeTypoFix('Edeka Center', 'Edeka Centre')).toBe(true) // two neighbours swapped
+  })
+
+  it('ignores case, so a case change counts for nothing', () => {
+    expect(looksLikeTypoFix('REWE MARKT', 'Rewe Markt')).toBe(true)
+    expect(looksLikeTypoFix('ÄRZTE', 'ärzte')).toBe(true)
+  })
+
+  it('is false for three edits or more', () => {
+    expect(looksLikeTypoFix('Tinkoff', 'T-Bank')).toBe(false)
+    expect(looksLikeTypoFix('Rewe', 'Rewe City')).toBe(false)
+    expect(looksLikeTypoFix('Netto', 'Penny')).toBe(false)
+  })
+
+  it('is false when either name is shorter than 3 characters', () => {
+    expect(looksLikeTypoFix('DM', 'DB')).toBe(false)
+    expect(looksLikeTypoFix('Ab', 'Abc')).toBe(false)
+    expect(looksLikeTypoFix('  Ab  ', 'Abc')).toBe(false) // trimmed first
+  })
+
+  it('counts letters beyond the basic plane as one each', () => {
+    expect(looksLikeTypoFix('Café 🍕', 'Café 🍔')).toBe(true)
   })
 })

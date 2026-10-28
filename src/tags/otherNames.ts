@@ -156,3 +156,43 @@ export function cleanOtherNames(name: string, names: readonly string[]): string[
   }
   return clean
 }
+
+/** `names` with `name` added at the end, unless it is there already (ignoring case). */
+export function withOtherName(names: readonly string[], name: string): string[] {
+  const key = foldCase(name.trim())
+  return names.some((n) => foldCase(n.trim()) === key) ? [...names] : [...names, name.trim()]
+}
+
+/**
+ * Whether renaming `before` to `after` looks like fixing a typo, so the old
+ * name is not worth keeping as another one: both names at least 3
+ * characters, at most two edits apart ignoring case — a character added,
+ * dropped or changed, or two neighbours swapped (Damerau–Levenshtein, in its
+ * optimal string alignment form).
+ */
+export function looksLikeTypoFix(before: string, after: string): boolean {
+  const a = Array.from(foldCase(before.trim()))
+  const b = Array.from(foldCase(after.trim()))
+  if (a.length < 3 || b.length < 3) return false
+  if (Math.abs(a.length - b.length) > 2) return false
+  return editDistance(a, b) <= 2
+}
+
+/** The optimal string alignment distance between two lists of characters. */
+function editDistance(a: readonly string[], b: readonly string[]): number {
+  // d[i][j]: the distance between the first i characters of a and the first j of b.
+  const d = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  )
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      let best = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        best = Math.min(best, d[i - 2]![j - 2]! + 1)
+      }
+      d[i]![j] = best
+    }
+  }
+  return d[a.length]![b.length]!
+}

@@ -439,6 +439,101 @@ describe('TagEditDialog', () => {
     expect(await tagsRepo.findByName('tag', 'job')).toBeNull()
   })
 
+  describe('rename', () => {
+    const keepBox = () => input('tag-keep-old-name')
+
+    it('offers to keep the old name, ticked by default, and keeps it', async () => {
+      const tinkoff = await tagsRepo.create({
+        kind: 'merchant',
+        name: 'Tinkoff',
+        synonyms: ['TCS'],
+      })
+      await open('merchant', tinkoff)
+      expect(keepBox()).toBeNull()
+      await type('tag-name', 'T-Bank')
+      expect(text()).toContain('Keep “Tinkoff” as another name')
+      expect(keepBox().checked).toBe(true)
+      await save()
+      expect(await tagsRepo.findById(tinkoff.id)).toMatchObject({
+        name: 'T-Bank',
+        synonyms: ['TCS', 'Tinkoff'],
+      })
+      expect((await tagsRepo.findByName('merchant', 'tinkoff'))!.id).toBe(tinkoff.id)
+    })
+
+    it('leaves it off for what looks like a typo fix', async () => {
+      const reve = await tagsRepo.create({ kind: 'merchant', name: 'Reve' })
+      await open('merchant', reve)
+      await type('tag-name', 'Rewe')
+      expect(keepBox().checked).toBe(false)
+      expect(text()).toContain('Off: the new name looks like a typo fix.')
+      await save()
+      expect(await tagsRepo.findById(reve.id)).toMatchObject({ name: 'Rewe', synonyms: [] })
+    })
+
+    it('keeps a typo when ticked', async () => {
+      const edka = await tagsRepo.create({ kind: 'merchant', name: 'Edka' })
+      await open('merchant', edka)
+      await type('tag-name', 'Edeka')
+      keepBox().click()
+      await settle()
+      expect(text()).not.toContain('looks like a typo fix')
+      await save()
+      expect(await tagsRepo.findById(edka.id)).toMatchObject({ name: 'Edeka', synonyms: ['Edka'] })
+    })
+
+    it('follows the name as it is typed until the box is touched', async () => {
+      const tinkoff = await tagsRepo.create({ kind: 'merchant', name: 'Tinkoff' })
+      await open('merchant', tinkoff)
+      await type('tag-name', 'Tinkof')
+      expect(keepBox().checked).toBe(false)
+      await type('tag-name', 'T-Bank')
+      expect(keepBox().checked).toBe(true)
+      keepBox().click()
+      await settle()
+      await type('tag-name', 'T-Banking')
+      expect(keepBox().checked).toBe(false)
+      await save()
+      expect(await tagsRepo.findById(tinkoff.id)).toMatchObject({
+        name: 'T-Banking',
+        synonyms: [],
+      })
+    })
+
+    it('offers nothing for a change of case, or for a new tag', async () => {
+      const rewe = await tagsRepo.create({ kind: 'merchant', name: 'rewe' })
+      await open('merchant', rewe)
+      await type('tag-name', 'REWE')
+      expect(keepBox()).toBeNull()
+      await save()
+      expect(await tagsRepo.findById(rewe.id)).toMatchObject({ name: 'REWE', synonyms: [] })
+      wrapper!.unmount()
+      document.body.innerHTML = ''
+
+      await open('merchant', null)
+      await type('tag-name', 'Edeka')
+      expect(keepBox()).toBeNull()
+    })
+
+    it('renamed back, keeps each name once', async () => {
+      const tbank = await tagsRepo.create({ kind: 'merchant', name: 'T-Bank' })
+      await open('merchant', tbank)
+      await type('tag-name', 'Tinkoff')
+      await save()
+      wrapper!.unmount()
+      document.body.innerHTML = ''
+
+      await open('merchant', (await tagsRepo.findById(tbank.id))!)
+      await type('tag-name', 'T-Bank')
+      expect(keepBox().checked).toBe(true)
+      await save()
+      expect(await tagsRepo.findById(tbank.id)).toMatchObject({
+        name: 'T-Bank',
+        synonyms: ['Tinkoff'],
+      })
+    })
+  })
+
   it("shows the repository's refusal and keeps the dialog open", async () => {
     await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
     const edeka = await tagsRepo.create({ kind: 'merchant', name: 'Edeka' })

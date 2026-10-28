@@ -24,7 +24,13 @@ import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 import { KIND_ICONS, inheritedLook, type TagLook } from '@/tags/look'
 import type { Icon } from '@/icons/types'
-import { carriedNames, foldCase, mergedNames } from '@/tags/otherNames'
+import {
+  carriedNames,
+  foldCase,
+  looksLikeTypoFix,
+  mergedNames,
+  withOtherName,
+} from '@/tags/otherNames'
 import { heldOption, subtreeIds, tagOptions } from '@/tags/tree'
 import { formatDay } from '@/format/date'
 import { todayLocal } from '@/money/dates'
@@ -75,6 +81,8 @@ const submitted = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const confirmingDelete = ref(false)
+// Whether to keep the old name on a rename, once the user chose; null = the default.
+const keepChoice = ref<boolean | null>(null)
 // The icon dialog opens on top of this one: Escape then closes only it.
 const iconDialogOpen = ref(false)
 // Live transactions and accounts using the tag; read when Delete is pressed.
@@ -104,6 +112,7 @@ async function reset() {
   loadFailed.value = false
   loading.value = false
   confirmingDelete.value = false
+  keepChoice.value = null
   positionError.value = null
   derivedDates.value = { start: null, end: null }
   mapReady.value = false
@@ -232,6 +241,24 @@ const mergedShown = computed(() => {
   return draft.value.otherNames.filter((name) => keys.has(foldCase(name)))
 })
 
+// --- Rename: keep the old name as another one ---
+
+// Renamed beyond a change of case: offer to keep the old name, so searches
+// and imported lines that use it still find the tag.
+const renamed = computed(() => {
+  const name = draft.value.name.trim()
+  return props.tag !== null && name !== '' && foldCase(name) !== foldCase(props.tag.name)
+})
+// On unless the new name looks like a typo fix; it follows the name as it is
+// typed until the user ticks or clears the box (`keepChoice` null).
+const keepByDefault = computed(
+  () => props.tag !== null && !looksLikeTypoFix(props.tag.name, draft.value.name),
+)
+const keepOldName = computed({
+  get: () => keepChoice.value ?? keepByDefault.value,
+  set: (keep: boolean) => (keepChoice.value = keep),
+})
+
 // --- Location position ---
 
 function usePosition() {
@@ -299,8 +326,13 @@ async function save() {
   saving.value = true
   error.value = null
   try {
-    if (props.tag) await store.save(props.tag.id, saveInputFromDraft(draft.value))
-    else await store.create(createInputFromDraft(props.kind, draft.value))
+    if (props.tag) {
+      const input = saveInputFromDraft(draft.value)
+      if (renamed.value && keepOldName.value) {
+        input.otherNames = withOtherName(input.otherNames, props.tag.name)
+      }
+      await store.save(props.tag.id, input)
+    } else await store.create(createInputFromDraft(props.kind, draft.value))
     visible.value = false
   } catch (e) {
     error.value = saveError(e)
@@ -406,6 +438,21 @@ async function setArchived(archived: boolean) {
           />
           <small v-if="shownErrors.name" id="tag-name-error" class="text-red-600">
             {{ shownErrors.name }}
+          </small>
+        </div>
+      </div>
+
+      <div v-if="renamed && tag" class="-mt-2 flex items-start gap-2">
+        <Checkbox v-model="keepOldName" input-id="tag-keep-old-name" binary class="mt-0.5" />
+        <div class="flex flex-col">
+          <label for="tag-keep-old-name" class="text-sm">
+            Keep “{{ tag.name }}” as another name
+          </label>
+          <small
+            v-if="keepChoice === null && !keepByDefault"
+            class="text-gray-500 dark:text-gray-400"
+          >
+            Off: the new name looks like a typo fix.
           </small>
         </div>
       </div>
