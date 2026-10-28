@@ -102,29 +102,40 @@ async function save() {
 
 <template>
   <form class="flex flex-col gap-4" novalidate @submit.prevent="save">
-    <IconPreview
-      :preview="preview"
-      :colour="colour"
-      :fallback="fallback"
-      :label="text === '' ? 'Preview: no text yet' : `Preview: ${text}`"
-    />
-
-    <div class="flex flex-col gap-1">
-      <label for="icon-word-text" class="text-sm font-medium">Text</label>
-      <InputText
-        id="icon-word-text"
-        v-model="word.text"
-        :maxlength="WORD_MAX_LENGTH"
-        autocomplete="off"
-        aria-describedby="icon-word-text-hint"
-        class="w-40"
+    <!-- The result and its action side by side, in view while the settings scroll. -->
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <IconPreview
+        :preview="preview"
+        :colour="colour"
+        :fallback="fallback"
+        :label="text === '' ? 'Preview: no text yet' : `Preview: ${text}`"
       />
-      <small id="icon-word-text-hint" class="text-gray-500 dark:text-gray-400">
-        Up to 6 characters read best; it shrinks to fit.
-      </small>
+      <Button
+        type="submit"
+        label="Use this word"
+        icon="pi pi-check"
+        :disabled="text === ''"
+        :loading="busy"
+        :aria-label="text === '' ? 'Use this word' : `Use the word ${text} as the icon`"
+      />
     </div>
+    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
-    <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div class="flex flex-wrap items-start gap-x-6 gap-y-3">
+      <div class="flex w-40 flex-col gap-1">
+        <label for="icon-word-text" class="text-sm font-medium">Text</label>
+        <InputText
+          id="icon-word-text"
+          v-model="word.text"
+          :maxlength="WORD_MAX_LENGTH"
+          autocomplete="off"
+          aria-describedby="icon-word-text-hint"
+          fluid
+        />
+        <small id="icon-word-text-hint" class="text-gray-500 dark:text-gray-400">
+          Up to 6 characters read best; it shrinks to fit.
+        </small>
+      </div>
       <div class="flex flex-col gap-1">
         <span id="icon-word-font" class="text-sm font-medium">Font</span>
         <SelectButton
@@ -142,22 +153,24 @@ async function save() {
           </template>
         </SelectButton>
       </div>
-      <div class="flex items-center gap-2 self-end pb-2">
+      <div class="flex items-center gap-2 sm:mt-8">
         <Checkbox v-model="word.bold" input-id="icon-word-bold" binary />
         <label for="icon-word-bold" class="text-sm font-medium">Bold</label>
       </div>
     </div>
 
-    <fieldset class="flex flex-col gap-2">
+    <fieldset class="flex flex-col">
       <legend class="mb-2 text-sm font-medium">Text colour</legend>
-      <div
-        :class="colourFollows ? DERIVED_CLASS : undefined"
-        :title="colourFollows ? 'Readable on the background' : undefined"
-      >
-        <ColourPicker v-model="textColour" />
-      </div>
-      <div class="flex min-h-8 items-center text-sm">
-        <span v-if="colourFollows" :class="DERIVED_CLASS">Readable on the background</span>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div
+          :class="colourFollows ? DERIVED_CLASS : undefined"
+          :title="colourFollows ? 'Readable on the background' : undefined"
+        >
+          <ColourPicker v-model="textColour" />
+        </div>
+        <span v-if="colourFollows" class="text-sm" :class="DERIVED_CLASS">
+          Readable on the background
+        </span>
         <Button
           v-else
           type="button"
@@ -172,22 +185,9 @@ async function save() {
       </div>
     </fieldset>
 
-    <fieldset class="flex flex-col gap-2">
+    <fieldset class="flex flex-col">
       <legend class="mb-2 text-sm font-medium">Background</legend>
       <ColourPicker v-model="word.background" />
     </fieldset>
-
-    <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-
-    <div class="flex justify-end">
-      <Button
-        type="submit"
-        label="Use this word"
-        icon="pi pi-check"
-        :disabled="text === ''"
-        :loading="busy"
-        :aria-label="text === '' ? 'Use this word' : `Use the word ${text} as the icon`"
-      />
-    </div>
   </form>
 </template>

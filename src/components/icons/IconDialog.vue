@@ -96,7 +96,8 @@ const TABS: { name: TabName; label: string; icon: string }[] = [
     <Tabs v-model:value="tab" class="flex min-h-0 flex-1 flex-col">
       <TabList>
         <Tab v-for="t in TABS" :key="t.name" :value="t.name" class="flex items-center gap-2">
-          <span :class="t.icon" aria-hidden="true" />
+          <!-- Icons only where the four tabs fit with them (! beats PrimeIcons' display). -->
+          <span class="max-sm:hidden!" :class="t.icon" aria-hidden="true" />
           <span>{{ t.label }}</span>
         </Tab>
       </TabList>

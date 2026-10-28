@@ -117,21 +117,18 @@ async function use() {
     <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
     <template v-if="prepared && preview">
-      <IconPreview
-        :preview="preview"
-        :colour="colour"
-        :fallback="fallback"
-        :label="`Preview of ${fileName}`"
-      />
-      <p class="text-sm text-gray-500 dark:text-gray-400">
-        {{ prepared.input.mediaType === 'image/svg+xml' ? 'SVG' : 'Picture' }},
-        {{ prepared.input.width }} × {{ prepared.input.height }}, {{ formatBytes(prepared.bytes) }}
-      </p>
       <Message v-if="prepared.warn" severity="warn" :closable="false">
         This picture is {{ formatBytes(prepared.bytes) }}. Every device syncs this picture, so a
         large one slows down every sync; under {{ formatBytes(WARN_IMAGE_BYTES) }} is best.
       </Message>
-      <div class="flex justify-end">
+      <!-- The result and its action side by side. -->
+      <div class="flex flex-wrap items-end justify-between gap-3">
+        <IconPreview
+          :preview="preview"
+          :colour="colour"
+          :fallback="fallback"
+          :label="`Preview of ${fileName}`"
+        />
         <Button
           v-if="prepared.warn"
           type="button"
@@ -152,6 +149,10 @@ async function use() {
           @click="use"
         />
       </div>
+      <p class="text-sm text-gray-500 dark:text-gray-400">
+        {{ prepared.input.mediaType === 'image/svg+xml' ? 'SVG' : 'Picture' }},
+        {{ prepared.input.width }} × {{ prepared.input.height }}, {{ formatBytes(prepared.bytes) }}
+      </p>
     </template>
     <template v-else-if="current && !error && !busy">
       <IconPreview
