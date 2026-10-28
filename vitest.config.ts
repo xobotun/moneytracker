@@ -8,7 +8,8 @@ export default mergeConfig(
     test: {
       environment: 'jsdom',
       setupFiles: ['./vitest.setup.ts'],
-      exclude: [...configDefaults.exclude, 'e2e/**', '**/*.live.spec.ts'],
+      // .claude/worktrees: other branches checked out by agents, not this one's tests.
+      exclude: [...configDefaults.exclude, 'e2e/**', '**/*.live.spec.ts', '.claude/worktrees/**'],
       root: fileURLToPath(new URL('./', import.meta.url)),
       server: {
         deps: {

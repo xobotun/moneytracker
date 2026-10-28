@@ -16,8 +16,14 @@ import {
   booleanFromColumn,
   categoryPartsToColumn,
   categoryPartsFromColumn,
+  iconToColumn,
+  iconFromColumn,
+  iconToNullableColumn,
+  iconFromNullableColumn,
 } from '../columnMappers'
 import { asShortId } from '../shortId'
+import { asUuid } from '../uuid'
+import { emojiIcon, imageIcon, setIcon } from '../../icons/types'
 
 describe('moneyToColumns / moneyFromRow', () => {
   it('flattens a MoneyAmount into prefixed columns', () => {
@@ -164,5 +170,52 @@ describe('booleanToColumn / booleanFromColumn', () => {
     expect(booleanToColumn(false)).toBe(0)
     expect(booleanFromColumn(1)).toBe(true)
     expect(booleanFromColumn(0)).toBe(false)
+  })
+})
+
+describe('iconToColumn / iconFromColumn', () => {
+  const IMAGE = asUuid('9a5834b6-061b-5ec2-a5d0-9d6ae48cb098')
+
+  it('writes each kind as a JSON object with its keys in a fixed order', () => {
+    expect(iconToColumn(setIcon('pi', 'shop'))).toBe('{"kind":"set","set":"pi","name":"shop"}')
+    expect(iconToColumn(emojiIcon('🛒'))).toBe('{"kind":"emoji","emoji":"🛒"}')
+    expect(iconToColumn(imageIcon(IMAGE))).toBe(`{"kind":"image","image":"${IMAGE}"}`)
+  })
+
+  it('reads each kind back', () => {
+    for (const icon of [setIcon('pi', 'shop'), emojiIcon('🛒'), imageIcon(IMAGE)]) {
+      expect(iconFromColumn(iconToColumn(icon))).toEqual(icon)
+    }
+    // Key order does not matter on read.
+    expect(iconFromColumn('{"name":"shop","set":"pi","kind":"set"}')).toEqual(setIcon('pi', 'shop'))
+  })
+
+  it('keeps an icon of a pack this build does not know as it is', () => {
+    const text = '{"kind":"set","set":"material","name":"storefront"}'
+    expect(iconFromColumn(text)).toEqual(setIcon('material', 'storefront'))
+    expect(iconToColumn(iconFromColumn(text))).toBe(text)
+  })
+
+  it('keeps an icon of a kind or shape this build does not know verbatim', () => {
+    for (const text of [
+      '{"kind":"sticker","pack":"cats","id":7}', // a kind from a newer app
+      '{"kind":"emoji","emoji":"🛒","skin":2}', // a field more
+      '{"kind":"set","set":"pi"}', // a field less
+      '{"kind":"image","image":42}', // a field of another type
+      '{"kind":"emoji","emoji":""}', // an empty field
+      '"wallet"', // not an object
+      '{ "kind" : "set", "set" : "pi" , "name" : "x" , "v" : 2 }', // spacing kept too
+    ]) {
+      const icon = iconFromColumn(text)
+      expect(icon).toEqual({ kind: 'unknown', json: text })
+      expect(iconToColumn(icon)).toBe(text)
+    }
+  })
+
+  it('maps NULL (inherited) both ways', () => {
+    expect(iconToNullableColumn(null)).toBeNull()
+    expect(iconFromNullableColumn(null)).toBeNull()
+    expect(iconFromNullableColumn('{"kind":"emoji","emoji":"🛒"}')).toEqual(emojiIcon('🛒'))
+    expect(iconToNullableColumn(emojiIcon('🛒'))).toBe('{"kind":"emoji","emoji":"🛒"}')
   })
 })

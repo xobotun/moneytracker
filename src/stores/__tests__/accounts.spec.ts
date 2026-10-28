@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { setActivePinia, createPinia } from 'pinia'
 import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
@@ -30,7 +31,7 @@ function input(name: string) {
     location_id: null,
     grouping_id: null,
     colour: '#3b82f6',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
   }
 }
 
@@ -93,8 +94,16 @@ describe('useAccountsStore', () => {
 
     async function setUp() {
       const store = useAccountsStore()
-      const trip = await store.createGrouping({ name: 'Trip', colour: '#000000', icon: 'car' })
-      const home = await store.createGrouping({ name: 'Home', colour: '#000000', icon: 'home' })
+      const trip = await store.createGrouping({
+        name: 'Trip',
+        colour: '#000000',
+        icon: primeIcon('car'),
+      })
+      const home = await store.createGrouping({
+        name: 'Home',
+        colour: '#000000',
+        icon: primeIcon('home'),
+      })
       const a = await store.create({ ...input('A'), grouping_id: trip.id })
       const b = await store.create({ ...input('B'), grouping_id: trip.id })
       const c = await store.create({ ...input('C'), grouping_id: home.id })
@@ -111,7 +120,7 @@ describe('useAccountsStore', () => {
 
     it('always ends with the ungrouped section, even when it is empty', async () => {
       const store = useAccountsStore()
-      await store.createGrouping({ name: 'Trip', colour: '#000000', icon: 'car' })
+      await store.createGrouping({ name: 'Trip', colour: '#000000', icon: primeIcon('car') })
       expect(store.sections.map((s) => s.grouping?.name ?? null)).toEqual(['Trip', null])
       expect(store.sections[1]!.accounts).toEqual([])
     })
@@ -155,7 +164,7 @@ describe('useAccountsStore', () => {
 
     it('moveAccountBy() passes into an empty group', async () => {
       const store = useAccountsStore()
-      await store.createGrouping({ name: 'Empty', colour: '#000000', icon: 'car' })
+      await store.createGrouping({ name: 'Empty', colour: '#000000', icon: primeIcon('car') })
       const a = await store.create(input('A'))
       await store.moveAccountBy(a.id, -1)
       expect(layout()).toEqual({ Empty: ['A'], '-': [] })
@@ -186,6 +195,43 @@ describe('useAccountsStore', () => {
       const { store, trip } = await setUp()
       await store.removeGrouping(trip.id)
       expect(layout()).toEqual({ Home: ['C'], '-': ['D', 'A', 'B'] })
+    })
+
+    describe('archived accounts', () => {
+      const archivedNames = () => useAccountsStore().archived.map((a) => a.name)
+
+      it('leave their section for `archived`, by name, and come back where they were', async () => {
+        const { store, a, d } = await setUp()
+        await store.archive(d.id)
+        await store.archive(a.id)
+        expect(layout()).toEqual({ Trip: ['B'], Home: ['C'], '-': [] })
+        expect(archivedNames()).toEqual(['A', 'D'])
+        expect(store.active.map((x) => x.name).sort()).toEqual(['B', 'C'])
+        expect(store.accounts).toHaveLength(4)
+        expect((await accountsRepo.findById(a.id))!.archived_at_utc).not.toBeNull()
+
+        await store.unarchive(a.id)
+        expect(layout()).toEqual({ Trip: ['A', 'B'], Home: ['C'], '-': [] })
+        expect(archivedNames()).toEqual(['D'])
+      })
+
+      it('are ignored by the arrows and moves', async () => {
+        const { store, b, c } = await setUp()
+        await store.archive(c.id)
+        // Home is empty now: B, last in Trip, steps down into it.
+        expect(store.canMoveAccountBy(c.id, 1)).toBe(false)
+        await store.moveAccountBy(b.id, 1)
+        expect(layout()).toEqual({ Trip: ['A'], Home: ['B'], '-': ['D'] })
+        expect(archivedNames()).toEqual(['C'])
+      })
+
+      it('a failed archive rethrows and leaves the state as it was', async () => {
+        const { store, d } = await setUp()
+        await accountsRepo.softDelete(d.id) // behind the store's back
+        await expect(store.archive(d.id)).rejects.toThrow(/deleted/)
+        expect(archivedNames()).toEqual([])
+        expect(layout()['-']).toEqual(['D'])
+      })
     })
   })
 

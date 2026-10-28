@@ -2,11 +2,10 @@
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
-import AutoComplete from 'primevue/autocomplete'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import AccountBadge from './AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
 import { YELLOW_BUTTON } from './yellowButton'
@@ -15,8 +14,16 @@ import { useTagsStore } from '@/stores/tags'
 import type { Account } from '@/db/types'
 import type { ShortId } from '@/db/shortId'
 import CurrencyInput from '@/components/CurrencyInput.vue'
-import { currencyName, currencySymbol, formatMoney } from '@/format/currency'
+import ChipsInput from '@/components/ChipsInput.vue'
+import MoneyText from '@/components/MoneyText.vue'
+import type { MoneyAmount } from '@/db/MoneyAmount'
+import { currencyName, currencySymbol } from '@/format/currency'
+import { effectiveLook, type TagLook } from '@/tags/look'
+import { foldCase, mergedNamesByTag } from '@/tags/otherNames'
+import { tagSuggestions, type TagSuggestion } from '@/tags/tree'
+import { tagForName } from './accountTags'
 import {
+  ACCOUNT_ICON,
   createInputFromDraft,
   currenciesByUse,
   draftFromAccount,
@@ -41,12 +48,18 @@ const draft = ref<AccountDraft>(newAccountDraft([]))
 // Tag ids the draft cannot show (deleted or unknown tags); saving keeps them.
 // Taken when the dialog opens: saving reloads the tags store meanwhile.
 const hiddenTags = ref<ShortId[]>([])
+// Tags picked from the suggestions, by main name (folded): saving keeps
+// exactly these, where the name alone could find a namesake elsewhere.
+const pickedTags = ref(new Map<string, ShortId>())
+const tagsField = ref<InstanceType<typeof ChipsInput> | null>(null)
 const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
+const confirmingArchive = ref(false)
 const error = ref<string | null>(null)
 const recalculating = ref(false)
-const recalculated = ref<string | null>(null)
+// What the last recalculation found: whether the balance was off, and what it is now.
+const recalculated = ref<{ changed: boolean; balance: MoneyAmount | null } | null>(null)
 const currencyLocked = ref(false)
 // Transactions on the account being edited; null while counting (or for a new one).
 const transactionCount = ref<number | null>(null)
@@ -66,8 +79,10 @@ watch(
       ? draftFromAccount(props.account, visibleTagName)
       : newAccountDraft(store.accounts)
     hiddenTags.value = props.account ? hiddenTagIds(props.account, visibleTagName) : []
+    pickedTags.value = new Map()
     submitted.value = false
     confirmingDelete.value = false
+    confirmingArchive.value = false
     error.value = null
     recalculated.value = null
     void checkCurrencyLock()
@@ -101,15 +116,48 @@ const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors
 // While the suggestions are open, Escape closes only them, not the dialog
 // (both listen for it; the dialog reads this flag when the key is pressed).
 const currencyListOpen = ref(false)
+// Likewise while the icon dialog is open on top of this one, and while tags are suggested.
+const iconDialogOpen = ref(false)
+const tagListOpen = ref(false)
+
+// --- Tags: chips of names; existing plain tags are suggested while typing ---
+
+const mergedNames = computed(() => mergedNamesByTag(tagsStore.tags))
+
+function suggestTags(query: string): TagSuggestion[] {
+  return tagSuggestions(tagsStore.tags, 'tag', query, draft.value.tags, mergedNames.value)
+}
+
+function pickTag(suggestion: TagSuggestion) {
+  pickedTags.value.set(foldCase(suggestion.name), suggestion.id)
+}
+
+/** The look of the tag a chip stands for, as saving finds it; null for a new name. */
+function chipLook(name: string): TagLook | null {
+  const picked = pickedTags.value.get(foldCase(name))
+  const tag =
+    (picked === undefined ? undefined : tagsStore.byId.get(picked)) ??
+    tagForName(name, props.account?.tags ?? [], tagsStore.tags, mergedNames.value)
+  return tag ? effectiveLook(tag, tagsStore.byId) : null
+}
+
+/** The draft's tag names as ids: a picked tag as picked, any other name as `resolvePlainTags` finds or makes it. */
+async function resolveTags(names: readonly string[]): Promise<ShortId[]> {
+  const picked = names.flatMap((name) => pickedTags.value.get(foldCase(name)) ?? [])
+  const typed = names.filter((name) => !pickedTags.value.has(foldCase(name)))
+  const found = await tagsStore.resolvePlainTags(typed, props.account?.tags)
+  return [...new Set([...picked, ...found])]
+}
 
 async function save() {
+  tagsField.value?.commit()
   submitted.value = true
   if (Object.keys(errors.value).length > 0) return
   const clean = normaliseDraft(draft.value)
   saving.value = true
   error.value = null
   try {
-    const tagIds = await tagsStore.resolvePlainTags(clean.tags)
+    const tagIds = await resolveTags(clean.tags)
     if (props.account) {
       const toSave = tagIdsToSave(props.account.tags, tagIds, hiddenTags.value)
       await store.update(props.account.id, patchFromDraft(props.account, clean, toSave))
@@ -132,11 +180,8 @@ async function recalculate() {
   error.value = null
   try {
     const changed = await store.recalculateBalance(id)
-    const balance = store.accounts.find((a) => a.id === id)?.balance
-    const shown = balance ? formatMoney(balance) : ''
-    recalculated.value = changed
-      ? `The balance was off; it is ${shown} now.`
-      : `The balance was already right: ${shown}.`
+    const balance = store.accounts.find((a) => a.id === id)?.balance ?? null
+    recalculated.value = { changed, balance }
   } catch (e) {
     error.value = `Could not recalculate the balance. ${(e as Error).message}`
   } finally {
@@ -158,6 +203,42 @@ async function remove() {
     saving.value = false
   }
 }
+
+// --- Archive: out of the page and group totals, its history kept ---
+
+/** The account as the store holds it now (a recalculation may have changed the balance). */
+const current = computed(() =>
+  props.account ? (store.accounts.find((a) => a.id === props.account!.id) ?? props.account) : null,
+)
+const isArchived = computed(() => current.value?.archived_at_utc != null)
+/** What the account still holds, when that is not zero (the cached balance is enough here). */
+const heldAmount = computed(() => {
+  const balance = current.value?.balance
+  return balance && balance.value !== 0 ? balance : null
+})
+
+/** Archives at once when the account is empty; otherwise asks first. */
+function askArchive() {
+  error.value = null
+  if (heldAmount.value) confirmingArchive.value = true
+  else void setArchived(true)
+}
+
+async function setArchived(archived: boolean) {
+  if (!props.account) return
+  saving.value = true
+  error.value = null
+  try {
+    if (archived) await store.archive(props.account.id)
+    else await store.unarchive(props.account.id)
+    visible.value = false
+  } catch (e) {
+    error.value = `Could not ${archived ? 'archive' : 'unarchive'} the account. ${(e as Error).message}`
+    confirmingArchive.value = false
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -166,12 +247,18 @@ async function remove() {
     modal
     :header="account ? 'Edit account' : 'New account'"
     :draggable="false"
-    :close-on-escape="!currencyListOpen"
+    :close-on-escape="!currencyListOpen && !iconDialogOpen && !tagListOpen"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
       <div class="flex items-start gap-3">
-        <AccountBadge :icon="draft.icon" :colour="draft.colour" large class="mt-6" />
+        <IconBadge
+          :icon="draft.icon"
+          :colour="draft.colour"
+          :fallback="ACCOUNT_ICON"
+          large
+          class="mt-6"
+        />
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <label for="account-name" class="text-sm font-medium">Name</label>
           <InputText
@@ -245,7 +332,13 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <IconPicker v-model="draft.icon" />
+        <IconPicker
+          v-model="draft.icon"
+          v-model:open="iconDialogOpen"
+          :colour="draft.colour"
+          owner-noun="account"
+          :fallback="ACCOUNT_ICON"
+        />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">
@@ -255,21 +348,34 @@ async function remove() {
 
       <div class="flex flex-col gap-1">
         <label for="account-tags" class="text-sm font-medium">Tags</label>
-        <AutoComplete
+        <ChipsInput
+          ref="tagsField"
           v-model="draft.tags"
           input-id="account-tags"
-          multiple
-          :typeahead="false"
           fluid
+          :suggest="suggestTags"
+          :chip-look="chipLook"
           :pt="{ input: { 'aria-describedby': 'account-tags-hint' } }"
+          @pick="pickTag"
+          @show="tagListOpen = true"
+          @hide="tagListOpen = false"
         />
         <small id="account-tags-hint" class="text-gray-500 dark:text-gray-400">
-          Optional. Type a tag and press Enter.
+          Optional. Type to find a tag, or type a new one and press Enter.
         </small>
       </div>
 
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-      <Message v-if="recalculated" severity="info" :closable="false">{{ recalculated }}</Message>
+      <Message v-if="recalculated" severity="info" :closable="false">
+        <template v-if="recalculated.changed">
+          The balance was off; it is
+          <MoneyText v-if="recalculated.balance" :amount="recalculated.balance" /> now.
+        </template>
+        <template v-else>
+          The balance was already right:
+          <MoneyText v-if="recalculated.balance" :amount="recalculated.balance" />.
+        </template>
+      </Message>
 
       <div
         v-if="confirmingDelete && account"
@@ -294,7 +400,31 @@ async function remove() {
           />
         </div>
       </div>
-      <div v-else class="flex items-center gap-2">
+      <div
+        v-else-if="confirmingArchive && account"
+        class="flex flex-col gap-3 rounded-md border border-amber-300 p-3 dark:border-amber-700"
+        role="alert"
+      >
+        <p>
+          It still holds <MoneyText v-if="heldAmount" :amount="heldAmount" />. Archive it anyway?
+        </p>
+        <div class="flex justify-end gap-2">
+          <Button
+            type="button"
+            label="Keep it"
+            severity="secondary"
+            text
+            @click="confirmingArchive = false"
+          />
+          <Button
+            type="button"
+            label="Archive account"
+            :loading="saving"
+            @click="setArchived(true)"
+          />
+        </div>
+      </div>
+      <div v-else class="flex flex-wrap items-center gap-2">
         <Button
           v-if="account"
           type="button"
@@ -306,6 +436,30 @@ async function remove() {
           :pt="{ label: { class: 'hidden sm:inline' } }"
           :disabled="saving"
           @click="confirmingDelete = true"
+        />
+        <Button
+          v-if="account && isArchived"
+          type="button"
+          label="Unarchive"
+          icon="pi pi-replay"
+          severity="secondary"
+          text
+          :aria-label="`Unarchive ${account.name}`"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :disabled="saving"
+          @click="setArchived(false)"
+        />
+        <Button
+          v-else-if="account"
+          type="button"
+          label="Archive"
+          icon="pi pi-inbox"
+          severity="secondary"
+          text
+          :aria-label="`Archive ${account.name}`"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :disabled="saving"
+          @click="askArchive"
         />
         <Button
           v-if="account"
@@ -320,9 +474,11 @@ async function remove() {
           :disabled="saving"
           @click="recalculate"
         />
-        <span class="flex-1" />
-        <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
-        <Button type="submit" :label="account ? 'Save' : 'Add account'" :loading="saving" />
+        <!-- Kept together on the right, on a line of their own on a narrow screen. -->
+        <div class="ml-auto flex gap-2">
+          <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
+          <Button type="submit" :label="account ? 'Save' : 'Add account'" :loading="saving" />
+        </div>
       </div>
     </form>
   </Dialog>

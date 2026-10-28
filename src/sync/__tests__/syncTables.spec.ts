@@ -6,6 +6,7 @@ describe('SYNC_TABLES', () => {
     const names = SYNC_TABLES.map((t) => t.name)
     expect(new Set(names)).toEqual(
       new Set([
+        'images',
         'tags',
         'location_details',
         'merchant_details',
@@ -16,7 +17,7 @@ describe('SYNC_TABLES', () => {
         'transactions',
       ]),
     )
-    expect(names).toHaveLength(8)
+    expect(names).toHaveLength(9)
   })
 
   it('orders foreign-key parents before their children', () => {
@@ -35,6 +36,7 @@ describe('SYNC_TABLES', () => {
   it('keys the side tables by "tag_id" and every other table by "id"', () => {
     const byName = Object.fromEntries(SYNC_TABLES.map((t) => [t.name, t.pk]))
     expect(byName).toEqual({
+      images: 'id',
       tags: 'id',
       location_details: 'tag_id',
       merchant_details: 'tag_id',

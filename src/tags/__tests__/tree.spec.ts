@@ -1,0 +1,323 @@
+import { describe, it, expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
+import { asShortId } from '@/db/shortId'
+import type { Tag } from '@/db/types'
+import {
+  buildTree,
+  filterTree,
+  flattenTree,
+  heldOption,
+  linkFilter,
+  pathLabel,
+  subtreeIds,
+  tagMatches,
+  tagOptions,
+  tagPath,
+  tagSuggestions,
+  type LinkChoice,
+  type TagNode,
+} from '../tree'
+import { byId, tag } from './fixtures'
+
+const DELETED = new Date('2026-10-27T00:00:00.000Z')
+const ARCHIVED = new Date('2026-10-28T00:00:00.000Z')
+const under = (parent: string) => ({ parent_id: asShortId(parent) })
+
+/** The tree as nested names, for readable assertions. */
+function shape(nodes: readonly TagNode[]): unknown[] {
+  return nodes.map((n) =>
+    n.children.length === 0 ? n.tag.name : { [n.tag.name]: shape(n.children) },
+  )
+}
+
+describe('buildTree', () => {
+  it('nests children under their parents, sorted by name', () => {
+    const tags = [
+      tag('food', { name: 'Food' }),
+      tag('snacks', { name: 'snacks', ...under('food') }),
+      tag('bakery', { name: 'Bakery', ...under('food') }),
+      tag('chips', { name: 'Chips', ...under('snacks') }),
+      tag('cars', { name: 'cars' }),
+    ]
+    expect(shape(buildTree(tags, 'category'))).toEqual([
+      'cars',
+      { Food: ['Bakery', { snacks: ['Chips'] }] },
+    ])
+  })
+
+  it('breaks name ties by id', () => {
+    const tags = [tag('b', { name: 'Rewe' }), tag('a', { name: 'rewe' })]
+    expect(buildTree(tags, 'category').map((n) => n.tag.id)).toEqual(['a', 'b'])
+  })
+
+  it('leaves out deleted tags and other kinds', () => {
+    const tags = [
+      tag('food'),
+      tag('gone', { deleted_at_utc: DELETED }),
+      tag('rewe', { kind: 'merchant' }),
+    ]
+    expect(shape(buildTree(tags, 'category'))).toEqual(['food'])
+  })
+
+  it('puts a tag whose parent is not live at the top level', () => {
+    const tags = [
+      tag('gone', { deleted_at_utc: DELETED }),
+      tag('orphan', under('gone')),
+      tag('lost', under('missing0001')),
+      tag('mixed', under('rewe')),
+      tag('rewe', { kind: 'merchant' }),
+    ]
+    expect(shape(buildTree(tags, 'category'))).toEqual(['lost', 'mixed', 'orphan'])
+  })
+
+  it('shows tags caught in a parent loop once, from the top level', () => {
+    const tags = [tag('a', under('b')), tag('b', under('a')), tag('c', under('b'))]
+    expect(shape(buildTree(tags, 'category'))).toEqual([{ a: [{ b: ['c'] }] }])
+  })
+})
+
+describe('filterTree', () => {
+  const tags = [
+    tag('food'),
+    tag('groceries', under('food')),
+    tag('bakery', under('food')),
+    tag('fun'),
+  ]
+  const tree = buildTree(tags, 'category')
+
+  it('keeps matches and their ancestors only', () => {
+    expect(shape(filterTree(tree, (t) => t.name === 'bakery'))).toEqual([{ food: ['bakery'] }])
+  })
+
+  it('drops the descendants of a match that do not match', () => {
+    expect(shape(filterTree(tree, (t) => t.name === 'food'))).toEqual(['food'])
+  })
+
+  it('keeps everything for a filter that matches all', () => {
+    expect(filterTree(tree, () => true)).toEqual(tree)
+  })
+
+  it('keeps an archived tag as the parent of active ones, and drops it otherwise', () => {
+    const archived = { archived_at_utc: ARCHIVED }
+    const withArchived = buildTree(
+      [
+        tag('summer', archived),
+        tag('lisbon', under('summer')),
+        tag('old', { ...archived, ...under('summer') }),
+        tag('winter', archived),
+      ],
+      'category',
+    )
+    expect(shape(filterTree(withArchived, (t) => t.archived_at_utc === null))).toEqual([
+      { summer: ['lisbon'] },
+    ])
+  })
+})
+
+describe('tagMatches', () => {
+  const rewe = tag('rewe', { name: 'Rewe', synonyms: ['REWE Markt'] })
+
+  it('matches everything for an empty query', () => {
+    expect(tagMatches(rewe, '  ', [])).toBe(true)
+  })
+
+  it('finds a name, a synonym or a merged name, ignoring case', () => {
+    expect(tagMatches(rewe, 'ewe', [])).toBe(true)
+    expect(tagMatches(rewe, 'markt', [])).toBe(true)
+    expect(tagMatches(rewe, 'billa', ['Billa Wien'])).toBe(true)
+    expect(tagMatches(rewe, 'edeka', [])).toBe(false)
+  })
+})
+
+describe('tagPath and pathLabel', () => {
+  it('names the tag and its ancestors from the top', () => {
+    const map = byId(
+      tag('food', { name: 'Food' }),
+      tag('groceries', { name: 'Groceries', ...under('food') }),
+    )
+    expect(pathLabel(tagPath(map.get(asShortId('groceries'))!, map))).toBe('Food › Groceries')
+  })
+
+  it('stops on a loop', () => {
+    const map = byId(tag('a', under('b')), tag('b', under('a')))
+    expect(tagPath(map.get(asShortId('a'))!, map)).toEqual(['b', 'a'])
+  })
+})
+
+describe('subtreeIds', () => {
+  it('covers the tag and its live descendants, and survives a loop', () => {
+    const tags: Tag[] = [
+      tag('food'),
+      tag('groceries', under('food')),
+      tag('bread', under('groceries')),
+      tag('gone', { ...under('food'), deleted_at_utc: DELETED }),
+      tag('fun'),
+      tag('x', under('y')),
+      tag('y', under('x')),
+    ]
+    expect([...subtreeIds(asShortId('food'), tags)].sort()).toEqual(['bread', 'food', 'groceries'])
+    expect([...subtreeIds(asShortId('x'), tags)].sort()).toEqual(['x', 'y'])
+  })
+})
+
+describe('tagOptions', () => {
+  it('lists live tags of the kind by path with their look, without the excluded ones', () => {
+    const tags = [
+      tag('food', { name: 'Food', colour: '#ef4444', icon: primeIcon('gift') }),
+      tag('groceries', { name: 'Groceries', ...under('food') }),
+      tag('bakery', { name: 'Bakery', ...under('food') }),
+      tag('drinks', { name: 'Drinks', colour: '#3b82f6' }),
+      tag('gone', { name: 'Gone', deleted_at_utc: DELETED }),
+      tag('rewe', { name: 'Rewe', kind: 'merchant' }),
+    ]
+    const fallback = primeIcon('tag') // the kind's icon
+    expect(tagOptions(tags, 'category', new Set([asShortId('bakery')]))).toEqual([
+      // No icon of its own: the kind's.
+      { id: 'drinks', label: 'Drinks', icon: primeIcon('tag'), colour: '#3b82f6', fallback },
+      { id: 'food', label: 'Food', icon: primeIcon('gift'), colour: '#ef4444', fallback },
+      // Inherited from Food.
+      {
+        id: 'groceries',
+        label: 'Food › Groceries',
+        icon: primeIcon('gift'),
+        colour: '#ef4444',
+        fallback,
+      },
+    ])
+  })
+
+  it('leaves out archived tags, but not their active children', () => {
+    const tags = [
+      tag('summer', { name: 'Summer', archived_at_utc: ARCHIVED }),
+      tag('lisbon', { name: 'Lisbon', ...under('summer') }),
+      tag('winter', { name: 'Winter' }),
+    ]
+    expect(tagOptions(tags, 'category').map((o) => o.label)).toEqual(['Summer › Lisbon', 'Winter'])
+  })
+})
+
+describe('tagSuggestions', () => {
+  const plain = (id: string, over: Partial<Tag> = {}) => tag(id, { kind: 'tag', ...over })
+  const tags = [
+    plain('family', { name: 'family', colour: '#ef4444', icon: primeIcon('heart') }),
+    plain('mia', { name: 'mia', ...under('family') }),
+    plain('kids', { name: 'kids', synonyms: ['Mimi'] }),
+    plain('work', { name: 'work' }),
+    plain('old', { name: 'Minsk', archived_at_utc: ARCHIVED }),
+    plain('gone', { name: 'mine', deleted_at_utc: DELETED }),
+    tag('milk', { name: 'Milk' }), // a category
+  ]
+
+  it('offers live, active tags of the kind by a name or another name, by path with their look', () => {
+    const found = tagSuggestions(tags, 'tag', 'MI', [])
+    expect(found.map((s) => [s.label, s.name])).toEqual([
+      ['family', 'family'],
+      ['family › mia', 'mia'],
+      ['kids', 'kids'], // by its synonym; picking it gives the main name
+    ])
+    // Inherited from family.
+    expect(found[1]).toMatchObject({ id: 'mia', icon: primeIcon('heart'), colour: '#ef4444' })
+  })
+
+  it('finds a merged name too', () => {
+    const merged = new Map([[asShortId('work'), ['Office']]])
+    expect(tagSuggestions(tags, 'tag', 'offi', [], merged).map((s) => s.name)).toEqual(['work'])
+  })
+
+  it('leaves out the names already chosen, ignoring case, and offers nothing for a blank query', () => {
+    expect(tagSuggestions(tags, 'tag', 'mi', ['FAMILY', 'kids']).map((s) => s.name)).toEqual([
+      'mia',
+    ])
+    expect(tagSuggestions(tags, 'tag', '  ', [])).toEqual([])
+  })
+})
+
+describe('heldOption', () => {
+  const tags = [
+    tag('rewe', { name: 'Rewe', colour: '#ef4444' }),
+    tag('kaisers', { name: "Kaiser's", archived_at_utc: ARCHIVED, ...under('rewe') }),
+    tag('gone', { name: 'Gone', deleted_at_utc: DELETED, archived_at_utc: ARCHIVED }),
+  ]
+  const map = byId(...tags)
+
+  it('labels a held tag the pickers do not offer by its name and why', () => {
+    expect(heldOption(asShortId('kaisers'), map)).toMatchObject({
+      id: 'kaisers',
+      label: "Kaiser's (archived)",
+      colour: '#ef4444', // its look, inherited as usual
+    })
+    expect(heldOption(asShortId('gone'), map)).toMatchObject({ label: 'Gone (deleted)' })
+  })
+
+  it('is null for an offered tag, an unknown id or none', () => {
+    expect(heldOption(asShortId('rewe'), map)).toBeNull()
+    expect(heldOption(asShortId('nowhere'), map)).toBeNull()
+    expect(heldOption(null, map)).toBeNull()
+  })
+})
+
+describe('flattenTree', () => {
+  it('lists the rows in order with their depth, skipping closed branches', () => {
+    const tags = [
+      tag('food'),
+      tag('groceries', under('food')),
+      tag('bread', under('groceries')),
+      tag('fun'),
+    ]
+    const tree = buildTree(tags, 'category')
+    const rows = (open: (id: string) => boolean) =>
+      flattenTree(tree, open).map((r) => [r.tag.id, r.depth, r.hasChildren, r.open])
+    expect(rows(() => true)).toEqual([
+      ['food', 0, true, true],
+      ['groceries', 1, true, true],
+      ['bread', 2, false, false],
+      ['fun', 0, false, false],
+    ])
+    expect(rows((id) => id !== 'groceries')).toEqual([
+      ['food', 0, true, true],
+      ['groceries', 1, true, false],
+      ['fun', 0, false, false],
+    ])
+  })
+})
+
+describe('linkFilter', () => {
+  const tags: Tag[] = [
+    tag('food'),
+    tag('groceries', under('food')),
+    tag('bread', under('groceries')),
+    tag('fun'),
+    tag('rewe', { kind: 'merchant' }),
+    tag('bakery', { kind: 'merchant' }),
+    tag('kiosk', { kind: 'merchant' }),
+    tag('cinema', { kind: 'merchant' }),
+  ]
+  // Each merchant's default category.
+  const links = new Map([
+    [asShortId('rewe'), asShortId('groceries')],
+    [asShortId('bakery'), asShortId('bread')],
+    [asShortId('cinema'), asShortId('fun')],
+  ])
+  const merchants = tags.filter((t) => t.kind === 'merchant')
+  const kept = (choice: LinkChoice, subtree: boolean) =>
+    merchants.filter(linkFilter(choice, links, tags, subtree)).map((t) => t.id)
+
+  it('keeps every tag for any', () => {
+    expect(kept('any', true)).toEqual(['rewe', 'bakery', 'kiosk', 'cinema'])
+  })
+
+  it('keeps the tags that link to nothing for none', () => {
+    expect(kept('none', true)).toEqual(['kiosk'])
+  })
+
+  it('keeps the tags linked to the chosen one', () => {
+    expect(kept(asShortId('groceries'), false)).toEqual(['rewe'])
+    expect(kept(asShortId('food'), false)).toEqual([])
+  })
+
+  it('with subtree, also the tags linked to one of its descendants', () => {
+    expect(kept(asShortId('food'), true)).toEqual(['rewe', 'bakery'])
+    expect(kept(asShortId('groceries'), true)).toEqual(['rewe', 'bakery'])
+    expect(kept(asShortId('bread'), true)).toEqual(['bakery'])
+  })
+})

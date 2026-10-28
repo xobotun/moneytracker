@@ -23,6 +23,8 @@ const {
   selectedPreset,
   saveError,
   onDarkModeChange,
+  hideAmountsError,
+  onHideAmountsChange,
   navPositionOptions,
   selectedNavPosition,
   collapseModeOptions,
@@ -208,7 +210,26 @@ async function onValidateS3(): Promise<void> {
       <Divider align="left" type="solid">
         <b>Money</b>
       </Divider>
-      <BaseCurrencySetting />
+      <div class="flex flex-col gap-4">
+        <BaseCurrencySetting />
+        <div class="flex flex-col gap-1">
+          <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <label for="hide-amounts">Hide amounts</label>
+            <ToggleSwitch
+              input-id="hide-amounts"
+              :model-value="layoutStore.hideAmounts"
+              :pt="{ input: { 'aria-describedby': 'hide-amounts-hint' } }"
+              @update:model-value="onHideAmountsChange"
+            />
+          </div>
+          <small id="hide-amounts-hint" class="text-gray-500 sm:text-right dark:text-gray-400">
+            For using the app where others can see the screen; tap an amount to show it.
+          </small>
+          <Message v-if="hideAmountsError" severity="error" :closable="false" class="text-sm">
+            {{ hideAmountsError }}
+          </Message>
+        </div>
+      </div>
 
       <Divider align="left" type="solid">
         <b>This device</b>

@@ -10,6 +10,8 @@ import {
 import {
   booleanFromColumn,
   booleanToColumn,
+  iconFromColumn,
+  iconToColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -35,17 +37,25 @@ type AccountRow = {
   icon: string
   grouping_id: string | null
   sort_order: number
+  archived_at_utc: string | null
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
 }
 
 // sort_order is excluded from both inputs: create() and a grouping change in
-// update() append to the end of the group, arrange() moves. is_cash may be left
-// out of create() (not cash).
+// update() append to the end of the group, arrange() moves. archived_at_utc
+// too: archive() and unarchive() set it. is_cash may be left out of create()
+// (not cash).
 export type AccountCreateInput = Omit<
   Account,
-  'id' | 'is_cash' | 'sort_order' | 'created_at_utc' | 'updated_at_utc' | 'deleted_at_utc'
+  | 'id'
+  | 'is_cash'
+  | 'sort_order'
+  | 'archived_at_utc'
+  | 'created_at_utc'
+  | 'updated_at_utc'
+  | 'deleted_at_utc'
 > &
   Partial<Pick<Account, 'is_cash'>>
 
@@ -64,9 +74,10 @@ function rowToAccount(row: AccountRow): Account {
     tags: jsonArrayFromColumn<ShortId>(row.tags),
     location_id: shortIdFromNullableColumn(row.location_id),
     colour: row.colour,
-    icon: row.icon,
+    icon: iconFromColumn(row.icon),
     grouping_id: shortIdFromNullableColumn(row.grouping_id),
     sort_order: row.sort_order,
+    archived_at_utc: instantFromNullableColumn(row.archived_at_utc),
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
@@ -125,7 +136,7 @@ export class AccountsRepository {
           tagsJson,
           input.location_id,
           input.colour,
-          input.icon,
+          iconToColumn(input.icon),
           input.grouping_id,
           input.grouping_id,
           now,
@@ -210,7 +221,7 @@ export class AccountsRepository {
     }
     if (patch.icon !== undefined) {
       sets.push('icon = ?')
-      params.push(patch.icon)
+      params.push(iconToColumn(patch.icon))
     }
     if (patch.grouping_id !== undefined) {
       // A new group puts the account at its end. SQLite evaluates every SET
@@ -256,6 +267,41 @@ export class AccountsRepository {
    */
   async recalculateBalances(ids?: readonly ShortId[]): Promise<number> {
     return this.db.transaction((tx) => recalculateBalances(tx, ids))
+  }
+
+  /**
+   * Archives the live account: it leaves the page and group totals and is
+   * listed apart. Its transactions, balance, group and place stay, so
+   * unarchiving puts it back where it was. Archiving an archived account
+   * changes nothing.
+   */
+  async archive(id: ShortId): Promise<void> {
+    await this.setArchived(id, true)
+  }
+
+  /** Brings the live account back into its group and the totals. Unarchiving an active one changes nothing. */
+  async unarchive(id: ShortId): Promise<void> {
+    await this.setArchived(id, false)
+  }
+
+  private async setArchived(id: ShortId, archived: boolean): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      const rows = await tx.exec<{ name: string; archived: number; deleted: number }>(
+        `SELECT name, archived_at_utc IS NOT NULL AS archived, deleted_at_utc IS NOT NULL AS deleted
+         FROM accounts WHERE id = ?`,
+        [id],
+      )
+      const account = rows[0]
+      if (!account) throw new Error(`Account ${id} not found`)
+      if (account.deleted === 1) throw new Error(`Account "${account.name}" is deleted`)
+      if ((account.archived === 1) === archived) return
+      await tx.run('UPDATE accounts SET archived_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
+        archived ? now : null,
+        now,
+        id,
+      ])
+    })
   }
 
   async softDelete(id: ShortId): Promise<void> {

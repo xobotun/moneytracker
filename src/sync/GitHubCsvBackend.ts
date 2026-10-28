@@ -26,7 +26,7 @@ in \`data/\` is a slice of the rows of one domain table: the files
 \`data/<table>-0001.csv\`, \`-0002\`, … hold at most 1000 rows each, in
 primary-key order, and every file starts with the header row. For tables
 with time-ordered keys (UUIDv7, e.g. transactions) new rows land in the last
-file; tags and applied_rates are not time-ordered, so any file can change.
+file; tags, applied_rates and images are not time-ordered, so any file can change.
 1000 rows keep transaction files to a few hundred KB.
 `
 

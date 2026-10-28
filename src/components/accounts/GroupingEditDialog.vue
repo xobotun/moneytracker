@@ -4,12 +4,13 @@ import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import AccountBadge from './AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import type { AccountGrouping } from '@/db/types'
 import {
+  GROUPING_ICON,
   draftFromGrouping,
   groupingPatchFromDraft,
   newGroupingDraft,
@@ -29,6 +30,8 @@ const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
 const error = ref<string | null>(null)
+// While the icon dialog is open on top, Escape closes only it (every open dialog hears the key).
+const iconDialogOpen = ref(false)
 
 // Start from a fresh draft each time the dialog opens.
 watch(
@@ -98,12 +101,19 @@ async function remove() {
     v-model:visible="visible"
     modal
     :header="grouping ? 'Edit group' : 'New group'"
+    :close-on-escape="!iconDialogOpen"
     :draggable="false"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
       <div class="flex items-start gap-3">
-        <AccountBadge :icon="draft.icon" :colour="draft.colour" large class="mt-6" />
+        <IconBadge
+          :icon="draft.icon"
+          :colour="draft.colour"
+          :fallback="GROUPING_ICON"
+          large
+          class="mt-6"
+        />
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <label for="grouping-name" class="text-sm font-medium">Name</label>
           <InputText
@@ -123,7 +133,13 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <IconPicker v-model="draft.icon" />
+        <IconPicker
+          v-model="draft.icon"
+          v-model:open="iconDialogOpen"
+          :colour="draft.colour"
+          owner-noun="group"
+          :fallback="GROUPING_ICON"
+        />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">

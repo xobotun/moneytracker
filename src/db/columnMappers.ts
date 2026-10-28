@@ -3,6 +3,7 @@ import { type LocalMoment, localMoment } from './LocalMoment'
 import { type UUID, asUuid } from './uuid'
 import { type ShortId, asShortId } from './shortId'
 import type { CategoryPart } from './types'
+import { iconFromJson, iconToJson, type Icon } from '../icons/types'
 
 // ---------- MoneyAmount ↔ three columns ----------
 
@@ -81,6 +82,22 @@ export function jsonObjectToNullableColumn<V>(obj: Record<string, V> | null): st
   return obj === null ? null : jsonObjectToColumn(obj)
 }
 
+/**
+ * `obj` as JSON with the keys of every object in it sorted, so the same value
+ * is always the same text, whatever order its keys were set in. For JSON that
+ * two devices must write identically (an image's `source`).
+ */
+export function jsonObjectToCanonicalNullableColumn<V>(
+  obj: Record<string, V> | null,
+): string | null {
+  if (obj === null) return null
+  return JSON.stringify(obj, (_key, value: unknown) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : value,
+  )
+}
+
 export function jsonObjectFromNullableColumn<V>(text: string | null): Record<string, V> | null {
   return text === null ? null : jsonObjectFromColumn<V>(text)
 }
@@ -125,6 +142,29 @@ export function categoryPartsFromColumn(
     amount__from: moneyAmount(p.amount_value__from, p.amount_scale__from, currencyFrom),
     amount__to: moneyAmount(p.amount_value__to, p.amount_scale__to, currencyTo),
   }))
+}
+
+// ---------- Icon ↔ JSON object column ----------
+//
+// Tags, accounts and account groups store their icon as a JSON object
+// (src/icons/types.ts). Known kinds are written with a fixed key order, so
+// the same icon is always the same text; an icon of a kind or shape this
+// build does not know is written back exactly as it was read.
+
+export function iconToColumn(icon: Icon): string {
+  return iconToJson(icon)
+}
+
+export function iconFromColumn(text: string): Icon {
+  return iconFromJson(text)
+}
+
+export function iconToNullableColumn(icon: Icon | null): string | null {
+  return icon === null ? null : iconToJson(icon)
+}
+
+export function iconFromNullableColumn(text: string | null): Icon | null {
+  return text === null ? null : iconFromJson(text)
 }
 
 // ---------- boolean ↔ INTEGER 0/1 column ----------

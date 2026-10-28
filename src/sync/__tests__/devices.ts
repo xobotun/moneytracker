@@ -10,6 +10,7 @@ import { TagDetailsRepository } from '../../db/repositories/TagDetailsRepository
 import { TransactionsRepository } from '../../db/repositories/TransactionsRepository'
 import { AccountsRepository } from '../../db/repositories/AccountsRepository'
 import { AppliedRatesRepository } from '../../db/repositories/AppliedRatesRepository'
+import { ImagesRepository } from '../../db/repositories/ImagesRepository'
 import { FakeGitHubRemote, FakeSyncBackend } from './fakes'
 import { newMigratedDb } from './helpers'
 
@@ -39,6 +40,7 @@ export interface Device {
   transactions: TransactionsRepository
   accounts: AccountsRepository
   rates: AppliedRatesRepository
+  images: ImagesRepository
   sync(): Promise<SyncOutcome>
 }
 
@@ -80,6 +82,7 @@ export async function openWorld(
       transactions: new TransactionsRepository(db),
       accounts: new AccountsRepository(db),
       rates: new AppliedRatesRepository(db),
+      images: new ImagesRepository(db),
       sync: () =>
         runSync(db, {
           backend,

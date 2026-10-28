@@ -105,6 +105,52 @@ describe('useLayoutStore', () => {
     })
   })
 
+  describe('tagRows', () => {
+    it('defaults to detailed rows, loads the saved style and persists a new one', async () => {
+      const store = useLayoutStore()
+      expect(store.tagRows).toBe('detailed')
+      mockStore.set('layout.tagRows', 'slim')
+      await store.hydrate()
+      expect(store.tagRows).toBe('slim')
+      await store.setTagRows('detailed')
+      expect(store.tagRows).toBe('detailed')
+      expect(mockStore.get('layout.tagRows')).toBe('detailed')
+    })
+  })
+
+  describe('locationsView', () => {
+    it('defaults to the list, loads the saved view and persists a new one', async () => {
+      const store = useLayoutStore()
+      expect(store.locationsView).toBe('list')
+      mockStore.set('layout.locationsView', 'map')
+      await store.hydrate()
+      expect(store.locationsView).toBe('map')
+      await store.setLocationsView('list')
+      expect(store.locationsView).toBe('list')
+      expect(mockStore.get('layout.locationsView')).toBe('list')
+    })
+  })
+
+  describe('hideAmounts', () => {
+    it('defaults to showing amounts, loads the saved choice and persists a new one', async () => {
+      const store = useLayoutStore()
+      expect(store.hideAmounts).toBe(false)
+      mockStore.set('layout.hideAmounts', true)
+      await store.hydrate()
+      expect(store.hideAmounts).toBe(true)
+      await store.setHideAmounts(false)
+      expect(store.hideAmounts).toBe(false)
+      expect(mockStore.get('layout.hideAmounts')).toBe(false)
+    })
+
+    it('reverts when the save fails', async () => {
+      writeMode.value = 'fail'
+      const store = useLayoutStore()
+      await expect(store.setHideAmounts(true)).rejects.toThrow('disk full')
+      expect(store.hideAmounts).toBe(false)
+    })
+  })
+
   describe('setCollapseMode', () => {
     it('persists and updates collapseMode', async () => {
       const store = useLayoutStore()
@@ -118,7 +164,10 @@ describe('useLayoutStore', () => {
     it.each([
       ['layout.navPosition', 'diagonal', 'navPosition', 'auto'],
       ['layout.collapseMode', 42, 'collapseMode', 'opens-on-hover'],
+      ['layout.tagRows', 'chunky', 'tagRows', 'detailed'],
+      ['layout.locationsView', 'globe', 'locationsView', 'list'],
       ['layout.isDark', 'yes', 'isDark', false],
+      ['layout.hideAmounts', 1, 'hideAmounts', false],
       ['layout.themePreset', 'RemovedTheme', 'themePreset', 'Aura'],
     ] as const)('%s = %j', async (storageKey, stored, field, expected) => {
       mockStore.set(storageKey, stored)

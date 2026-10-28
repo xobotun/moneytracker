@@ -11,9 +11,26 @@ import type { Migration } from './index'
 // but only the repository checks that: there is no unique index, since two
 // devices creating the same name offline must both survive the sync (the
 // duplicates are shown, and merged by hand).
+//
+// `images` holds the pictures icons show (docs/plans/2026-10-28-icons-design.md
+// §3). A row never changes after it is written: a new picture is a new row,
+// and the same picture is the same row on every device (the id is derived
+// from the content).
 export const migration: Migration = {
   version: 2,
   up: `
+    CREATE TABLE images (
+      id              TEXT PRIMARY KEY,                                  -- UUIDv5 of the content's SHA-256
+      media_type      TEXT NOT NULL CHECK (media_type IN ('image/webp', 'image/png', 'image/svg+xml')),
+      content         TEXT NOT NULL,                                     -- base64 for WebP and PNG, the cleaned markup for SVG
+      width           INTEGER,                                           -- pixels; NULL = unknown (an SVG without a size)
+      height          INTEGER,                                           -- pixels; NULL = unknown
+      source          TEXT CHECK (source IS NULL OR json_valid(source)), -- JSON object: the Text tab's settings for a word; NULL for an upload
+      created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
+    );
+
     CREATE TABLE tags (
       id              TEXT PRIMARY KEY,                                  -- short id (12 base-62 characters)
       kind            TEXT NOT NULL CHECK (kind IN ('category', 'merchant', 'location', 'journey', 'tag')),
@@ -22,9 +39,11 @@ export const migration: Migration = {
       moved_at_utc    TEXT NOT NULL,                                     -- ISO 8601 UTC instant: when parent_id was last set by the user
       description     TEXT,
       synonyms        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(synonyms)), -- JSON array of extra names
+      retired_names   TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(retired_names)), -- JSON array of names that no longer find this tag through a tag merged into it
       colour          TEXT,                                              -- NULL = inherited from the parent
-      icon            TEXT,                                              -- PrimeIcons name without 'pi-'; NULL = inherited from the parent
+      icon            TEXT CHECK (icon IS NULL OR json_valid(icon)),     -- JSON object: the icon (src/icons/types.ts); NULL = inherited from the parent
       merged_into_id  TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of the tag this one was merged into (set with deleted_at_utc); NULL = not merged
+      archived_at_utc TEXT,                                              -- ISO 8601 UTC instant: no longer offered in pickers, still live; NULL = active
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT,                                              -- ISO 8601 UTC instant; NULL = live
@@ -39,6 +58,8 @@ export const migration: Migration = {
       latitude        REAL,                                              -- WGS84 degrees
       longitude       REAL,                                              -- WGS84 degrees
       merchant_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a merchant tag (repository-checked); NULL = none
+      radius_metres   INTEGER NOT NULL DEFAULT 10 CHECK (radius_metres > 0), -- whole metres around the position that count as this place
+      auto_match      INTEGER NOT NULL DEFAULT 1 CHECK (auto_match IN (0, 1)), -- boolean: a transaction paid here gets this location by itself
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
@@ -47,6 +68,7 @@ export const migration: Migration = {
     CREATE TABLE merchant_details (
       tag_id              TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a merchant tag
       default_category_id TEXT REFERENCES tags(id) ON DELETE RESTRICT,   -- short id of a category tag (repository-checked); NULL = none
+      auto_match          INTEGER NOT NULL DEFAULT 1 CHECK (auto_match IN (0, 1)), -- boolean: an imported line (statement, receipt) naming it gets this merchant by itself
       created_at_utc      TEXT NOT NULL,                                 -- ISO 8601 UTC instant
       updated_at_utc      TEXT NOT NULL,                                 -- ISO 8601 UTC instant
       deleted_at_utc      TEXT                                           -- ISO 8601 UTC instant; NULL = live
@@ -56,6 +78,7 @@ export const migration: Migration = {
       tag_id          TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a journey tag
       start_date      TEXT,                                              -- 'YYYY-MM-DD' typed by the user; NULL = derived from the journey's transactions
       end_date        TEXT,                                              -- 'YYYY-MM-DD' typed by the user; NULL = derived from the journey's transactions
+      currency        TEXT,                                              -- currency code, free-form like accounts.currency (ISO 4217 or custom); NULL = inherited from the parent journey
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
@@ -65,7 +88,7 @@ export const migration: Migration = {
       id              TEXT PRIMARY KEY,                                  -- short id
       name            TEXT NOT NULL,
       colour          TEXT NOT NULL,
-      icon            TEXT NOT NULL,
+      icon            TEXT NOT NULL CHECK (json_valid(icon)),            -- JSON object: the icon (src/icons/types.ts)
       sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position among the groups, ascending; ties by name
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
@@ -82,9 +105,10 @@ export const migration: Migration = {
       tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of plain-tag ids (short ids of tags with kind 'tag')
       location_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a location tag; NULL = none
       colour          TEXT NOT NULL,
-      icon            TEXT NOT NULL,
+      icon            TEXT NOT NULL CHECK (json_valid(icon)),            -- JSON object: the icon (src/icons/types.ts)
       grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- short id; NULL = not in a group
       sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position within its group (or among ungrouped accounts), ascending; ties by name
+      archived_at_utc TEXT,                                              -- ISO 8601 UTC instant: out of the totals, keeps its group and place; NULL = active
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
@@ -26,7 +27,7 @@ describe('AccountGroupingsRepository', () => {
   })
 
   function createNamed(name: string) {
-    return repo.create({ name, colour: '#000000', icon: 'folder' })
+    return repo.create({ name, colour: '#000000', icon: primeIcon('folder') })
   }
 
   function createAccount(name: string, grouping_id: ShortId | null) {
@@ -36,17 +37,21 @@ describe('AccountGroupingsRepository', () => {
       tags: [],
       location_id: null,
       colour: '#000000',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
       grouping_id,
     })
   }
 
   it('creates and finds an account grouping', async () => {
-    const grouping = await repo.create({ name: 'My Accounts', colour: '#FF5733', icon: 'wallet' })
+    const grouping = await repo.create({
+      name: 'My Accounts',
+      colour: '#FF5733',
+      icon: primeIcon('wallet'),
+    })
     expect(grouping.id).toMatch(/^[0-9A-Za-z]{12}$/)
     expect(grouping.name).toBe('My Accounts')
     expect(grouping.colour).toBe('#FF5733')
-    expect(grouping.icon).toBe('wallet')
+    expect(grouping.icon).toEqual(primeIcon('wallet'))
 
     const found = await repo.findById(grouping.id)
     expect(found).not.toBeNull()
@@ -76,13 +81,17 @@ describe('AccountGroupingsRepository', () => {
   })
 
   it('updates a grouping, only the given fields, and bumps updated_at_utc', async () => {
-    const grouping = await repo.create({ name: 'Original', colour: '#CCCCCC', icon: 'star' })
+    const grouping = await repo.create({
+      name: 'Original',
+      colour: '#CCCCCC',
+      icon: primeIcon('star'),
+    })
     await new Promise((r) => setTimeout(r, 5))
     await repo.update(grouping.id, { name: 'Updated' })
     const after = (await repo.findById(grouping.id))!
     expect(after.name).toBe('Updated')
     expect(after.colour).toBe('#CCCCCC')
-    expect(after.icon).toBe('star')
+    expect(after.icon).toEqual(primeIcon('star'))
     expect(after.sort_order).toBe(grouping.sort_order)
     expect(after.updated_at_utc > grouping.updated_at_utc).toBe(true)
   })

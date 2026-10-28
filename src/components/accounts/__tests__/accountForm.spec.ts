@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { moneyAmount } from '@/db/MoneyAmount'
 import { asShortId } from '@/db/shortId'
 import type { Account } from '@/db/types'
@@ -8,17 +9,12 @@ import {
   currenciesByUse,
   draftFromAccount,
   hiddenTagIds,
-  iconColourOn,
   newAccountDraft,
   normaliseDraft,
   patchFromDraft,
   tagIdsToSave,
   validateDraft,
-  accountIconClass,
-  iconLabel,
-  QUICK_ICONS,
 } from '../accountForm'
-import { PRIME_ICONS } from '../primeIcons'
 
 const DAILY = asShortId('TagDaily0001')
 const TAG_NAMES: Record<string, string> = { TagDaily0001: 'daily' }
@@ -33,9 +29,10 @@ function account(over: Partial<Account> = {}): Account {
     is_cash: true,
     location_id: null,
     colour: '#22c55e',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
     grouping_id: null,
     sort_order: 0,
+    archived_at_utc: null,
     created_at_utc: new Date('2026-10-01T00:00:00Z'),
     updated_at_utc: new Date('2026-10-01T00:00:00Z'),
     deleted_at_utc: null,
@@ -53,7 +50,7 @@ describe('newAccountDraft', () => {
     expect(newAccountDraft(existing)).toEqual({
       name: '',
       currency: 'EUR',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
       colour: COLOUR_PRESETS[3],
       tags: [],
       is_cash: false,
@@ -70,7 +67,7 @@ describe('validateDraft', () => {
   const valid = {
     name: 'Cash',
     currency: 'EUR',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
     colour: '#000000',
     tags: [],
     is_cash: true,
@@ -97,7 +94,7 @@ describe('normaliseDraft', () => {
       normaliseDraft({
         name: '  Cash ',
         currency: ' usdt ',
-        icon: 'wallet',
+        icon: primeIcon('wallet'),
         colour: '#000000',
         tags: [' daily', 'daily', '', 'trip '],
         is_cash: true,
@@ -105,7 +102,7 @@ describe('normaliseDraft', () => {
     ).toEqual({
       name: 'Cash',
       currency: 'USDT',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
       colour: '#000000',
       tags: ['daily', 'trip'],
       is_cash: true,
@@ -161,6 +158,15 @@ describe('patchFromDraft', () => {
     expect(patchFromDraft(a, draftFromAccount(a, tagName), [DAILY])).toEqual({})
   })
 
+  it('compares icons by value, so an equal icon is no change', () => {
+    const a = account({ icon: { kind: 'unknown', json: '{"kind":"sticker","id":7}' } })
+    const draft = draftFromAccount(a, tagName)
+    expect(patchFromDraft(a, { ...draft, icon: { ...draft.icon } }, [DAILY])).toEqual({})
+    expect(patchFromDraft(a, { ...draft, icon: primeIcon('car') }, [DAILY])).toEqual({
+      icon: primeIcon('car'),
+    })
+  })
+
   it('contains only the changed fields', () => {
     const a = account()
     const patch = patchFromDraft(
@@ -197,7 +203,7 @@ describe('createInputFromDraft', () => {
       {
         name: 'Card',
         currency: 'GBP',
-        icon: 'credit-card',
+        icon: primeIcon('credit-card'),
         colour: '#3b82f6',
         tags: [],
         is_cash: true,
@@ -219,38 +225,5 @@ describe('currenciesByUse', () => {
       account({ balance: moneyAmount(0, 8, 'BTC') }),
     ]
     expect(currenciesByUse(existing)).toEqual(['BTC', 'USD'])
-  })
-})
-
-describe('icons', () => {
-  it('renders any PrimeIcons icon and falls back to the wallet icon', () => {
-    expect(accountIconClass('credit-card')).toBe('pi pi-credit-card')
-    expect(accountIconClass('euro')).toBe('pi pi-euro')
-    expect(accountIconClass('no-such-icon')).toBe('pi pi-wallet')
-  })
-
-  it('keeps currency signs out of the quick icons', () => {
-    expect(QUICK_ICONS).not.toContain('dollar')
-    expect(QUICK_ICONS).not.toContain('euro')
-    expect(QUICK_ICONS).not.toContain('pound')
-  })
-
-  it('lists every PrimeIcons icon alphabetically', () => {
-    expect(PRIME_ICONS).toEqual([...PRIME_ICONS].sort())
-    expect(PRIME_ICONS).toContain('euro')
-    expect(PRIME_ICONS).toContain('wallet')
-  })
-
-  it('names icons readably', () => {
-    expect(iconLabel('credit-card')).toBe('credit card')
-    expect(iconLabel('building-columns')).toBe('bank')
-  })
-})
-
-describe('iconColourOn', () => {
-  it('picks dark ink on light backgrounds and white on dark ones', () => {
-    expect(iconColourOn('#fde047')).toBe('#111827')
-    expect(iconColourOn('#1e3a8a')).toBe('#ffffff')
-    expect(iconColourOn('not a colour')).toBe('#ffffff')
   })
 })

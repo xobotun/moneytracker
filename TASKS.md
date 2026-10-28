@@ -57,8 +57,8 @@ When a feature lands, move its bullet from **To Do** to **Done** with a one-line
     - `LocalMoment` — offset-bearing ISO 8601 + IANA zone name
 - Column mappers — Money, LocalMoment, JSON arrays, JSON objects, instants, UUIDs
 - `002_domain_schema` migration creates six tables with hard FKs:
-    - `locations`
-    - `tags` (natural string PK)
+    - `locations` (since replaced by location tags, see "Tags and categories — data layer")
+    - `tags` (natural string PK; since then short ids, see the same section)
     - `accounts`
     - `exchange_rates` (per-provider rows; id is a UUIDv5 of (date, base currency, provider), so one row per key and two devices' copies merge as one row)
     - `account_groupings` (membership: `accounts.grouping_id`, one group per account)
@@ -189,8 +189,8 @@ exercised end-to-end.
   (`groupTint.ts`; chroma lowered to fit sRGB near white/black)
 - Create / edit dialog: name, currency (suggests codes in use, then ISO 4217,
   each with its symbol and name; searchable by code or name; custom codes
-  like BTC allowed), icon (quick picks + a searchable popover with every
-  PrimeIcons icon), colour (presets + custom), free-form tags. New accounts
+  like BTC allowed), icon (quick picks + the icon dialog: every pack icon,
+  emoji, a word, a picture — see Icons), colour (presets + custom), free-form tags. New accounts
   start at a zero balance (no starting-balance field)
 - `src/format/currency.ts`: `currencySymbol` / `currencyName` via `Intl`
 - Delete with an inline confirmation; refused while live transactions use
@@ -217,6 +217,11 @@ exercised end-to-end.
   shows with the ungrouped ones
 - `useAccountsStore` (Pinia, write-through: persist, then re-read): accounts,
   groups and the `sections` the page renders
+- Account tags as tag chips (icon in colour, a nested one by its path,
+  archived faint; the by-currency group chip is outlined). The dialog's tags
+  field is `ChipsInput` with suggestions (live, active plain tags by name or
+  other name; a picked tag is saved as that very tag); chips of existing tags
+  show their icon, a new name stays plain
 
 ### Base currency setting
 
@@ -333,7 +338,53 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 - Which side changed a row is told by per-row base hashes, not timestamps (`src/sync/syncBase.ts`, `changeDetection.ts`); the cutoff stays as the fallback when there is no base. Decision and as-built notes: [docs/plans/2026-10-26-sync-change-detection.md](docs/plans/2026-10-26-sync-change-detection.md)
 
+### Tags page
+
+- Design: [docs/plans/2026-10-27-tags-page-design.md](docs/plans/2026-10-27-tags-page-design.md), plan: [docs/plans/2026-10-27-tags-page-plan.md](docs/plans/2026-10-27-tags-page-plan.md)
+- `/tags` (nav item "Tags"): a tab per kind, kept in the URL (`?kind=merchant`); each a tree sorted by name with collapsible branches, a filter over every name, other names in fainter text, Add (a child) and Edit per row, duplicates outlined and explained (merged by hand), "Show deleted" with Restore. A merchant row shows its default category, a location row its merchant (not a link). Parent loops and dead parents that sync leaves show at the top level (`src/tags/tree.ts`)
+- Edit dialog for every kind: name, parent (by path, never its own subtree), other names, description, colour and icon (an inherited look shows as derived, with a reset), a location's address, position ("Use my position") and merchant, a merchant's default category, a journey's dates (derived from its transactions and sub-journeys until typed). Saved in one transaction (`TagsRepository.save`): a refused rename no longer leaves a tag moved. Delete confirms with the use count; a category in use goes to merge
+- Merge dialog: target of the same kind, what moves, and an answer per differing detail (keep one or type another). A merge now fills the target's empty detail with the source's link to a deleted tag
+- `tags.retired_names`: removing a merged name stops it finding the tag (the merged tag's own row still holds it, and edits to a tombstone never sync); a merge carries the list on (`src/tags/otherNames.ts`)
+- Plain tags can be nested now, so an account keeps its tags by id when saved and a typed name finds a tag at any level (`resolvePlainTags`)
+- Rows: the linked tag (a merchant's default category, a location's merchant) sits in a chip after the name; other names and the description go on a second, fainter line
+- Slim or detailed rows, chosen per device (layout setting `layout.tagRows`, a selector beside the filter): slim keeps a row to one line (the chip from sm, other names and description from md up); detailed shows everything, wrapped, plus a location's address or coordinates, radius and matching, or a journey's dates (derived ones fainter). The tags store reads every details row in one go (`TagDetailsRepository.detailsByTag`)
+- A location is a circle: `location_details.radius_metres` (whole metres, 10 m by default). `nearestLocations` measures to the circle's edge, 0 inside it. The dialog edits the radius; a merge asks about a differing one
+- Map picking in the location dialog: Leaflet with OpenStreetMap tiles, loaded only when the map is shown (`LocationMap.vue`). A click or a drag sets the position, the radius shows as a circle; the map opens on the location, else on its nearest placed ancestor, else the world
+- Automatic matching flags, on by default: `location_details.auto_match` (off: never filled in by itself, still offered nearby; `nearestLocations` returns it flagged) and `merchant_details.auto_match` (off: imported lines naming the merchant are not matched by themselves, once import exists). A checkbox in the dialog, "not matched automatically" on a detailed row; a merge asks which flag to keep
+- Map view on the Locations tab (a third option, Map, beside Slim and Detailed; layout setting `layout.locationsView`, per device): every placed location the filter lets through, as a circle of its radius in its colour (dashed when not matched automatically) with its icon at the centre; a tap or Enter on an icon opens its edit dialog; a tap on a cluster zooms in, or, when no zoom could split it, lists its locations to pick one; a count of those without a position. Fits all on first show, then keeps the view across edits and filtering. Built for 1,000 locations: circles on one canvas, icons in Leaflet.markercluster, bulk redraws (`LocationsMap.vue`, `src/tags/locationsMap.ts`); both maps share `osm.ts` (lazy Leaflet, OSM tiles, dark tiles)
+
+### Icons
+
+- Design: [docs/plans/2026-10-28-icons-design.md](docs/plans/2026-10-28-icons-design.md) (steps 1 and 2 built, see "As built")
+- An icon is a typed JSON value in the `icon` columns of tags, accounts and groups: a pack icon, an emoji or an image; one from a newer app is kept verbatim and draws as the default icon (`src/icons/`)
+- Synced `images` table (UUIDv5 of the content, rows never change; WebP, PNG where a browser cannot write WebP, or SVG), `ImagesRepository` (a word's `source` stored with sorted keys), `useImagesStore` (data URLs on demand)
+- One badge for every kind (`IconBadge.vue`; `badgeElement.ts` for the map pins): rows, chips, picker options, dialogs, the Accounts page, the map and its pick list
+- The icon dialog (`IconDialog.vue`, opened from the "all icons" tile of `IconPicker`; full screen on a phone) with four tabs, opening on the current icon's: Icons (every installed pack, searchable), Emoji (emoji-picker-element, loaded when the tab opens; its data bundled and precached), Text (a word in a system font, bold or not, its own text and background colours with Resets, previewed at badge sizes; `wordSvg.ts`), Image (a file: SVG cleaned with DOMPurify and kept vector, a warning over 100 KB, refused over 1 MB; raster scaled to fit 256 × 256; `upload.ts`, `svgClean.ts`, `raster.ts`)
+
+### Archive (ideas, must-haves 1 and 2)
+
+- Synced `tags.archived_at_utc` and `accounts.archived_at_utc` (NULL = active; `002` edited in place). `archive` / `unarchive` in `TagsRepository` and `AccountsRepository`: live rows only, stamp `updated_at_utc`, a repeat changes nothing. A sync test covers both backends and a transaction recorded offline with an archived category and account (`cornerCases/archive.spec.ts`)
+- **A tag**: still live — on its transactions and accounts, in reports, found by name (typing it on an account reuses it), its names taken, a parent, a merge source or target (a merged-into tag stays archived). Not offered: `tagOptions` leaves it out (the "Under" picker, merchant and default-category pickers, the merge target), the map leaves it out, `nearestLocations` never matches it (a closed shop). A picker that already holds one shows "<name> (archived)" (`heldOption`, like "(deleted)")
+- Tags page: archived tags leave the tree, except as the faint parent of active ones, marked "Archived"; "Show archived <kind> (N)" per tab lists them all, faint and marked; the filter and the map follow it ("Every merchant is archived." when nothing else is left). Edit dialog: Archive (or Unarchive) in the footer, no confirmation, closes the dialog; an archived tag's dialog says "Archived on <date>: no longer offered in pickers."
+- **An account**: out of its group's block, the page and group totals and reorder mode; listed in a collapsed "Archived accounts (N)" section at the bottom with each balance and the section's own total. It keeps its group and place, so unarchiving puts it back. Account dialog: Archive / Unarchive next to Delete; one that still holds money asks first, inline ("It still holds €12.50. Archive it anyway?", from the cached balance). Store: `active`, `archived`, `archive`, `unarchive`
+
+### Places, journeys, renames and link dropdowns (ideas: must-haves 5, 7 reworked, 8; nice-to-haves 4, 6)
+
+- **The most specific place wins**: `nearestLocations` ranks the circles that contain the position by radius, smallest first (equal radii: the nearer centre), then the others by distance to their edge; ties by name, then id, as plain text
+- **Journey currency**: synced `journey_details.currency` (NULL = inherited down the tree like the look, `src/tags/journeys.ts`; free-form code, stored upper-cased). Dialog field (inherited faint, with Reset); "in GEL" on detailed rows; a merge asks about it
+- **Journey dates in one query**: `allJourneyDates` (one recursive CTE, same rules as `journeyDates`), held by the tags store. The Journeys tab sorts siblings by start, newest first, undated ones on top
+- **Current journey**: the deepest live, active journey under way today (see the next bullet; then the later start, the later end, the name), shown at the top of the Journeys tab with "Continue journey": the new-journey dialog next to it, starting today, with a note of what saving does. `TagsRepository.continueJourney` (one transaction): a top-level current journey first goes under a new parent named after its months ("Jul–Oct 2026", " (2)" when taken) with its look and currency; its end becomes today; the new journey goes beside it
+- **Open journeys, "End journey"**: a typed start with no typed end stays current until an end is typed (its last transaction no longer ends it); a typed end is the day it ended, current only before it; derived-only dates keep their last day (`currentJourney`). "End journey" beside "Continue journey" types today as the end, no confirmation (`TagsRepository.endJourney`); the bar moves on to the next journey under way, if any
+- **Rename keeps the old name**: "Keep “Tinkoff” as another name", ticked unless `looksLikeTypoFix` (Damerau–Levenshtein ≤ 2 ignoring case, both names ≥ 3 characters)
+- **Link dropdowns** (instead of matching a merchant's names as text): "Merchant" on the Locations tab (Any / No merchant / each), "Category" on the Merchants tab (Any / No default category / each, sub-categories included); list and map, combined with the text filter, reset per tab (`linkFilter`)
+- `ChipsInput.vue`: text left typed in a chips field becomes a chip on blur and on save (the tag dialog's other names)
+
 ## To Do
+
+### Tags and accounts — next (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
+
+- **Hide amounts** (nice-to-have 8): a device setting; one component draws every read-only money amount, blurred while the setting is on until tapped (until leaving the page)
+- **"Show by currency" on the Accounts page** (nice-to-have 9): a temporary toggle (eye icon, not kept when leaving the page) that groups accounts by currency, cash and bank counted separately but side by side, each row keeping its group's name
 
 ### Domain model gaps
 
@@ -341,14 +392,14 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 - **Named time periods** (vacations, rental stays at a specific apartment) usable as aggregation intervals: these are journeys now (journey tags with dates; data layer done, see Done)
 - **Cash vs. non-cash flag** on transactions (maybe not needed yet)
-- Categories, tags of five kinds and short ids: the data layer is done (see "Tags and categories — data layer" under Done); the Tags page, the transaction form and reports are below
+- Categories, tags of five kinds and short ids: the data layer and the Tags page are done (see Done); the transaction form and reports are below
 - Later: **fractional category splits** (a part given as a fraction of the transaction) and **recurring transactions** (same doc, TODO)
 - Location granularity at FIAS level (location tags cover it now: a hierarchy such as country > city > store, with address and coordinates in `location_details` — FIAS-specific structure TBD) (good as is for now)
 
 ### Pinia stores over repositories
 
 - One store per domain repository, mirroring the write-through pattern set by the layout store
-    - Transactions, tags, locations (accounts and account groupings: done, one store — see Accounts UI; exchange rates: `useRatesStore` holds today's applied rates)
+    - Transactions (accounts and account groupings: done, one store — see Accounts UI; tags of every kind, locations included: `useTagsStore`, see Tags page; exchange rates: `useRatesStore` holds today's applied rates)
 - Hydration on bootstrap where the working set is small enough to keep in memory
 - Decide what stays repo-only vs. what gets reactive caching (transactions probably too large to fully cache)
 
@@ -362,15 +413,19 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Dual-currency input (account currency + purchase currency)
     - Amounts show the currency symbol where one exists (`currencySymbol`: $, €, ₽), the code otherwise; lists of accounts keep the code
     - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc, §2.4: a negative part warns; whether the rate warning shows next to the sum warning is decided with this view's design)
+    - Account pickers leave out archived accounts (`useAccountsStore().active`); an edited transaction keeps one it already has, marked "(archived)". Tag pickers already leave out archived tags (`tagOptions`, `heldOption`)
     - Merchant, location and journey fields (merchant hidden on income and transfers by default); #tag picker with autocomplete (a synonym finds the tag, the main name is shown)
     - Date/time + timezone picker; date-override field
-    - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position
+    - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position. A location with `auto_match` off is offered nearby but never filled in; distances count from the location's circle edge (`nearestLocations`)
+    - On a journey (the device is enrolled in one): expenses and income (not transfers) are offered in the journey's currency (`journey_details.currency`, inherited down the tree)
+    - Offer to join an ongoing journey (one another device started) once; after that, joining is done on the Journeys page. No automatic new journeys (ideas, nice-to-have 13)
+    - Search for a place or an address on the location map (OSM Nominatim or Photon; online only) (nice-to-have 5)
+    - From a tag or an account row, its transactions — through the transactions UI's own filtering UI (nice-to-have 2)
+    - The time zone comes from the phone (the OS knows it); no zone per location or country
     - "On a journey" switch (per device): start a new journey or join an ongoing / recent one
     - Typed vs. derived values (the UI rule in CLAUDE.md)
     - Cash / non-cash toggle (once schema supports it)
     - Edit, soft-delete
-- Tags page (all kinds, a tree per kind): create, rename, move, merge into another tag (its name becomes a synonym), soft-delete; merged names listed, each removable only while nothing uses it (decisions §2.5); duplicates (same kind, parent and name) highlighted; locations also edit their address, coordinates and merchant, merchants their default category, journeys their dates
-    - Before merge ships: `TagsRepository.merge` refuses to fill the target's empty detail with the source's link to a deleted tag (`DeletedTagError`), and `detailConflicts` does not report it. Spec §2.5: the source's details fill the ones the target lacks — skip the liveness check for a value either tag already has; keep it for a `resolved` value that is on neither side (left open by the tags-and-categories final review)
 
 ### Exchange rates
 
@@ -490,7 +545,24 @@ Known sync defects, postponed (review 2026-10-18):
 - Bank statement import (format TBD — likely CSV / OFX / institution-specific parsers)
 - Push notification import (format TBD — Android notification listener export, parsing rules per bank)
 - Mapping rules from raw entries to transactions, accounts, and tags
+- Matching imported lines to merchants honours `merchant_details.auto_match`: a merchant with it off is not matched by itself
 - Dedup against existing transactions (a statement line that matches a hand-entered transaction fills that transaction's `description__auto` instead of adding a second one)
+- Later: **live balances and transactions from banks (open banking)** — automatic ingest of transactions too; needs a licensed aggregator and per-country coverage (ideas, group 3 item 9)
+- Later: **scanning receipts**, and **reading them (OCR) with each item sorted into a category**, which splits the transaction by category
+
+### Later (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
+
+- **Check a balance against the bank, and correct it** (ideas, must-have 4): type what the bank shows, record a correction for the difference; also gives opening balances without counting them as income (needs a category kind that reports leave out)
+- **Probable duplicates** (must-have 6): same names after folding case, accents and punctuation at any level, nearby locations with similar names. Wait for real data
+- **Forgiving search** (must-have 9): ignore accents and punctuation; also match addresses and descriptions
+- **Usage counts and "last used" per tag** (nice-to-have 1): beware false positives — a trip two years ago with another planned does not make its merchants obsolete
+- **Select several tags: merge, move or archive at once** (nice-to-have 3): low priority
+- **Category from the place and from history** (nice-to-have 7): after real data
+- **Small Tags page comforts** (nice-to-have 15): "Add 'Kaufland'" from a filter with no match, collapsed branches kept per device, Collapse all / Expand all, …
+- **Starter categories** (nice-to-have 14): migration 003 with deterministic ids, once Pavel and his wife agree the list
+- **Undo a merge, right after it** (ideas, group 3 item 4, narrowed): after a merge the page offers Undo while the user has not left it or touched either tag. Save the rows the merge changes (both tags, their details, the rewritten references) before it, and put them back in one transaction, only while nothing has changed them since (a sync in between turns Undo off)
+- **Location shapes instead of circles** (ideas, group 3 item 6): an airport, a mall, a long market street. Unlikely soon: drawing and editing a polygon on a phone is the hard part, plus point-in-polygon matching and syncing the shape
+- **Budgets** per journey or category (ideas, group 3 item 8): later, a feature of its own (periods, rollover, alerts)
 
 ### Polish & operational gaps
 
@@ -509,3 +581,5 @@ Known sync defects, postponed (review 2026-10-18):
 - `accounts.balance_*` is a cache now (see "Account balances" under Done); the currency column is still named `currency` rather than `balance_currency`
 - A sync conflict on an `accounts` row (edited on two devices) captures both sides' cached balance in its snapshot; the two may differ for no data reason. Cosmetic — matters only once a conflict viewer exists (strip `DERIVED_COLUMNS` from the snapshots then)
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)
+- Tags page: an edit dialog keeps the other names it read when it opened, so a save after a sync merged more names into the tag (another tab, or auto-sync once it exists) retires those as removed. Re-read the carried names on save, or freeze edits while a sync runs (see External sync)
+- Tags page: the tabs have no tab panels, so each tab's `aria-controls` points nowhere

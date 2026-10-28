@@ -49,7 +49,7 @@ describe('sqliteBlobCodec', () => {
     await src.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
                              colour, icon, created_at_utc, updated_at_utc)
-       VALUES (?, 'Checking', 'USD', 100, 2, ?, '#000000', 'wallet', ?, ?)`,
+       VALUES (?, 'Checking', 'USD', 100, 2, ?, '#000000', '{"kind":"set","set":"pi","name":"wallet"}', ?, ?)`,
       [accId, locId, CUTOFF, CUTOFF],
     )
     const blob = await exportDatabaseToBlob(src)

@@ -14,7 +14,8 @@ export interface SyncTable {
  * `tags` also references itself (parent_id, merged_into_id), which no table
  * order can settle: `mergeDatabases` and `importAllTables` check foreign keys
  * at COMMIT. `applied_rates` has no foreign keys and sits with the other
- * parent-free tables.
+ * parent-free tables. `images` has none either; it comes first, as icons in
+ * tags, accounts and groups refer to it (by JSON, not by a foreign key).
  *
  * The `settings` and `migrations` tables are intentionally absent: settings are
  * device-local-ish and ride along inside the uploaded blob without row merge;
@@ -25,6 +26,7 @@ export interface SyncTable {
  * state, see syncBase.ts) are device-local in the same way.
  */
 export const SYNC_TABLES: readonly SyncTable[] = [
+  { name: 'images', pk: 'id' },
   { name: 'tags', pk: 'id' },
   { name: 'location_details', pk: 'tag_id' },
   { name: 'merchant_details', pk: 'tag_id' },

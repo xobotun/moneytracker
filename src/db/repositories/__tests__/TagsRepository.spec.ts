@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
@@ -15,12 +16,14 @@ import {
 } from '../../errors'
 import { asShortId, type ShortId } from '../../shortId'
 import type { TagKind } from '../../types'
+import { mergedNames } from '@/tags/otherNames'
 import { localMoment } from '../../LocalMoment'
 import { moneyAmount, zeroMoney } from '../../MoneyAmount'
 import { AccountsRepository } from '../AccountsRepository'
 import { TransactionsRepository } from '../TransactionsRepository'
-import { TagsRepository } from '../TagsRepository'
-import { TagDetailsRepository } from '../TagDetailsRepository'
+import { TagsRepository, type TagSaveInput } from '../TagsRepository'
+import { TagDetailsRepository, noDetails, readDetailValues } from '../TagDetailsRepository'
+import { effectiveLook } from '@/tags/look'
 
 const AT = '2026-10-01T00:00:00.000Z'
 
@@ -74,7 +77,7 @@ describe('TagsRepository', () => {
       kind: 'category',
       name: 'Food',
       colour: '#22c55e',
-      icon: 'tag',
+      icon: primeIcon('tag'),
     })
     const groceries = await repo.create({
       kind: 'category',
@@ -250,13 +253,13 @@ describe('TagsRepository', () => {
       description: 'Office',
       synonyms: ['job'],
       colour: '#ef4444',
-      icon: 'briefcase',
+      icon: primeIcon('briefcase'),
     })
     expect(await repo.findById(tag.id)).toMatchObject({
       description: 'Office',
       synonyms: ['job'],
       colour: '#ef4444',
-      icon: 'briefcase',
+      icon: primeIcon('briefcase'),
     })
 
     await repo.update(tag.id, { description: '', colour: null, icon: null })
@@ -479,7 +482,7 @@ describe('TagsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000000',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
     })
   }
 
@@ -513,7 +516,7 @@ describe('TagsRepository', () => {
       name: 'Rewe',
       description: 'Supermarket',
       colour: '#cc0000',
-      icon: 'shop',
+      icon: primeIcon('shop'),
     })
     const food = await repo.create({ kind: 'category', name: 'Food' })
     const t = await spend((await wallet()).id, food.id, { merchant_id: x.id })
@@ -529,7 +532,7 @@ describe('TagsRepository', () => {
     expect(await repo.findById(y.id)).toMatchObject({
       description: 'Supermarket',
       colour: '#cc0000',
-      icon: 'shop',
+      icon: primeIcon('shop'),
     })
     expect(await repo.usageCount(y.id)).toBe(1)
   })
@@ -656,6 +659,567 @@ describe('TagsRepository', () => {
     expect(await repo.usageCount(unused.id)).toBe(0)
   })
 
+  describe('archive', () => {
+    it('stamps archived_at_utc and updated_at_utc, and unarchive clears it', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(AT))
+        const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+        expect(rewe.archived_at_utc).toBeNull()
+
+        vi.setSystemTime(new Date('2026-10-02T00:00:00.000Z'))
+        await repo.archive(rewe.id)
+        expect(await repo.findById(rewe.id)).toMatchObject({
+          archived_at_utc: new Date('2026-10-02T00:00:00.000Z'),
+          updated_at_utc: new Date('2026-10-02T00:00:00.000Z'),
+          deleted_at_utc: null,
+        })
+
+        // Archiving again changes nothing, not even the stamps.
+        vi.setSystemTime(new Date('2026-10-03T00:00:00.000Z'))
+        await repo.archive(rewe.id)
+        expect((await repo.findById(rewe.id))!.updated_at_utc).toEqual(
+          new Date('2026-10-02T00:00:00.000Z'),
+        )
+
+        await repo.unarchive(rewe.id)
+        expect(await repo.findById(rewe.id)).toMatchObject({
+          archived_at_utc: null,
+          updated_at_utc: new Date('2026-10-03T00:00:00.000Z'),
+        })
+        vi.setSystemTime(new Date('2026-10-04T00:00:00.000Z'))
+        await repo.unarchive(rewe.id)
+        expect((await repo.findById(rewe.id))!.updated_at_utc).toEqual(
+          new Date('2026-10-03T00:00:00.000Z'),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('takes live tags only', async () => {
+      const old = await repo.create({ kind: 'merchant', name: 'Old' })
+      await repo.softDelete(old.id)
+      await expect(repo.archive(old.id)).rejects.toThrow(DeletedTagError)
+      await expect(repo.unarchive(old.id)).rejects.toThrow(DeletedTagError)
+      await expect(repo.archive(asShortId('nowhere00000'))).rejects.toThrow(TagNotFoundError)
+    })
+
+    it('leaves the children as they are', async () => {
+      const summer = await repo.create({ kind: 'journey', name: 'Summer' })
+      const lisbon = await repo.create({ kind: 'journey', name: 'Lisbon', parent_id: summer.id })
+      await repo.archive(summer.id)
+      expect(await repo.findById(lisbon.id)).toMatchObject({
+        parent_id: summer.id,
+        archived_at_utc: null,
+      })
+    })
+
+    it('keeps an archived tag live: listed, found by name, its names taken, a parent', async () => {
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe', synonyms: ['REWE Markt'] })
+      await repo.archive(rewe.id)
+
+      expect((await repo.list('merchant')).map((t) => t.id)).toEqual([rewe.id])
+      expect((await repo.findByName('merchant', 'rewe'))!.id).toBe(rewe.id)
+      expect((await repo.findByName('merchant', 'rewe markt', null))!.id).toBe(rewe.id)
+      await expect(repo.create({ kind: 'merchant', name: 'REWE' })).rejects.toThrow(
+        DuplicateTagNameError,
+      )
+      const city = await repo.create({ kind: 'merchant', name: 'Rewe City', parent_id: rewe.id })
+      expect(city.parent_id).toBe(rewe.id)
+    })
+
+    it('stays on what uses it', async () => {
+      const work = await repo.create({ kind: 'tag', name: 'work' })
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const acc = await wallet([work.id])
+      await spend(acc.id, food.id, { tags: [work.id] })
+      await repo.archive(work.id)
+      await repo.archive(food.id)
+      expect(await repo.usageCount(work.id)).toBe(2)
+      expect(await repo.usageCount(food.id)).toBe(1)
+      // A transaction may still be written with them.
+      await spend(acc.id, food.id, { tags: [work.id] })
+      expect(await repo.usageCount(food.id)).toBe(2)
+    })
+
+    it('merges into and out of an archived tag; the target stays archived', async () => {
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      const reweMarkt = await repo.create({ kind: 'merchant', name: 'Rewe Markt' })
+      const edeka = await repo.create({ kind: 'merchant', name: 'Edeka' })
+      await repo.archive(rewe.id)
+      await repo.archive(edeka.id)
+
+      await repo.merge(reweMarkt.id, rewe.id)
+      expect(await repo.findById(rewe.id)).toMatchObject({ synonyms: ['Rewe Markt'] })
+      expect((await repo.findById(rewe.id))!.archived_at_utc).not.toBeNull()
+
+      await repo.merge(edeka.id, rewe.id)
+      expect(await repo.findById(edeka.id)).toBeNull()
+    })
+  })
+
+  describe('save', () => {
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+
+    /** The input that saves the tag as it is. */
+    async function asIs(id: ShortId): Promise<TagSaveInput> {
+      const tag = (await repo.findById(id))!
+      return {
+        name: tag.name,
+        parent_id: tag.parent_id,
+        description: tag.description,
+        otherNames: [...tag.synonyms, ...mergedNames(tag, await repo.listAll())],
+        colour: tag.colour,
+        icon: tag.icon,
+        details: await readDetailValues(db, id, tag.kind),
+      }
+    }
+
+    async function shopInBerlin() {
+      const berlin = await repo.create({ kind: 'location', name: 'Berlin' })
+      const munich = await repo.create({ kind: 'location', name: 'Munich' })
+      const shop = await repo.create({ kind: 'location', name: 'Shop', parent_id: berlin.id })
+      await details.setLocation(shop.id, {
+        address: 'Weg 1',
+        latitude: null,
+        longitude: null,
+        merchant_id: null,
+      })
+      return { berlin, munich, shop }
+    }
+
+    it('keeps an icon from a newer app as it was, and stamps nothing for it', async () => {
+      const tag = await repo.create({ kind: 'category', name: 'Food' })
+      const newer = '{"kind":"sticker","pack":"cats","id":7}'
+      await db.run('UPDATE tags SET icon = ? WHERE id = ?', [newer, tag.id])
+      const before = (await repo.findById(tag.id))!
+      expect(before.icon).toEqual({ kind: 'unknown', json: newer })
+
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(Date.UTC(2030, 0, 1)))
+        await repo.save(tag.id, await asIs(tag.id))
+        await repo.save(tag.id, { ...(await asIs(tag.id)), description: 'Groceries and meals' })
+      } finally {
+        vi.useRealTimers()
+      }
+      const rows = await db.exec<{ icon: string }>('SELECT icon FROM tags WHERE id = ?', [tag.id])
+      expect(rows[0]!.icon).toBe(newer)
+    })
+
+    it('stamps nothing when the icon is the same value read again', async () => {
+      const tag = await repo.create({ kind: 'category', name: 'Food', icon: primeIcon('gift') })
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(Date.UTC(2030, 0, 1)))
+        await repo.save(tag.id, { ...(await asIs(tag.id)), icon: primeIcon('gift') })
+      } finally {
+        vi.useRealTimers()
+      }
+      expect((await repo.findById(tag.id))!.updated_at_utc).toEqual(tag.updated_at_utc)
+    })
+
+    it('renames, moves and writes details in one go', async () => {
+      const { munich, shop } = await shopInBerlin()
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        const later = new Date(Date.UTC(2030, 0, 1))
+        vi.setSystemTime(later)
+        await repo.save(shop.id, {
+          ...(await asIs(shop.id)),
+          name: 'Rewe',
+          parent_id: munich.id,
+          otherNames: ['REWE Markt'],
+          details: {
+            ...(await asIs(shop.id)).details,
+            address: 'Main St 1',
+            position: { latitude: 48.1, longitude: 11.6 },
+          },
+        })
+        expect(await repo.findById(shop.id)).toMatchObject({
+          name: 'Rewe',
+          parent_id: munich.id,
+          synonyms: ['REWE Markt'],
+          moved_at_utc: later,
+          updated_at_utc: later,
+        })
+        expect(await details.getLocation(shop.id)).toMatchObject({
+          address: 'Main St 1',
+          latitude: 48.1,
+          longitude: 11.6,
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('changes nothing when the name is taken at the new parent', async () => {
+      const { berlin, munich, shop } = await shopInBerlin()
+      await repo.create({ kind: 'location', name: 'Rewe', parent_id: munich.id })
+      await expect(
+        repo.save(shop.id, {
+          ...(await asIs(shop.id)),
+          name: 'rewe',
+          parent_id: munich.id,
+          details: { ...(await asIs(shop.id)).details, address: 'Main St 1' },
+        }),
+      ).rejects.toThrow(DuplicateTagNameError)
+      expect(await repo.findById(shop.id)).toMatchObject({ name: 'Shop', parent_id: berlin.id })
+      expect(await details.getLocation(shop.id)).toMatchObject({ address: 'Weg 1' })
+    })
+
+    it('checks every name at a new parent, not only the changed ones', async () => {
+      const { munich, shop } = await shopInBerlin()
+      await repo.create({ kind: 'location', name: 'Shop', parent_id: munich.id })
+      await expect(
+        repo.save(shop.id, { ...(await asIs(shop.id)), parent_id: munich.id }),
+      ).rejects.toThrow(DuplicateTagNameError)
+    })
+
+    it('refuses a move under its own descendant and changes nothing', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const groceries = await repo.create({
+        kind: 'category',
+        name: 'Groceries',
+        parent_id: food.id,
+      })
+      const error = await repo
+        .save(food.id, { ...(await asIs(food.id)), parent_id: groceries.id, description: 'Eats' })
+        .catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(TagLoopError)
+      expect((error as TagLoopError).path).toEqual(['Food', 'Groceries'])
+      expect(await repo.findById(food.id)).toMatchObject({ parent_id: null, description: null })
+    })
+
+    it('refuses a parent of another kind', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      await expect(
+        repo.save(rewe.id, { ...(await asIs(rewe.id)), parent_id: food.id }),
+      ).rejects.toThrow(TagKindMismatchError)
+    })
+
+    it('does not bump updated_at_utc when nothing changed', async () => {
+      const { shop } = await shopInBerlin()
+      const before = (await repo.findById(shop.id))!
+      const detailsBefore = await db.exec('SELECT * FROM location_details WHERE tag_id = ?', [
+        shop.id,
+      ])
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(Date.UTC(2030, 0, 1)))
+        // '' is no description and no address, as NULL is.
+        const input = await asIs(shop.id)
+        await repo.save(shop.id, { ...input, description: '', otherNames: [' '] })
+      } finally {
+        vi.useRealTimers()
+      }
+      expect(await repo.findById(shop.id)).toEqual(before)
+      expect(await db.exec('SELECT * FROM location_details WHERE tag_id = ?', [shop.id])).toEqual(
+        detailsBefore,
+      )
+    })
+
+    it('does not re-check names the tag already had at its parent', async () => {
+      // Two siblings with one name, as a sync leaves them.
+      const a = await insertRaw({ id: 'reweA0000001', kind: 'merchant', name: 'Rewe' })
+      await insertRaw({ id: 'reweB0000001', kind: 'merchant', name: 'Rewe' })
+      await repo.save(a, { ...(await asIs(a)), description: 'The supermarket' })
+      expect(await repo.findById(a)).toMatchObject({ description: 'The supermarket' })
+    })
+
+    it('trims other names and drops empty ones, the main name and repeats', async () => {
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      await repo.save(rewe.id, {
+        ...(await asIs(rewe.id)),
+        otherNames: [' REWE Markt ', '', 'rewe', 'Rewe markt', 'Billa'],
+      })
+      expect((await repo.findById(rewe.id))!.synonyms).toEqual(['REWE Markt', 'Billa'])
+    })
+
+    it('keeps a link to a tag deleted since', async () => {
+      const { shop } = await shopInBerlin()
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      await details.setLocation(shop.id, {
+        address: 'Weg 1',
+        latitude: null,
+        longitude: null,
+        merchant_id: rewe.id,
+      })
+      await repo.softDelete(rewe.id)
+      const input = await asIs(shop.id)
+      await repo.save(shop.id, { ...input, details: { ...input.details, address: 'Weg 2' } })
+      expect(await details.getLocation(shop.id)).toMatchObject({
+        address: 'Weg 2',
+        merchant_id: rewe.id,
+      })
+    })
+
+    it('refuses a new link to a deleted tag', async () => {
+      const { shop } = await shopInBerlin()
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      await repo.softDelete(rewe.id)
+      const input = await asIs(shop.id)
+      await expect(
+        repo.save(shop.id, { ...input, details: { ...input.details, merchant_id: rewe.id } }),
+      ).rejects.toThrow(DeletedTagError)
+    })
+
+    it('rolls back the rename and move when the details are refused after them', async () => {
+      // The link check runs after the tag row is written: only the
+      // transaction keeps the rename and the move from staying.
+      const { berlin, munich, shop } = await shopInBerlin()
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      await repo.softDelete(rewe.id)
+      const input = await asIs(shop.id)
+      await expect(
+        repo.save(shop.id, {
+          ...input,
+          name: 'Rewe Mitte',
+          parent_id: munich.id,
+          details: { ...input.details, merchant_id: rewe.id },
+        }),
+      ).rejects.toThrow(DeletedTagError)
+      expect(await repo.findById(shop.id)).toMatchObject({ name: 'Shop', parent_id: berlin.id })
+    })
+
+    it('refuses journey dates that end before they start', async () => {
+      const rome = await repo.create({ kind: 'journey', name: 'Rome' })
+      const input = await asIs(rome.id)
+      await expect(
+        repo.save(rome.id, {
+          ...input,
+          details: { ...input.details, start_date: '2026-05-09', end_date: '2026-05-01' },
+        }),
+      ).rejects.toThrow(InvalidTagDetailsError)
+    })
+
+    it('ignores detail fields of other kinds', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const input = await asIs(food.id)
+      await repo.save(food.id, { ...input, details: { ...input.details, address: 'Weg 1' } })
+      expect(await db.exec('SELECT * FROM location_details')).toEqual([])
+    })
+
+    it('refuses a deleted tag', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const input = await asIs(food.id)
+      await repo.softDelete(food.id)
+      await expect(repo.save(food.id, input)).rejects.toThrow(DeletedTagError)
+    })
+
+    describe('retired names', () => {
+      it('a removed merged name no longer finds the tag', async () => {
+        const job = await repo.create({ kind: 'tag', name: 'job', synonyms: ['occupation'] })
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await repo.merge(job.id, work.id)
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: ['occupation'] })
+
+        expect(await repo.findById(work.id)).toMatchObject({
+          synonyms: ['occupation'],
+          retired_names: ['job'],
+        })
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+        expect((await repo.findByName('tag', 'occupation'))?.id).toBe(work.id)
+        expect((await repo.findByName('tag', 'work'))?.id).toBe(work.id)
+      })
+
+      it('retires a name only the merged tag holds', async () => {
+        // A chain merged on two devices: the end never got the name as a synonym.
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await insertRaw({
+          id: 'job000000001',
+          kind: 'tag',
+          name: 'job',
+          deleted: AT,
+          mergedInto: work.id,
+        })
+        expect((await repo.findByName('tag', 'job'))?.id).toBe(work.id)
+
+        await repo.save(work.id, await asIs(work.id)) // lists it: nothing changes
+        expect((await repo.findById(work.id))!.retired_names).toEqual([])
+
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        expect((await repo.findById(work.id))!.retired_names).toEqual(['job'])
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+      })
+
+      it('keeps a merged-only name that is listed', async () => {
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await insertRaw({
+          id: 'job000000001',
+          kind: 'tag',
+          name: 'job',
+          deleted: AT,
+          mergedInto: work.id,
+        })
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: ['job'] })
+        expect(await repo.findById(work.id)).toMatchObject({ synonyms: [], retired_names: [] })
+        expect((await repo.findByName('tag', 'job'))?.id).toBe(work.id)
+      })
+
+      it('a name typed again finds the tag again', async () => {
+        const job = await repo.create({ kind: 'tag', name: 'job' })
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await repo.merge(job.id, work.id)
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: ['Job'] })
+        expect(await repo.findById(work.id)).toMatchObject({
+          synonyms: ['Job'],
+          retired_names: [],
+        })
+
+        await repo.update(work.id, { synonyms: [] })
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        await repo.update(work.id, { synonyms: ['job'] })
+        expect((await repo.findById(work.id))!.retired_names).toEqual([])
+      })
+
+      it('a retired name stays retired after a further merge', async () => {
+        const job = await repo.create({ kind: 'tag', name: 'job' })
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        const employment = await repo.create({ kind: 'tag', name: 'employment' })
+        await repo.merge(job.id, work.id)
+        await repo.save(work.id, { ...(await asIs(work.id)), otherNames: [] })
+        await repo.merge(work.id, employment.id)
+
+        expect(await repo.findById(employment.id)).toMatchObject({
+          synonyms: ['work'],
+          retired_names: ['job'],
+        })
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+        expect((await repo.findByName('tag', 'work'))?.id).toBe(employment.id)
+      })
+
+      it('is skipped on any tag of the chain, not only at its end', async () => {
+        const end = await repo.create({ kind: 'tag', name: 'employment' })
+        await db.run(
+          `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, synonyms, retired_names,
+                             merged_into_id, created_at_utc, updated_at_utc, deleted_at_utc)
+           VALUES ('work00000001', 'tag', 'work', NULL, ?, '[]', '["job"]', ?, ?, ?, ?)`,
+          [AT, end.id, AT, AT, AT],
+        )
+        await insertRaw({
+          id: 'job000000001',
+          kind: 'tag',
+          name: 'job',
+          deleted: AT,
+          mergedInto: 'work00000001',
+        })
+        expect(await repo.findByName('tag', 'job')).toBeNull()
+        expect((await repo.findByName('tag', 'work'))?.id).toBe(end.id)
+      })
+
+      it("a merge does not retire the target's own merged name", async () => {
+        // The target holds "gig" only through a merged tag (a chain merged on
+        // two devices); the source retired a "gig" of its own.
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        await insertRaw({
+          id: 'gig000000001',
+          kind: 'tag',
+          name: 'gig',
+          deleted: AT,
+          mergedInto: work.id,
+        })
+        const job = await repo.create({ kind: 'tag', name: 'job' })
+        await db.run(`UPDATE tags SET retired_names = '["gig"]' WHERE id = ?`, [job.id])
+        await repo.merge(job.id, work.id)
+        expect((await repo.findById(work.id))!.retired_names).toEqual([])
+        expect((await repo.findByName('tag', 'gig'))?.id).toBe(work.id)
+      })
+
+      it('defaults to none and round-trips', async () => {
+        const work = await repo.create({ kind: 'tag', name: 'work' })
+        expect(work.retired_names).toEqual([])
+        expect((await repo.listAll())[0]!.retired_names).toEqual([])
+      })
+    })
+  })
+
+  describe('create with details', () => {
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+
+    const none = {
+      address: null,
+      position: null,
+      merchant_id: null,
+      radius_metres: null,
+      auto_match: null,
+      default_category_id: null,
+      start_date: null,
+      end_date: null,
+      currency: null,
+    }
+
+    it('writes the details in the same transaction', async () => {
+      const groceries = await repo.create({ kind: 'category', name: 'Groceries' })
+      const rewe = await repo.create({
+        kind: 'merchant',
+        name: 'Rewe',
+        details: { ...none, default_category_id: groceries.id },
+      })
+      expect(await details.getMerchant(rewe.id)).toEqual({
+        tag_id: rewe.id,
+        default_category_id: groceries.id,
+        auto_match: true,
+      })
+    })
+
+    it('creates no tag when the details are refused', async () => {
+      const groceries = await repo.create({ kind: 'category', name: 'Groceries' })
+      await repo.softDelete(groceries.id)
+      await expect(
+        repo.create({
+          kind: 'merchant',
+          name: 'Rewe',
+          details: { ...none, default_category_id: groceries.id },
+        }),
+      ).rejects.toThrow(DeletedTagError)
+      expect(await repo.findByName('merchant', 'Rewe')).toBeNull()
+    })
+
+    it("checks a journey's currency and stores it upper-cased", async () => {
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        details: { ...none, currency: ' gel ' },
+      })
+      expect((await details.getJourney(georgia.id))!.currency).toBe('GEL')
+      await expect(
+        repo.create({ kind: 'journey', name: 'Armenia', details: { ...none, currency: 'A MD' } }),
+      ).rejects.toThrow(InvalidTagDetailsError)
+      expect(await repo.findByName('journey', 'Armenia')).toBeNull()
+
+      const save = (currency: string | null) =>
+        repo.save(georgia.id, {
+          name: 'Georgia',
+          parent_id: null,
+          description: null,
+          otherNames: [],
+          colour: null,
+          icon: null,
+          details: { ...none, currency },
+        })
+      await save('lari')
+      expect((await details.getJourney(georgia.id))!.currency).toBe('LARI')
+      await expect(save('la ri')).rejects.toThrow(InvalidTagDetailsError)
+      await save('')
+      expect((await details.getJourney(georgia.id))!.currency).toBeNull()
+    })
+
+    it('writes no details row when every field is empty', async () => {
+      await repo.create({ kind: 'journey', name: 'Rome', details: none })
+      expect(await db.exec('SELECT * FROM journey_details')).toEqual([])
+    })
+  })
+
   describe('merging details', () => {
     let details: TagDetailsRepository
     beforeEach(() => {
@@ -684,6 +1248,8 @@ describe('TagsRepository', () => {
         latitude: 52.5,
         longitude: 13.4,
         merchant_id: rewe.id,
+        radius_metres: 10,
+        auto_match: true,
       })
     })
 
@@ -700,6 +1266,65 @@ describe('TagsRepository', () => {
       expect(await db.exec('SELECT * FROM location_details WHERE tag_id = ?', [b.id])).toEqual(
         before,
       )
+    })
+
+    it('asks about a differing radius like any other detail', async () => {
+      const { a, b } = await twoLocations()
+      const at = { address: null, latitude: null, longitude: null, merchant_id: null }
+      await details.setLocation(a.id, { ...at, radius_metres: 80 })
+      await details.setLocation(b.id, at)
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'radius_metres', source: 80, target: 10 },
+      ])
+      await repo.merge(a.id, b.id, { radius_metres: 80 })
+      expect((await details.getLocation(b.id))!.radius_metres).toBe(80)
+    })
+
+    it('asks which matching flag to keep when they differ', async () => {
+      const { a, b } = await twoLocations()
+      const at = { address: null, latitude: null, longitude: null, merchant_id: null }
+      await details.setLocation(a.id, { ...at, auto_match: false })
+      await details.setLocation(b.id, at)
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'auto_match', source: false, target: true },
+      ])
+      await repo.merge(a.id, b.id, { auto_match: false })
+      expect((await details.getLocation(b.id))!.auto_match).toBe(false)
+    })
+
+    it("fills a journey's currency from the source, and asks when the two differ", async () => {
+      const a = await repo.create({ kind: 'journey', name: 'Tbilisi' })
+      const b = await repo.create({ kind: 'journey', name: 'Georgia' })
+      const c = await repo.create({ kind: 'journey', name: 'Armenia' })
+      const dates = { start_date: null, end_date: null }
+      await details.setJourney(a.id, { ...dates, currency: 'GEL' })
+      await repo.merge(a.id, b.id)
+      expect((await details.getJourney(b.id))!.currency).toBe('GEL')
+
+      await details.setJourney(c.id, { ...dates, currency: 'AMD' })
+      expect(await repo.detailConflicts(c.id, b.id)).toEqual([
+        { field: 'currency', source: 'AMD', target: 'GEL' },
+      ])
+      await expect(repo.merge(c.id, b.id)).rejects.toThrow(MergeConflictError)
+      // Another one, typed: checked and stored like a saved one.
+      await expect(repo.merge(c.id, b.id, { currency: 'U SD' })).rejects.toThrow(
+        InvalidTagDetailsError,
+      )
+      expect(await repo.findById(c.id)).not.toBeNull()
+      await repo.merge(c.id, b.id, { currency: ' usd ' })
+      expect((await details.getJourney(b.id))!.currency).toBe('USD')
+    })
+
+    it("asks which of two merchants' matching flags to keep when they differ", async () => {
+      const a = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const b = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(a.id, { default_category_id: null })
+      await details.setMerchant(b.id, { default_category_id: null, auto_match: false })
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'auto_match', source: true, target: false },
+      ])
+      await repo.merge(a.id, b.id, { auto_match: true })
+      expect((await details.getMerchant(b.id))!.auto_match).toBe(true)
     })
 
     it('treats equal values as no conflict', async () => {
@@ -806,6 +1431,7 @@ describe('TagsRepository', () => {
       expect(await details.getMerchant(m2.id)).toEqual({
         tag_id: m2.id,
         default_category_id: food.id,
+        auto_match: true,
       })
 
       const j1 = await repo.create({ kind: 'journey', name: 'Rome' })
@@ -865,7 +1491,34 @@ describe('TagsRepository', () => {
       expect((await details.getMerchant(m2.id))!.default_category_id).toBe(food.id)
     })
 
-    it('checks a link the target gets, from the source or a resolution', async () => {
+    it("fills the target's empty default category with the source's link to a deleted one", async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const m2 = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(m1.id, { default_category_id: food.id })
+      await repo.softDelete(food.id)
+
+      await repo.merge(m1.id, m2.id)
+      expect(await repo.findById(m1.id)).toBeNull()
+      expect((await details.getMerchant(m2.id))!.default_category_id).toBe(food.id)
+    })
+
+    it("fills the target's empty merchant with the source's link to a merchant deleted since", async () => {
+      const { a, b } = await twoLocations()
+      const rewe = await repo.create({ kind: 'merchant', name: 'REWE' })
+      await details.setLocation(a.id, {
+        address: null,
+        latitude: null,
+        longitude: null,
+        merchant_id: rewe.id,
+      })
+      await repo.softDelete(rewe.id)
+
+      await repo.merge(a.id, b.id)
+      expect((await details.getLocation(b.id))!.merchant_id).toBe(rewe.id)
+    })
+
+    it('still refuses a resolved link on neither side that is deleted', async () => {
       const food = await repo.create({ kind: 'category', name: 'Food' })
       const drinks = await repo.create({ kind: 'category', name: 'Drinks' })
       const m1 = await repo.create({ kind: 'merchant', name: 'REWE' })
@@ -874,16 +1527,29 @@ describe('TagsRepository', () => {
       await repo.softDelete(food.id)
       await repo.softDelete(drinks.id)
 
-      await expect(repo.merge(m1.id, m2.id)).rejects.toThrow(DeletedTagError)
       await expect(repo.merge(m1.id, m2.id, { default_category_id: drinks.id })).rejects.toThrow(
         DeletedTagError,
       )
       expect(await repo.findById(m1.id)).toMatchObject({ merged_into_id: null })
       expect(await details.getMerchant(m2.id)).toBeNull()
+    })
 
-      // Resolving the link away lets the merge through.
-      await repo.merge(m1.id, m2.id, { default_category_id: null })
-      expect(await repo.findById(m1.id)).toBeNull()
+    it("accepts a resolved link equal to the source's deleted one", async () => {
+      const { a, b } = await twoLocations()
+      const rewe = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const edeka = await repo.create({ kind: 'merchant', name: 'EDEKA' })
+      const link = (merchant_id: ShortId) => ({
+        address: null,
+        latitude: null,
+        longitude: null,
+        merchant_id,
+      })
+      await details.setLocation(a.id, link(rewe.id))
+      await details.setLocation(b.id, link(edeka.id))
+      await repo.softDelete(rewe.id)
+
+      await repo.merge(a.id, b.id, { merchant_id: rewe.id })
+      expect((await details.getLocation(b.id))!.merchant_id).toBe(rewe.id)
     })
 
     it('checks changed journey dates', async () => {
@@ -904,6 +1570,201 @@ describe('TagsRepository', () => {
         start_date: '2026-05-01',
         end_date: '2026-05-05',
       })
+    })
+  })
+
+  describe('continueJourney', () => {
+    const TODAY = '2026-10-28'
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+    const startingToday = (name: string) => ({
+      name,
+      details: { ...noDetails(), start_date: TODAY },
+    })
+    const journeyRows = async () =>
+      db.exec<{ id: string; name: string; parent_id: string | null }>(
+        "SELECT id, name, parent_id FROM tags WHERE kind = 'journey' ORDER BY name",
+      )
+
+    it('puts a top-level journey under a new one named after its months, ends it, starts the next', async () => {
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        colour: '#ef4444',
+        details: { ...noDetails(), start_date: '2026-07-14', currency: 'GEL' },
+      })
+      const armenia = await repo.continueJourney(georgia.id, startingToday('Armenia'), TODAY)
+
+      const parent = (await repo.findByName('journey', 'Jul–Oct 2026', null))!
+      expect(parent).toMatchObject({
+        parent_id: null,
+        colour: '#ef4444', // Georgia's own
+        icon: primeIcon('globe'), // Georgia shows its kind's icon: copied as it shows
+      })
+      expect((await details.getJourney(parent.id))!.currency).toBe('GEL')
+      const moved = (await repo.findById(georgia.id))!
+      expect(moved.parent_id).toBe(parent.id)
+      expect(moved.moved_at_utc.getTime()).toBeGreaterThanOrEqual(georgia.moved_at_utc.getTime())
+      expect(await details.getJourney(georgia.id)).toMatchObject({
+        start_date: '2026-07-14',
+        end_date: TODAY,
+        currency: 'GEL',
+      })
+      expect(armenia).toMatchObject({ name: 'Armenia', kind: 'journey', parent_id: parent.id })
+      expect(await details.getJourney(armenia.id)).toMatchObject({
+        start_date: TODAY,
+        end_date: null,
+        currency: null, // inherits GEL from the new parent
+      })
+    })
+
+    it('copies the look a journey shows: a default colour too', async () => {
+      const trip = await repo.create({ kind: 'journey', name: 'Trip', icon: primeIcon('car') })
+      await details.setJourney(trip.id, { start_date: '2026-10-01', end_date: null })
+      await repo.continueJourney(trip.id, startingToday('Next'), TODAY)
+      const parent = (await repo.findByName('journey', 'Oct 2026', null))!
+      const shown = (await repo.findById(trip.id))!
+      expect(parent.icon).toEqual(primeIcon('car'))
+      expect(parent.colour).not.toBeNull()
+      // The moved journey, which sets no colour, now shows the same one.
+      expect(effectiveLook(shown, new Map([[parent.id, parent]])).colour).toBe(parent.colour)
+      expect(await details.getJourney(parent.id)).toBeNull() // no currency: no details row
+    })
+
+    it('names the months from a derived start, across years', async () => {
+      const winter = await repo.create({ kind: 'journey', name: 'Winter' })
+      await db.run(
+        `INSERT INTO transactions (id,
+           amount_value__from, amount_scale__from, amount_currency__from,
+           amount_value__to, amount_scale__to, amount_currency__to,
+           transaction_at_local, transaction_at_zone, journey_id, created_at_utc, updated_at_utc)
+         VALUES ('t1', 100, 2, 'EUR', 100, 2, 'EUR', '2025-12-20T12:00:00.000+01:00',
+                 'Europe/Berlin', ?, ?, ?)`,
+        [winter.id, AT, AT],
+      )
+      await repo.continueJourney(winter.id, startingToday('Spring'), '2026-01-05')
+      const parent = (await repo.findById((await repo.findById(winter.id))!.parent_id!))!
+      expect(parent.name).toBe('Dec 2025–Jan 2026')
+    })
+
+    it('makes the new name unique at the top level, synonyms included', async () => {
+      await repo.create({ kind: 'journey', name: 'oct 2026' })
+      await repo.create({ kind: 'journey', name: 'Autumn', synonyms: ['Oct 2026 (2)'] })
+      const trip = await repo.create({
+        kind: 'journey',
+        name: 'Trip',
+        details: { ...noDetails(), start_date: '2026-10-03' },
+      })
+      await repo.continueJourney(trip.id, startingToday('Next'), TODAY)
+      const parent = (await repo.findById((await repo.findById(trip.id))!.parent_id!))!
+      expect(parent.name).toBe('Oct 2026 (3)')
+    })
+
+    it('starts the next journey next to one that has a parent; a later end becomes today', async () => {
+      const caucasus = await repo.create({ kind: 'journey', name: 'Caucasus' })
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        parent_id: caucasus.id,
+        details: { ...noDetails(), start_date: '2026-10-01', end_date: '2026-11-30' },
+      })
+      const before = await journeyRows()
+      const armenia = await repo.continueJourney(georgia.id, startingToday('Armenia'), TODAY)
+      expect(armenia.parent_id).toBe(caucasus.id)
+      expect(await journeyRows()).toHaveLength(before.length + 1) // no new parent
+      expect((await repo.findById(georgia.id))!.parent_id).toBe(caucasus.id)
+      expect((await details.getJourney(georgia.id))!.end_date).toBe(TODAY)
+    })
+
+    it('keeps an end typed before today', async () => {
+      const caucasus = await repo.create({ kind: 'journey', name: 'Caucasus' })
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        parent_id: caucasus.id,
+        details: { ...noDetails(), start_date: '2026-10-01', end_date: '2026-10-20' },
+      })
+      await repo.continueJourney(georgia.id, startingToday('Armenia'), TODAY)
+      expect((await details.getJourney(georgia.id))!.end_date).toBe('2026-10-20')
+    })
+
+    it('changes nothing when the new journey is refused', async () => {
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        details: { ...noDetails(), start_date: '2026-10-01' },
+      })
+      const rows = await journeyRows()
+      const detailRows = await db.exec('SELECT * FROM journey_details')
+      // Its name clashes with Georgia's under the new parent: refused last of all.
+      await expect(
+        repo.continueJourney(georgia.id, startingToday('georgia'), TODAY),
+      ).rejects.toThrow(DuplicateTagNameError)
+      expect(await journeyRows()).toEqual(rows)
+      expect(await db.exec('SELECT * FROM journey_details')).toEqual(detailRows)
+
+      const caucasus = await repo.create({ kind: 'journey', name: 'Caucasus' })
+      await repo.move(georgia.id, caucasus.id)
+      await expect(
+        repo.continueJourney(georgia.id, startingToday('Georgia'), TODAY),
+      ).rejects.toThrow(DuplicateTagNameError)
+      expect((await details.getJourney(georgia.id))!.end_date).toBeNull()
+    })
+
+    it('refuses a tag that is no journey', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      await expect(repo.continueJourney(food.id, startingToday('Next'), TODAY)).rejects.toThrow(
+        TagKindMismatchError,
+      )
+    })
+  })
+
+  describe('endJourney', () => {
+    const TODAY = '2026-10-28'
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+    const journey = (name: string, dates: { start_date: string | null; end_date: string | null }) =>
+      repo.create({
+        kind: 'journey',
+        name,
+        details: { ...noDetails(), ...dates, currency: 'GEL' },
+      })
+
+    it('types today as its end, keeping its other details; a later end becomes today', async () => {
+      const open = await journey('Georgia', { start_date: '2026-10-01', end_date: null })
+      await repo.endJourney(open.id, TODAY)
+      expect(await details.getJourney(open.id)).toMatchObject({
+        start_date: '2026-10-01',
+        end_date: TODAY,
+        currency: 'GEL',
+      })
+
+      const planned = await journey('Armenia', { start_date: null, end_date: '2026-11-30' })
+      await repo.endJourney(planned.id, TODAY)
+      expect(await details.getJourney(planned.id)).toMatchObject({
+        start_date: null,
+        end_date: TODAY,
+        currency: 'GEL',
+      })
+    })
+
+    it('keeps an end typed before today', async () => {
+      const ended = await journey('Georgia', { start_date: '2026-10-01', end_date: '2026-10-20' })
+      const before = await db.exec('SELECT * FROM journey_details')
+      await repo.endJourney(ended.id, TODAY)
+      expect(await db.exec('SELECT * FROM journey_details')).toEqual(before)
+    })
+
+    it('refuses a tag that is no journey, or a deleted one', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      await expect(repo.endJourney(food.id, TODAY)).rejects.toThrow(TagKindMismatchError)
+      const gone = await journey('Georgia', { start_date: '2026-10-01', end_date: null })
+      await repo.softDelete(gone.id)
+      await expect(repo.endJourney(gone.id, TODAY)).rejects.toThrow(DeletedTagError)
     })
   })
 })

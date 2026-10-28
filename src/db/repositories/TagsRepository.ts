@@ -1,5 +1,6 @@
 import type { Database, SqlExecutor } from '../Database'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues, TagKind } from '../types'
+import type { Icon } from '../../icons/types'
 import { asShortId, newShortId, type ShortId } from '../shortId'
 import { mergeChainEnd } from '../mergeChain'
 import {
@@ -12,14 +13,32 @@ import {
   TagNotFoundError,
 } from '../errors'
 import {
+  DEFAULT_LOCATION_RADIUS_METRES,
   DETAIL_FIELDS_BY_KIND,
   assertDetailLinks,
+  assertJourneyCurrency,
   assertJourneyDates,
+  journeyCurrencyToColumn,
+  noDetails,
   readDetailValues,
+  readJourneyDates,
   writeDetailValues,
 } from './TagDetailsRepository'
 import { countTagUsage, redirectTagReferences } from '../tagReferences'
 import {
+  applyOtherNames,
+  carriedNames,
+  foldCase,
+  mergedNames,
+  namesAddedByMerge,
+  retiredAfterMerge,
+} from '@/tags/otherNames'
+import { newParentName } from '@/tags/journeys'
+import { effectiveLook } from '@/tags/look'
+import { todayLocal } from '@/money/dates'
+import {
+  iconFromNullableColumn,
+  iconToNullableColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -38,9 +57,11 @@ export type TagRow = {
   moved_at_utc: string
   description: string | null
   synonyms: string
+  retired_names: string
   colour: string | null
   icon: string | null
   merged_into_id: string | null
+  archived_at_utc: string | null
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
@@ -53,7 +74,22 @@ export type TagCreateInput = {
   description?: string | null
   synonyms?: string[]
   colour?: string | null
-  icon?: string | null
+  icon?: Icon | null
+  /** The details of a location, merchant or journey, written in the same transaction. */
+  details?: TagDetailValues
+}
+
+/** Everything the edit dialog saves at once (see `save`). */
+export type TagSaveInput = {
+  name: string
+  parent_id: ShortId | null
+  description: string | null
+  /** The synonyms and merged names to keep (see `applyOtherNames`). */
+  otherNames: string[]
+  colour: string | null // null = inherited
+  icon: Icon | null // null = inherited
+  /** The fields of the tag's kind are saved; the others are ignored. */
+  details: TagDetailValues
 }
 
 export type TagUpdateInput = {
@@ -61,7 +97,7 @@ export type TagUpdateInput = {
   description?: string | null
   synonyms?: string[]
   colour?: string | null
-  icon?: string | null
+  icon?: Icon | null
 }
 
 export function rowToTag(row: TagRow): Tag {
@@ -73,18 +109,15 @@ export function rowToTag(row: TagRow): Tag {
     moved_at_utc: instantFromColumn(row.moved_at_utc),
     description: row.description,
     synonyms: jsonArrayFromColumn<string>(row.synonyms),
+    retired_names: jsonArrayFromColumn<string>(row.retired_names),
     colour: row.colour,
-    icon: row.icon,
+    icon: iconFromNullableColumn(row.icon),
     merged_into_id: shortIdFromNullableColumn(row.merged_into_id),
+    archived_at_utc: instantFromNullableColumn(row.archived_at_utc),
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
   }
-}
-
-/** Names are compared ignoring case, in a way that also works beyond ASCII (SQLite's lower() does not). */
-function foldCase(name: string): string {
-  return name.toLocaleLowerCase()
 }
 
 /** Everything a tag is found by: its name and its synonyms. */
@@ -117,6 +150,29 @@ async function liveTagOrThrow(ex: SqlExecutor, id: ShortId, role: string): Promi
   return tag
 }
 
+/** The live journey `id`; as `liveTagOrThrow`, and a TagKindMismatchError for another kind. */
+async function liveJourneyOrThrow(ex: SqlExecutor, id: ShortId): Promise<Tag> {
+  const tag = await liveTagOrThrow(ex, id, 'Journey')
+  if (tag.kind !== 'journey') {
+    throw new TagKindMismatchError(`"${tag.name}" is a ${tag.kind}, not a journey`)
+  }
+  return tag
+}
+
+/** Types `today` as the end of journey `id` (its `stored` details), unless it ends earlier already. */
+async function endJourneyIn(
+  ex: SqlExecutor,
+  id: ShortId,
+  stored: TagDetailValues,
+  today: string,
+  now: string,
+): Promise<void> {
+  if (stored.end_date !== null && stored.end_date <= today) return
+  const ended = { ...stored, end_date: today }
+  assertJourneyDates(ended)
+  await writeDetailValues(ex, id, 'journey', ended, now)
+}
+
 /** Both tags must be live and of one kind; returns them. */
 async function mergePair(
   ex: SqlExecutor,
@@ -138,6 +194,25 @@ function sameDetail(a: TagDetailValues[TagDetailField], b: TagDetailValues[TagDe
     return a.latitude === b.latitude && a.longitude === b.longitude
   }
   return a === b
+}
+
+/**
+ * The fields of `kind` from `values`, the others empty; empty text is none,
+ * and an empty radius or matching flag the default. A currency is stored
+ * trimmed and upper-cased.
+ */
+function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues {
+  const next = noDetails()
+  for (const field of DETAIL_FIELDS_BY_KIND[kind]) {
+    ;(next as Record<TagDetailField, unknown>)[field] = values[field]
+  }
+  next.address = optionalTextToColumn(next.address)
+  next.start_date = optionalTextToColumn(next.start_date)
+  next.end_date = optionalTextToColumn(next.end_date)
+  next.currency = journeyCurrencyToColumn(next.currency)
+  if (kind === 'location') next.radius_metres ??= DEFAULT_LOCATION_RADIUS_METRES
+  if (kind === 'location' || kind === 'merchant') next.auto_match ??= true
+  return next
 }
 
 /** The fields of the kind where source and target both have a value and the values differ. */
@@ -217,6 +292,48 @@ async function loopPath(ex: SqlExecutor, id: ShortId, parentId: ShortId): Promis
 }
 
 /**
+ * Inserts tag `id` with its details, checking its parent, its names and its
+ * details as `TagsRepository.create` describes; the caller holds the
+ * transaction.
+ */
+async function insertTag(
+  tx: SqlExecutor,
+  id: ShortId,
+  input: TagCreateInput,
+  now: string,
+): Promise<void> {
+  const parentId = input.parent_id ?? null
+  const synonyms = input.synonyms ?? []
+  const details = input.details ? detailsOfKind(input.kind, input.details) : null
+  if (parentId !== null) await assertParent(tx, input.kind, parentId)
+  await assertNamesFree(tx, input.kind, parentId, [input.name, ...synonyms])
+  await tx.run(
+    `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, description, synonyms, colour,
+                       icon, created_at_utc, updated_at_utc)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      input.kind,
+      input.name,
+      parentId,
+      now,
+      optionalTextToColumn(input.description),
+      jsonArrayToColumn(synonyms),
+      optionalTextToColumn(input.colour),
+      iconToNullableColumn(input.icon ?? null),
+      now,
+      now,
+    ],
+  )
+  if (details && DETAIL_FIELDS_BY_KIND[input.kind].some((field) => details[field] !== null)) {
+    await assertDetailLinks(tx, input.kind, details)
+    assertJourneyDates(details)
+    assertJourneyCurrency(details.currency)
+    await writeDetailValues(tx, id, input.kind, details, now)
+  }
+}
+
+/**
  * Tags of all five kinds: categories, merchants, locations, journeys and
  * plain tags. A tag can have a parent of its own kind. Names and synonyms are
  * unique among the live tags of one kind and parent, ignoring case — checked
@@ -232,31 +349,147 @@ export class TagsRepository {
   async create(input: TagCreateInput): Promise<Tag> {
     const id = newShortId()
     const now = instantToColumn(new Date())
-    const parentId = input.parent_id ?? null
-    const synonyms = input.synonyms ?? []
+    await this.db.transaction((tx) => insertTag(tx, id, input, now))
+    return (await this.findById(id))!
+  }
+
+  /**
+   * "Continue journey": ends the live journey `currentId` and starts the new
+   * one `input` describes next to it, in one transaction, so a refusal
+   * changes nothing. When the current journey has no parent, it first gets
+   * one, named after the months it spans (from its start, typed or derived,
+   * to `today`: "Jul–Oct 2026"), with " (2)", " (3)" … when a top-level
+   * journey has that name already, and the current journey's colour, icon
+   * and currency as it shows them; the current journey moves under it. The
+   * current journey's typed end becomes `today` unless it ends earlier; the
+   * new journey goes under the same parent. Returns the new journey.
+   */
+  async continueJourney(
+    currentId: ShortId,
+    input: Omit<TagCreateInput, 'kind' | 'parent_id'>,
+    today: string = todayLocal(),
+  ): Promise<Tag> {
+    const id = newShortId()
+    const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
-      if (parentId !== null) await assertParent(tx, input.kind, parentId)
-      await assertNamesFree(tx, input.kind, parentId, [input.name, ...synonyms])
-      await tx.run(
-        `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, description, synonyms, colour,
-                           icon, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          input.kind,
-          input.name,
+      const current = await liveJourneyOrThrow(tx, currentId)
+      const stored = await readDetailValues(tx, currentId, 'journey')
+      let parentId = current.parent_id
+      if (parentId === null) {
+        const { start } = await readJourneyDates(tx, currentId)
+        const topLevel = await tx.exec<TagRow>(
+          `SELECT * FROM tags
+           WHERE kind = 'journey' AND parent_id IS NULL AND deleted_at_utc IS NULL`,
+        )
+        const look = effectiveLook(current, new Map([[current.id, current]]))
+        parentId = newShortId()
+        await insertTag(
+          tx,
           parentId,
+          {
+            kind: 'journey',
+            name: newParentName(start, today, topLevel.map(rowToTag)),
+            colour: look.colour,
+            icon: look.icon,
+            details: { ...noDetails(), currency: stored.currency },
+          },
           now,
-          optionalTextToColumn(input.description),
-          jsonArrayToColumn(synonyms),
-          optionalTextToColumn(input.colour),
-          optionalTextToColumn(input.icon),
-          now,
-          now,
-        ],
-      )
+        )
+        await tx.run(
+          'UPDATE tags SET parent_id = ?, moved_at_utc = ?, updated_at_utc = ? WHERE id = ?',
+          [parentId, now, now, currentId],
+        )
+      }
+      await endJourneyIn(tx, currentId, stored, today, now)
+      await insertTag(tx, id, { ...input, kind: 'journey', parent_id: parentId }, now)
     })
     return (await this.findById(id))!
+  }
+
+  /**
+   * "End journey": the live journey `id` ends `today`, typed, unless it ends
+   * earlier already; its start and currency stay as they are.
+   */
+  async endJourney(id: ShortId, today: string = todayLocal()): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      await liveJourneyOrThrow(tx, id)
+      await endJourneyIn(tx, id, await readDetailValues(tx, id, 'journey'), today, now)
+    })
+  }
+
+  /**
+   * Saves what the edit dialog shows, in one transaction: the tag's fields,
+   * its parent and its details, so a refusal changes nothing. Names are
+   * checked at the parent the tag ends up under — all of them when it moves,
+   * only new ones when it stays. A merged name left out of `otherNames` is
+   * retired, so it stops finding the tag (src/tags/otherNames.ts). Only what
+   * changed is written: an unchanged save stamps nothing. A link the details
+   * already have is not checked again (see `assertDetailLinks`).
+   */
+  async save(id: ShortId, input: TagSaveInput): Promise<void> {
+    const now = instantToColumn(new Date())
+    const name = input.name.trim()
+    const parentId = input.parent_id
+    await this.db.transaction(async (tx) => {
+      const tag = await liveTagOrThrow(tx, id, 'Tag')
+      const kindRows = await tx.exec<TagRow>('SELECT * FROM tags WHERE kind = ?', [tag.kind])
+      const { synonyms, retired_names: retired } = applyOtherNames(
+        { name, synonyms: tag.synonyms, retired_names: tag.retired_names },
+        carriedNames(id, kindRows.map(rowToTag)),
+        input.otherNames,
+      )
+      const moves = parentId !== tag.parent_id
+      if (moves && parentId !== null) {
+        await assertParent(tx, tag.kind, parentId)
+        const path = await loopPath(tx, id, parentId)
+        if (path) throw new TagLoopError(path)
+      }
+      const had = new Set(moves ? [] : namesOf(tag).map(foldCase))
+      const unchecked = [name, ...synonyms].filter((n) => !had.has(foldCase(n)))
+      await assertNamesFree(tx, tag.kind, parentId, unchecked, id)
+
+      const sets: string[] = []
+      const params: unknown[] = []
+      const set = (column: string, value: unknown) => {
+        sets.push(`${column} = ?`)
+        params.push(value)
+      }
+      if (name !== tag.name) set('name', name)
+      const description = optionalTextToColumn(input.description)
+      if (description !== tag.description) set('description', description)
+      if (JSON.stringify(synonyms) !== JSON.stringify(tag.synonyms)) {
+        set('synonyms', jsonArrayToColumn(synonyms))
+      }
+      if (JSON.stringify(retired) !== JSON.stringify(tag.retired_names)) {
+        set('retired_names', jsonArrayToColumn(retired))
+      }
+      const colour = optionalTextToColumn(input.colour)
+      if (colour !== tag.colour) set('colour', colour)
+      const icon = iconToNullableColumn(input.icon)
+      if (icon !== iconToNullableColumn(tag.icon)) set('icon', icon)
+      if (moves) {
+        set('parent_id', parentId)
+        set('moved_at_utc', now)
+      }
+      if (sets.length > 0) {
+        set('updated_at_utc', now)
+        await tx.run(`UPDATE tags SET ${sets.join(', ')} WHERE id = ?`, [...params, id])
+      }
+
+      const fields = DETAIL_FIELDS_BY_KIND[tag.kind]
+      if (fields.length === 0) return
+      const stored = await readDetailValues(tx, id, tag.kind)
+      const next = detailsOfKind(tag.kind, input.details)
+      const changed = fields.filter((field) => !sameDetail(next[field], stored[field]))
+      if (changed.length === 0) return
+      await assertDetailLinks(tx, tag.kind, next, stored)
+      if (changed.includes('start_date') || changed.includes('end_date')) {
+        assertJourneyDates(next)
+      }
+      if (changed.includes('currency')) assertJourneyCurrency(next.currency)
+      await writeDetailValues(tx, id, tag.kind, next, now)
+    })
   }
 
   /** The live tag with this id, or null. */
@@ -296,6 +529,8 @@ export class TagsRepository {
    * so with `parentId` null it may not be a top-level one. A merge gives the
    * target the source's names, but sync does not carry them along a chain
    * merged on two devices (X into Y here, Y into Z there: Z lacks X's names).
+   * A match is skipped when a tag on its chain, the end included, has retired
+   * the name (its `retired_names`: the user removed it).
    */
   async findByName(kind: TagKind, name: string, parentId?: ShortId | null): Promise<Tag | null> {
     const key = foldCase(name)
@@ -303,14 +538,30 @@ export class TagsRepository {
     if (live.length > 0) return live[0]!
     const merged = byName(await this.selectNamed(kind, 'merged_into_id IS NOT NULL', parentId), key)
     if (merged.length === 0) return null
-    const links = await this.db.exec<{ id: string; merged_into_id: string | null; live: number }>(
-      'SELECT id, merged_into_id, deleted_at_utc IS NULL AS live FROM tags WHERE kind = ?',
+    const links = await this.db.exec<{
+      id: string
+      merged_into_id: string | null
+      retired_names: string
+      live: number
+    }>(
+      `SELECT id, merged_into_id, retired_names, deleted_at_utc IS NULL AS live
+       FROM tags WHERE kind = ?`,
       [kind],
     )
     const byId = new Map(links.map((link) => [link.id, link]))
+    const retires = (id: string) =>
+      jsonArrayFromColumn<string>(byId.get(id)?.retired_names ?? '[]').some(
+        (retired) => foldCase(retired) === key,
+      )
     for (const tag of merged) {
-      const end = mergeChainEnd(tag.id, (id) => byId.get(id)?.merged_into_id ?? null)
-      if (end !== null && byId.get(end)?.live === 1) return selectTag(this.db, asShortId(end), true)
+      // mergeChainEnd asks for every tag on the way, the end included.
+      const chain: string[] = []
+      const end = mergeChainEnd(tag.id, (id) => {
+        chain.push(id)
+        return byId.get(id)?.merged_into_id ?? null
+      })
+      if (end === null || byId.get(end)?.live !== 1 || chain.some(retires)) continue
+      return selectTag(this.db, asShortId(end), true)
     }
     return null
   }
@@ -359,7 +610,7 @@ export class TagsRepository {
     }
     if (patch.icon !== undefined) {
       sets.push('icon = ?')
-      params.push(optionalTextToColumn(patch.icon))
+      params.push(iconToNullableColumn(patch.icon))
     }
     if (sets.length === 0) return
     sets.push('updated_at_utc = ?')
@@ -376,6 +627,13 @@ export class TagsRepository {
         })
         const added = next.filter((name) => !had.has(foldCase(name)))
         await assertNamesFree(tx, tag.kind, tag.parent_id, added, id)
+        // A name the tag has again is no longer retired.
+        const nextKeys = new Set(next.map(foldCase))
+        const retired = tag.retired_names.filter((name) => !nextKeys.has(foldCase(name)))
+        if (retired.length !== tag.retired_names.length) {
+          sets.unshift('retired_names = ?')
+          params.unshift(jsonArrayToColumn(retired))
+        }
       }
       await tx.run(`UPDATE tags SET ${sets.join(', ')} WHERE id = ?`, params)
     })
@@ -402,7 +660,7 @@ export class TagsRepository {
 
   /**
    * The detail fields (address, position, merchant, default category, journey
-   * dates) where the source and the target both have a value and the values
+   * dates and currency) where the source and the target both have a value and the values
    * differ: a merge needs a decision for each of them.
    */
   async detailConflicts(sourceId: ShortId, targetId: ShortId): Promise<TagDetailConflict[]> {
@@ -424,9 +682,9 @@ export class TagsRepository {
    * different values, `resolved` must give the value (one of the two, or a
    * third; null clears it) or a MergeConflictError lists the fields and
    * nothing is changed. Fields of other kinds in `resolved` are ignored. A
-   * link the target gets (a merchant, a default category) must be a live tag
-   * of the right kind, and changed journey dates must be valid; the target's
-   * own unchanged values are not checked again.
+   * link (a merchant, a default category) that neither tag had must be a live
+   * tag of the right kind, and changed journey dates must be valid; a link
+   * either tag already has is not checked again, even to a tag deleted since.
    */
   async merge(
     sourceId: ShortId,
@@ -453,13 +711,17 @@ export class TagsRepository {
             resolved[field] !== undefined ? resolved[field] : (into[field] ?? from[field])
           ;(next as Record<TagDetailField, unknown>)[field] = value ?? null
         }
+        // A currency typed in the merge dialog is stored like a saved one.
+        next.currency = journeyCurrencyToColumn(next.currency)
         const changed = fields.filter((field) => !sameDetail(next[field], into[field]))
-        // Only what changes is checked: a link the target already has may
-        // point to a tag deleted since, and that must not block the merge.
-        await assertDetailLinks(tx, target.kind, next, into)
+        // Only a link on neither side is checked: one either tag already has
+        // may point to a tag deleted since, and the source's fills the
+        // target's empty field all the same (decisions §2.5).
+        await assertDetailLinks(tx, target.kind, next, into, from)
         if (changed.includes('start_date') || changed.includes('end_date')) {
           assertJourneyDates(next)
         }
+        if (changed.includes('currency')) assertJourneyCurrency(next.currency)
         if (changed.length > 0) {
           await writeDetailValues(tx, targetId, target.kind, next, now)
         }
@@ -467,25 +729,52 @@ export class TagsRepository {
 
       await redirectTagReferences(tx, sourceId, targetId, { bump: true, now })
 
-      const taken = new Set(namesOf(target).map(foldCase))
-      const added: string[] = []
-      for (const name of namesOf(source)) {
-        if (taken.has(foldCase(name))) continue
-        taken.add(foldCase(name))
-        added.push(name)
-      }
-      if (added.length > 0) {
-        await tx.run('UPDATE tags SET synonyms = ?, updated_at_utc = ? WHERE id = ?', [
-          jsonArrayToColumn([...target.synonyms, ...added]),
-          now,
-          targetId,
-        ])
+      const added = namesAddedByMerge(source, target)
+      const synonyms = [...target.synonyms, ...added]
+      // A name the source retired stays retired on the target, unless the
+      // target still has it: as a name, or through a tag merged into it.
+      const kindRows = await tx.exec<TagRow>('SELECT * FROM tags WHERE kind = ?', [target.kind])
+      const targetMerged = mergedNames(target, kindRows.map(rowToTag))
+      const retired = retiredAfterMerge(target, source, synonyms, targetMerged)
+      if (added.length > 0 || JSON.stringify(retired) !== JSON.stringify(target.retired_names)) {
+        await tx.run(
+          'UPDATE tags SET synonyms = ?, retired_names = ?, updated_at_utc = ? WHERE id = ?',
+          [jsonArrayToColumn(synonyms), jsonArrayToColumn(retired), now, targetId],
+        )
       }
       await tx.run(
         `UPDATE tags SET merged_into_id = ?, deleted_at_utc = ?, updated_at_utc = ?
          WHERE id = ?`,
         [targetId, now, now, sourceId],
       )
+    })
+  }
+
+  /**
+   * Archives the live tag: pickers stop offering it, and the Tags page lists
+   * it only on request. It stays live — on its transactions and accounts, in
+   * reports, found by name, a merge source or target — and its children stay
+   * as they are. Archiving an archived tag changes nothing.
+   */
+  async archive(id: ShortId): Promise<void> {
+    await this.setArchived(id, true)
+  }
+
+  /** Offers the live tag in pickers again. Unarchiving an active tag changes nothing. */
+  async unarchive(id: ShortId): Promise<void> {
+    await this.setArchived(id, false)
+  }
+
+  private async setArchived(id: ShortId, archived: boolean): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      const tag = await liveTagOrThrow(tx, id, 'Tag')
+      if ((tag.archived_at_utc !== null) === archived) return
+      await tx.run('UPDATE tags SET archived_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
+        archived ? now : null,
+        now,
+        id,
+      ])
     })
   }
 

@@ -9,6 +9,7 @@
 // The steps below share state and run in order: two simulated devices sync
 // through the same branch, including a lost compare-and-swap race.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import type { Database } from '../../db/Database'
 import { moneyAmount } from '../../db/MoneyAmount'
 import { localMoment } from '../../db/LocalMoment'
@@ -154,7 +155,7 @@ async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount
     kind: 'tag',
     name: 'food',
     colour: '#ff8800',
-    icon: 'pi-shopping-cart',
+    icon: primeIcon('shopping-cart'),
     synonyms: ['еда', 'Essen'],
     description: '',
   })
@@ -162,7 +163,7 @@ async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount
     kind: 'tag',
     name: 'travel ✈️',
     colour: '#0088ff',
-    icon: 'pi-globe',
+    icon: primeIcon('globe'),
     synonyms: [],
     description: 'Trips, "holidays", etc.',
   })
@@ -170,7 +171,7 @@ async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount
     kind: 'tag',
     name: 'obsolete',
     colour: '#000000',
-    icon: 'pi-times',
+    icon: primeIcon('times'),
   })
   await tags.softDelete(obsolete.id)
   const eating = await tags.create({ kind: 'category', name: 'Food' })
@@ -190,7 +191,7 @@ async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount
   const allMoney = await groupings.create({
     name: 'All "money"',
     colour: '#778899',
-    icon: 'pi-th-large',
+    icon: primeIcon('th-large'),
   })
 
   const eur = await accounts.create({
@@ -199,7 +200,7 @@ async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount
     tags: [food.id],
     location_id: cafe.id,
     colour: '#112233',
-    icon: 'pi-wallet',
+    icon: primeIcon('wallet'),
     grouping_id: allMoney.id,
   })
   const rub = await accounts.create({
@@ -208,7 +209,7 @@ async function populate(db: Database): Promise<{ eurAccount: ShortId; rubAccount
     tags: [],
     location_id: null,
     colour: '#445566',
-    icon: 'pi-money-bill',
+    icon: primeIcon('money-bill'),
     grouping_id: null,
   })
 
@@ -362,7 +363,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
       kind: 'tag',
       name: 'late',
       colour: '#000000',
-      icon: 'pi-clock',
+      icon: primeIcon('clock'),
       synonyms: [],
     })
     late = newDevice(dbLate, cfg, 'live-test-device-late')
@@ -462,7 +463,7 @@ describe.sequential('GitHubCsvBackend against real GitHub', () => {
       kind: 'tag',
       name: 'added-on-A',
       colour: '#abcdef',
-      icon: 'pi-star',
+      icon: primeIcon('star'),
       synonyms: [],
     })
     const meta: SyncMetadata = {

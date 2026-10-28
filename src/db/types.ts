@@ -2,6 +2,7 @@ import type { MoneyAmount } from './MoneyAmount'
 import type { LocalMoment } from './LocalMoment'
 import type { UUID } from './uuid'
 import type { ShortId } from './shortId'
+import type { Icon } from '../icons/types'
 
 // Domain entity types — these are what the rest of the app sees.
 //
@@ -36,9 +37,11 @@ export interface Tag {
   moved_at_utc: Date // when the user last set parent_id: on create, move, or a merge of the parent; repairs leave it
   description: string | null
   synonyms: string[] // extra names that find the tag; transactions show `name`
+  retired_names: string[] // names that no longer find the tag through a tag merged into it (src/tags/otherNames.ts)
   colour: string | null // null = inherited from the parent (see src/tags/look.ts)
-  icon: string | null // PrimeIcons name without `pi-`; null = inherited from the parent
+  icon: Icon | null // null = inherited from the parent (see src/tags/look.ts)
   merged_into_id: ShortId | null // the tag this one was merged into (then also deleted); null = not merged
+  archived_at_utc: Date | null // when it was archived: still live (on its transactions, found by name), no longer offered in pickers; null = active
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null
@@ -51,19 +54,23 @@ export interface LocationDetails {
   latitude: number | null // WGS84 degrees
   longitude: number | null // WGS84 degrees
   merchant_id: ShortId | null // a `merchant` tag; null = none
+  radius_metres: number // whole metres around the position that count as this place (10 by default)
+  auto_match: boolean // a transaction paid here gets this location by itself (on by default); off: only offered nearby
 }
 
 /** Side data of a `merchant` tag. */
 export interface MerchantDetails {
   tag_id: ShortId
   default_category_id: ShortId | null // a `category` tag suggested for its transactions; null = none
+  auto_match: boolean // an imported line (statement, receipt) naming it gets this merchant by itself (on by default)
 }
 
-/** Side data of a `journey` tag: dates the user typed over the derived ones. */
+/** Side data of a `journey` tag: dates the user typed over the derived ones, and its currency. */
 export interface JourneyDetails {
   tag_id: ShortId
   start_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
   end_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
+  currency: string | null // what its spending is offered in (a code, free-form); null = inherited from the parent (src/tags/journeys.ts)
 }
 
 /** A tag's details as one value set; a field its kind does not have stays null. */
@@ -71,9 +78,12 @@ export interface TagDetailValues {
   address: string | null
   position: { latitude: number; longitude: number } | null // the two coordinates as one value
   merchant_id: ShortId | null
+  radius_metres: number | null // a location's radius (its default when unset); null for other kinds
+  auto_match: boolean | null // a location's or merchant's automatic matching (on when unset); null for other kinds
   default_category_id: ShortId | null
   start_date: string | null
   end_date: string | null
+  currency: string | null // a journey's own currency (null = inherited); null for other kinds
 }
 export type TagDetailField = keyof TagDetailValues
 export interface TagDetailConflict<F extends TagDetailField = TagDetailField> {
@@ -90,9 +100,10 @@ export interface Account {
   tags: ShortId[] // plain tags (kind 'tag')
   location_id: ShortId | null // a `location` tag
   colour: string
-  icon: string
+  icon: Icon
   grouping_id: ShortId | null // the account's group; null = shown below all groups
   sort_order: number // position within its group; set by create(), update() of grouping_id and arrange()
+  archived_at_utc: Date | null // when it was archived: out of the page and group totals, keeps its group and place; null = active
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null
@@ -128,11 +139,30 @@ export interface AppliedRate {
   deleted_at_utc: Date | null
 }
 
+/** What an image holds: WebP pixels (PNG where the browser cannot write WebP) or SVG markup. */
+export type ImageMediaType = 'image/webp' | 'image/png' | 'image/svg+xml'
+
+/**
+ * A picture an icon shows (docs/plans/2026-10-28-icons-design.md §3): an
+ * upload, or a word the Text tab made. Never changes once written.
+ */
+export interface StoredImage {
+  id: UUID // UUIDv5 of the content's SHA-256: the same picture is one row on every device
+  media_type: ImageMediaType
+  content: string // base64 for WebP and PNG, the cleaned markup for SVG
+  width: number | null // pixels; null = unknown (an SVG without a size)
+  height: number | null
+  source: Record<string, unknown> | null // the Text tab's settings for a word; null for an upload
+  created_at_utc: Date
+  updated_at_utc: Date
+  deleted_at_utc: Date | null
+}
+
 export interface AccountGrouping {
   id: ShortId
   name: string
   colour: string
-  icon: string
+  icon: Icon
   sort_order: number // position among the groups; set by create() and reorder() only
   created_at_utc: Date
   updated_at_utc: Date

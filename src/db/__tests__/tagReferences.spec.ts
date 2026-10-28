@@ -53,7 +53,7 @@ describe('tag references', () => {
     await db.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, tags, location_id,
                              colour, icon, created_at_utc, updated_at_utc, deleted_at_utc)
-       VALUES (?, ?, 'EUR', 0, 2, ?, ?, '#000000', 'wallet', ?, ?, ?)`,
+       VALUES (?, ?, 'EUR', 0, 2, ?, ?, '#000000', '{"kind":"set","set":"pi","name":"wallet"}', ?, ?, ?)`,
       [
         id,
         id,

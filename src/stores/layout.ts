@@ -6,14 +6,24 @@ import {
   LayoutKeys,
   isBoolean,
   isCollapseMode,
+  isLocationsView,
   isNavPosition,
+  isTagRowStyle,
   isThemePreset,
   type NavPosition,
   type CollapseMode,
+  type LocationsView,
+  type TagRowStyle,
   type ThemePreset,
 } from './layout-types'
 
-export { type NavPosition, type CollapseMode, type ThemePreset } from './layout-types'
+export {
+  type NavPosition,
+  type CollapseMode,
+  type LocationsView,
+  type TagRowStyle,
+  type ThemePreset,
+} from './layout-types'
 
 /**
  * Load a persisted value into a ref. Keeps the default when the key doesn't
@@ -69,11 +79,16 @@ export const useLayoutStore = defineStore('layout', () => {
   const collapseMode = ref<CollapseMode>('opens-on-hover')
   const isDark = ref(false)
   const themePreset = ref<ThemePreset>('Aura')
+  const tagRows = ref<TagRowStyle>('detailed')
+  const locationsView = ref<LocationsView>('list')
+  /** Read-only amounts show a placeholder until tapped (MoneyText). */
+  const hideAmounts = ref(false)
   const isTemporarilyToggled = ref(false)
 
   const navItems = ref([
     { label: 'Home', icon: 'pi pi-home', route: '/' },
     { label: 'Accounts', icon: 'pi pi-wallet', route: '/accounts' },
+    { label: 'Tags', icon: 'pi pi-tags', route: '/tags' },
     { label: 'Page Two', icon: 'pi pi-file', route: '/page-two' },
     { label: 'About', icon: 'pi pi-info-circle', route: '/about' },
   ])
@@ -84,6 +99,9 @@ export const useLayoutStore = defineStore('layout', () => {
       hydrateRef(LayoutKeys.collapseMode, collapseMode, isCollapseMode),
       hydrateRef(LayoutKeys.isDark, isDark, isBoolean),
       hydrateRef(LayoutKeys.themePreset, themePreset, isThemePreset),
+      hydrateRef(LayoutKeys.tagRows, tagRows, isTagRowStyle),
+      hydrateRef(LayoutKeys.locationsView, locationsView, isLocationsView),
+      hydrateRef(LayoutKeys.hideAmounts, hideAmounts, isBoolean),
     ])
   }
 
@@ -103,6 +121,18 @@ export const useLayoutStore = defineStore('layout', () => {
     await persistOptimistic(LayoutKeys.themePreset, themePreset, value)
   }
 
+  async function setTagRows(value: TagRowStyle): Promise<void> {
+    await persistOptimistic(LayoutKeys.tagRows, tagRows, value)
+  }
+
+  async function setLocationsView(value: LocationsView): Promise<void> {
+    await persistOptimistic(LayoutKeys.locationsView, locationsView, value)
+  }
+
+  async function setHideAmounts(value: boolean): Promise<void> {
+    await persistOptimistic(LayoutKeys.hideAmounts, hideAmounts, value)
+  }
+
   function effectivePosition(windowWidth: number): Exclude<NavPosition, 'auto'> {
     if (navPosition.value !== 'auto') {
       return navPosition.value
@@ -119,6 +149,9 @@ export const useLayoutStore = defineStore('layout', () => {
     collapseMode,
     isDark,
     themePreset,
+    tagRows,
+    locationsView,
+    hideAmounts,
     isTemporarilyToggled,
     navItems,
     hydrate,
@@ -126,6 +159,9 @@ export const useLayoutStore = defineStore('layout', () => {
     setCollapseMode,
     setDarkMode,
     setThemePreset,
+    setTagRows,
+    setLocationsView,
+    setHideAmounts,
     effectivePosition,
     isVertical,
   }
