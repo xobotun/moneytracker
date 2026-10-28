@@ -81,6 +81,8 @@ export const useLayoutStore = defineStore('layout', () => {
   const themePreset = ref<ThemePreset>('Aura')
   const tagRows = ref<TagRowStyle>('detailed')
   const locationsView = ref<LocationsView>('list')
+  /** Read-only amounts show a placeholder until tapped (MoneyText). */
+  const hideAmounts = ref(false)
   const isTemporarilyToggled = ref(false)
 
   const navItems = ref([
@@ -99,6 +101,7 @@ export const useLayoutStore = defineStore('layout', () => {
       hydrateRef(LayoutKeys.themePreset, themePreset, isThemePreset),
       hydrateRef(LayoutKeys.tagRows, tagRows, isTagRowStyle),
       hydrateRef(LayoutKeys.locationsView, locationsView, isLocationsView),
+      hydrateRef(LayoutKeys.hideAmounts, hideAmounts, isBoolean),
     ])
   }
 
@@ -126,6 +129,10 @@ export const useLayoutStore = defineStore('layout', () => {
     await persistOptimistic(LayoutKeys.locationsView, locationsView, value)
   }
 
+  async function setHideAmounts(value: boolean): Promise<void> {
+    await persistOptimistic(LayoutKeys.hideAmounts, hideAmounts, value)
+  }
+
   function effectivePosition(windowWidth: number): Exclude<NavPosition, 'auto'> {
     if (navPosition.value !== 'auto') {
       return navPosition.value
@@ -144,6 +151,7 @@ export const useLayoutStore = defineStore('layout', () => {
     themePreset,
     tagRows,
     locationsView,
+    hideAmounts,
     isTemporarilyToggled,
     navItems,
     hydrate,
@@ -153,6 +161,7 @@ export const useLayoutStore = defineStore('layout', () => {
     setThemePreset,
     setTagRows,
     setLocationsView,
+    setHideAmounts,
     effectivePosition,
     isVertical,
   }

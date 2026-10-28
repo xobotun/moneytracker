@@ -15,7 +15,9 @@ import { useTagsStore } from '@/stores/tags'
 import type { Account } from '@/db/types'
 import type { ShortId } from '@/db/shortId'
 import CurrencyInput from '@/components/CurrencyInput.vue'
-import { currencyName, currencySymbol, formatMoney } from '@/format/currency'
+import MoneyText from '@/components/MoneyText.vue'
+import type { MoneyAmount } from '@/db/MoneyAmount'
+import { currencyName, currencySymbol } from '@/format/currency'
 import {
   ACCOUNT_ICON,
   createInputFromDraft,
@@ -48,7 +50,8 @@ const confirmingDelete = ref(false)
 const confirmingArchive = ref(false)
 const error = ref<string | null>(null)
 const recalculating = ref(false)
-const recalculated = ref<string | null>(null)
+// What the last recalculation found: whether the balance was off, and what it is now.
+const recalculated = ref<{ changed: boolean; balance: MoneyAmount | null } | null>(null)
 const currencyLocked = ref(false)
 // Transactions on the account being edited; null while counting (or for a new one).
 const transactionCount = ref<number | null>(null)
@@ -137,11 +140,8 @@ async function recalculate() {
   error.value = null
   try {
     const changed = await store.recalculateBalance(id)
-    const balance = store.accounts.find((a) => a.id === id)?.balance
-    const shown = balance ? formatMoney(balance) : ''
-    recalculated.value = changed
-      ? `The balance was off; it is ${shown} now.`
-      : `The balance was already right: ${shown}.`
+    const balance = store.accounts.find((a) => a.id === id)?.balance ?? null
+    recalculated.value = { changed, balance }
   } catch (e) {
     error.value = `Could not recalculate the balance. ${(e as Error).message}`
   } finally {
@@ -174,7 +174,7 @@ const isArchived = computed(() => current.value?.archived_at_utc != null)
 /** What the account still holds, when that is not zero (the cached balance is enough here). */
 const heldAmount = computed(() => {
   const balance = current.value?.balance
-  return balance && balance.value !== 0 ? formatMoney(balance) : null
+  return balance && balance.value !== 0 ? balance : null
 })
 
 /** Archives at once when the account is empty; otherwise asks first. */
@@ -322,7 +322,16 @@ async function setArchived(archived: boolean) {
       </div>
 
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
-      <Message v-if="recalculated" severity="info" :closable="false">{{ recalculated }}</Message>
+      <Message v-if="recalculated" severity="info" :closable="false">
+        <template v-if="recalculated.changed">
+          The balance was off; it is
+          <MoneyText v-if="recalculated.balance" :amount="recalculated.balance" /> now.
+        </template>
+        <template v-else>
+          The balance was already right:
+          <MoneyText v-if="recalculated.balance" :amount="recalculated.balance" />.
+        </template>
+      </Message>
 
       <div
         v-if="confirmingDelete && account"
@@ -352,7 +361,9 @@ async function setArchived(archived: boolean) {
         class="flex flex-col gap-3 rounded-md border border-amber-300 p-3 dark:border-amber-700"
         role="alert"
       >
-        <p>It still holds {{ heldAmount }}. Archive it anyway?</p>
+        <p>
+          It still holds <MoneyText v-if="heldAmount" :amount="heldAmount" />. Archive it anyway?
+        </p>
         <div class="flex justify-end gap-2">
           <Button
             type="button"

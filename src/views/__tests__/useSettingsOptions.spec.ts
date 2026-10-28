@@ -71,4 +71,17 @@ describe('useSettingsOptions', () => {
     await options.onDarkModeChange(true)
     expect(options.saveError.value).toBeNull()
   })
+
+  it('hides amounts at once, and reports a failed save under its own toggle', async () => {
+    const options = useSettingsOptions()
+    await options.onHideAmountsChange(true)
+    expect(useLayoutStore().hideAmounts).toBe(true)
+    expect(options.hideAmountsError.value).toBeNull()
+
+    writeMode.value = 'fail'
+    await options.onHideAmountsChange(false)
+    expect(useLayoutStore().hideAmounts).toBe(true) // changed back
+    expect(options.hideAmountsError.value).toMatch(/disk full/)
+    expect(options.saveError.value).toBeNull()
+  })
 })

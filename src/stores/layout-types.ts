@@ -29,6 +29,8 @@ export const LayoutKeys = {
   themePreset: settingsKey<ThemePreset>('layout.themePreset'),
   tagRows: settingsKey<TagRowStyle>('layout.tagRows'),
   locationsView: settingsKey<LocationsView>('layout.locationsView'),
+  /** Amounts show as a placeholder until tapped, for using the app where others can see. */
+  hideAmounts: settingsKey<boolean>('layout.hideAmounts'),
 }
 
 // --- Theme presets map (used by bootstrap + settings UI) ---

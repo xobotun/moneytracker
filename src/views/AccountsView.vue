@@ -6,6 +6,7 @@ import Message from 'primevue/message'
 import Tag from 'primevue/tag'
 import IconBadge from '@/components/icons/IconBadge.vue'
 import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
+import AccountsByCurrency from '@/components/accounts/AccountsByCurrency.vue'
 import BalanceDisplay from '@/components/accounts/BalanceDisplay.vue'
 import { YELLOW_BUTTON } from '@/components/accounts/yellowButton'
 import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
@@ -112,6 +113,11 @@ async function recalculateAll() {
   }
 }
 const sectionKey = (section: AccountSection) => section.grouping?.id ?? 'ungrouped'
+
+// "Show by currency": the active accounts by currency, then cash or bank,
+// instead of by group. A look for the moment, kept nowhere: leaving the page
+// resets it. Reorder mode and it exclude each other.
+const byCurrency = ref(false)
 
 // --- Editing ---
 
@@ -326,7 +332,19 @@ function tintStyle(grouping: AccountGrouping) {
         <span>Accounts</span>
         <div class="flex gap-2">
           <Button
-            v-if="!isEmpty"
+            v-if="!isEmpty && !reordering"
+            label="Show by currency"
+            icon="pi pi-eye"
+            severity="secondary"
+            :outlined="!byCurrency"
+            size="small"
+            aria-label="Show accounts by currency"
+            :aria-pressed="byCurrency"
+            :pt="{ label: { class: 'hidden sm:inline' } }"
+            @click="byCurrency = !byCurrency"
+          />
+          <Button
+            v-if="!isEmpty && !byCurrency"
             :label="reordering ? 'Done' : 'Reorder'"
             :icon="reordering ? 'pi pi-check' : 'pi pi-sort-alt'"
             severity="secondary"
@@ -385,6 +403,7 @@ function tintStyle(grouping: AccountGrouping) {
         </div>
 
         <TransitionGroup
+          v-if="!byCurrency"
           tag="div"
           move-class="transition-transform duration-200"
           class="flex flex-col gap-3"
@@ -599,6 +618,7 @@ function tintStyle(grouping: AccountGrouping) {
             </p>
           </section>
         </TransitionGroup>
+        <AccountsByCurrency v-else @edit="openAccount" />
         <p class="sr-only" aria-live="polite">{{ announcement }}</p>
 
         <!-- Archived accounts: apart, collapsed, with their own total; reorder

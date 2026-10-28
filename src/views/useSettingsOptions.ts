@@ -27,16 +27,19 @@ export function useSettingsOptions() {
   const layoutStore = useLayoutStore()
 
   // Visual settings save optimistically (the store applies the new value at
-  // once and reverts it if persisting fails). This shows why it reverted.
+  // once and reverts it if persisting fails). This shows why it reverted —
+  // under the Visual settings; `hideAmountsError` under its own toggle, which
+  // sits with the money settings.
   const saveError = ref<string | null>(null)
+  const hideAmountsError = ref<string | null>(null)
 
-  async function save(action: () => Promise<void>): Promise<void> {
+  async function save(action: () => Promise<void>, error = saveError): Promise<void> {
     try {
       await action()
-      saveError.value = null
+      error.value = null
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e)
-      saveError.value = `Could not save the setting (${reason}); it was changed back.`
+      error.value = `Could not save the setting (${reason}); it was changed back.`
     }
   }
 
@@ -68,6 +71,11 @@ export function useSettingsOptions() {
   // --- Dark mode ---
   async function onDarkModeChange(value: boolean) {
     await save(() => layoutStore.setDarkMode(value))
+  }
+
+  // --- Hide amounts ---
+  async function onHideAmountsChange(value: boolean) {
+    await save(() => layoutStore.setHideAmounts(value), hideAmountsError)
   }
 
   // --- Nav position ---
@@ -105,6 +113,8 @@ export function useSettingsOptions() {
     themePresetOptions,
     selectedPreset,
     onDarkModeChange,
+    hideAmountsError,
+    onHideAmountsChange,
     navPositionOptions,
     selectedNavPosition,
     collapseModeOptions,
