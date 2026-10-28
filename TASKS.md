@@ -189,8 +189,8 @@ exercised end-to-end.
   (`groupTint.ts`; chroma lowered to fit sRGB near white/black)
 - Create / edit dialog: name, currency (suggests codes in use, then ISO 4217,
   each with its symbol and name; searchable by code or name; custom codes
-  like BTC allowed), icon (quick picks + a searchable popover with every
-  PrimeIcons icon), colour (presets + custom), free-form tags. New accounts
+  like BTC allowed), icon (quick picks + the icon dialog: every pack icon,
+  emoji, a word, a picture — see Icons), colour (presets + custom), free-form tags. New accounts
   start at a zero balance (no starting-balance field)
 - `src/format/currency.ts`: `currencySymbol` / `currencyName` via `Intl`
 - Delete with an inline confirmation; refused while live transactions use
@@ -350,10 +350,11 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 ### Icons
 
-- Design: [docs/plans/2026-10-28-icons-design.md](docs/plans/2026-10-28-icons-design.md) (step 1 built, see "As built")
+- Design: [docs/plans/2026-10-28-icons-design.md](docs/plans/2026-10-28-icons-design.md) (steps 1 and 2 built, see "As built")
 - An icon is a typed JSON value in the `icon` columns of tags, accounts and groups: a pack icon, an emoji or an image; one from a newer app is kept verbatim and draws as the default icon (`src/icons/`)
-- Synced `images` table (UUIDv5 of the content, rows never change), `ImagesRepository`, `useImagesStore` (data URLs on demand)
+- Synced `images` table (UUIDv5 of the content, rows never change; WebP, PNG where a browser cannot write WebP, or SVG), `ImagesRepository` (a word's `source` stored with sorted keys), `useImagesStore` (data URLs on demand)
 - One badge for every kind (`IconBadge.vue`; `badgeElement.ts` for the map pins): rows, chips, picker options, dialogs, the Accounts page, the map and its pick list
+- The icon dialog (`IconDialog.vue`, opened from the "all icons" tile of `IconPicker`; full screen on a phone) with four tabs, opening on the current icon's: Icons (every installed pack, searchable), Emoji (emoji-picker-element, loaded when the tab opens; its data bundled and precached), Text (a word in a system font, bold or not, its own text and background colours with Resets, previewed at badge sizes; `wordSvg.ts`), Image (a file: SVG cleaned with DOMPurify and kept vector, a warning over 100 KB, refused over 1 MB; raster scaled to fit 256 × 256; `upload.ts`, `svgClean.ts`, `raster.ts`)
 
 ## To Do
 
@@ -376,7 +377,6 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 ### CRUD UI
 
-- Icons, step 2 (docs/plans/2026-10-28-icons-design.md §5–6): the "All icons" dialog with tabs (Icons per pack, Emoji library bundled, Text, Image), image import (downscale to WebP, DOMPurify for SVG, size warnings). Canonicalise the `source` JSON of a word so two devices making the same one write the same row
 - Accounts (list, create, edit, delete, reorder: done, see Accounts UI)
     - Optional home location picker (needs location tags first; the dialog leaves `location_id` untouched)
 - Transactions
