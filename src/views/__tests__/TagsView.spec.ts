@@ -72,7 +72,8 @@ describe('TagsView', () => {
       attachTo: document.body,
       global: {
         plugins: [pinia, router, [PrimeVue, { theme: { preset: Aura } }]],
-        stubs: transitions ? { transition: false } : {},
+        // Leaflet does not run in jsdom.
+        stubs: { LocationMap: true, ...(transitions ? { transition: false } : {}) },
       },
     })
     await settle()

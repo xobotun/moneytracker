@@ -15,7 +15,9 @@ import IconPicker from '@/components/accounts/IconPicker.vue'
 import { DERIVED_CLASS } from '@/components/derived'
 import { useTagsStore } from '@/stores/tags'
 import { CategoryInUseError, DuplicateTagNameError, TagLoopError } from '@/db/errors'
-import { noDetails } from '@/db/repositories/TagDetailsRepository'
+import { DEFAULT_LOCATION_RADIUS_METRES, noDetails } from '@/db/repositories/TagDetailsRepository'
+import LocationMap from './LocationMap.vue'
+import type { LatLon } from './mapView'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 import { inheritedLook } from '@/tags/look'
@@ -70,6 +72,9 @@ const confirmingDelete = ref(false)
 const uses = ref(0)
 const locating = ref(false)
 const positionError = ref<string | null>(null)
+// A location's map opens where its nearest placed ancestor is, once that is known.
+const mapFallback = ref<LatLon | null>(null)
+const mapReady = ref(false)
 
 // Counts openings, so details read for an earlier one are dropped.
 let opening = 0
@@ -92,10 +97,13 @@ async function reset() {
   confirmingDelete.value = false
   positionError.value = null
   derivedDates.value = { start: null, end: null }
+  mapReady.value = false
+  mapFallback.value = null
   const tag = props.tag
   if (!tag) {
     draft.value = newTagDraft(props.kind, props.parentId)
     carried.value = []
+    void prepareMap(current, props.parentId)
     return
   }
   carried.value = carriedNames(tag.id, store.tags)
@@ -107,6 +115,7 @@ async function reset() {
     const details = await store.details(tag)
     if (current !== opening) return
     Object.assign(draft.value, detailDraft(details))
+    void prepareMap(current, tag.parent_id)
     if (tag.kind === 'journey') {
       const dates = await store.journeyDates(tag.id)
       if (current !== opening) return
@@ -119,6 +128,37 @@ async function reset() {
   } finally {
     if (current === opening) loading.value = false
   }
+}
+
+/** Finds the position the map opens on when the location has none: the nearest placed ancestor's. */
+async function prepareMap(current: number, parentId: ShortId | null) {
+  if (props.kind !== 'location') return
+  let fallback: LatLon | null = null
+  try {
+    const seen = new Set<ShortId>()
+    for (let id = parentId; id !== null && !seen.has(id); ) {
+      seen.add(id)
+      const ancestor = store.byId.get(id)
+      if (!ancestor) break
+      const position = (await store.details(ancestor)).position
+      if (position) {
+        fallback = position
+        break
+      }
+      id = ancestor.parent_id
+    }
+  } catch {
+    // No ancestor to open on: the map opens on the whole world.
+  }
+  if (current !== opening) return
+  mapFallback.value = fallback
+  mapReady.value = true
+}
+
+function pickOnMap(latitude: number, longitude: number) {
+  draft.value.latitude = latitude
+  draft.value.longitude = longitude
+  positionError.value = null
 }
 
 const errors = computed(() => validateDraft(draft.value))
@@ -453,6 +493,14 @@ function merge() {
               @click="usePosition"
             />
           </div>
+          <LocationMap
+            v-if="mapReady"
+            :latitude="draft.latitude"
+            :longitude="draft.longitude"
+            :radius="draft.radius_metres ?? DEFAULT_LOCATION_RADIUS_METRES"
+            :fallback="mapFallback"
+            @pick="pickOnMap"
+          />
         </fieldset>
         <div class="flex flex-col gap-1">
           <label for="tag-radius" class="text-sm font-medium">Radius</label>

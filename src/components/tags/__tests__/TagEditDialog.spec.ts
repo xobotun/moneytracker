@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import PrimeVue from 'primevue/config'
@@ -23,6 +24,25 @@ vi.mock('@/db/init', () => ({
   getTagsRepository: () => tagsRepo,
   getTagDetailsRepository: () => detailsRepo,
 }))
+
+// Leaflet does not run in jsdom: the map is a button that picks Munich, and
+// shows where it was asked to open.
+const MapStub = defineComponent({
+  props: { latitude: Number, longitude: Number, radius: Number, fallback: Object },
+  emits: ['pick'],
+  setup(props, { emit }) {
+    return () =>
+      h(
+        'button',
+        {
+          type: 'button',
+          'data-fallback': JSON.stringify(props.fallback ?? null),
+          onClick: () => emit('pick', 48.137154, 11.576124),
+        },
+        'Pick on the map',
+      )
+  },
+})
 
 describe('TagEditDialog', () => {
   let db: Database
@@ -57,7 +77,10 @@ describe('TagEditDialog', () => {
     wrapper = mount(TagEditDialog, {
       attachTo: document.body,
       props: { kind, tag, parentId, visible: true },
-      global: { plugins: [pinia, [PrimeVue, { theme: { preset: Aura } }]] },
+      global: {
+        plugins: [pinia, [PrimeVue, { theme: { preset: Aura } }]],
+        stubs: { LocationMap: MapStub },
+      },
     })
     await settle()
     return wrapper
@@ -252,6 +275,33 @@ describe('TagEditDialog', () => {
       merchant_id: rewe.id,
       radius_metres: 10,
     })
+  })
+
+  it('picks the position on the map', async () => {
+    const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
+    await open('location', shop)
+    button('Pick on the map').click()
+    await settle()
+    await save()
+    expect(await detailsRepo.getLocation(shop.id)).toMatchObject({
+      latitude: 48.137154,
+      longitude: 11.576124,
+    })
+  })
+
+  it('opens the map on the nearest ancestor with a position', async () => {
+    const berlin = await tagsRepo.create({ kind: 'location', name: 'Berlin' })
+    await detailsRepo.setLocation(berlin.id, {
+      address: null,
+      latitude: 52.52,
+      longitude: 13.405,
+      merchant_id: null,
+    })
+    const mitte = await tagsRepo.create({ kind: 'location', name: 'Mitte', parent_id: berlin.id })
+    await open('location', null, mitte.id)
+    expect(button('Pick on the map').dataset.fallback).toBe(
+      JSON.stringify({ latitude: 52.52, longitude: 13.405 }),
+    )
   })
 
   it("edits a location's radius; empty is the default", async () => {
