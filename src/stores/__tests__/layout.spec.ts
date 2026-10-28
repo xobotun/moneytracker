@@ -118,6 +118,19 @@ describe('useLayoutStore', () => {
     })
   })
 
+  describe('locationsView', () => {
+    it('defaults to the list, loads the saved view and persists a new one', async () => {
+      const store = useLayoutStore()
+      expect(store.locationsView).toBe('list')
+      mockStore.set('layout.locationsView', 'map')
+      await store.hydrate()
+      expect(store.locationsView).toBe('map')
+      await store.setLocationsView('list')
+      expect(store.locationsView).toBe('list')
+      expect(mockStore.get('layout.locationsView')).toBe('list')
+    })
+  })
+
   describe('setCollapseMode', () => {
     it('persists and updates collapseMode', async () => {
       const store = useLayoutStore()
@@ -132,6 +145,7 @@ describe('useLayoutStore', () => {
       ['layout.navPosition', 'diagonal', 'navPosition', 'auto'],
       ['layout.collapseMode', 42, 'collapseMode', 'opens-on-hover'],
       ['layout.tagRows', 'chunky', 'tagRows', 'detailed'],
+      ['layout.locationsView', 'globe', 'locationsView', 'list'],
       ['layout.isDark', 'yes', 'isDark', false],
       ['layout.themePreset', 'RemovedTheme', 'themePreset', 'Aura'],
     ] as const)('%s = %j', async (storageKey, stored, field, expected) => {

@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type * as Leaflet from 'leaflet'
 import { initialView, roundCoordinate, type LatLon } from './mapView'
+import { createOsmMap, loadLeaflet, type LeafletModule } from './osm'
 
 /**
  * An OpenStreetMap map for picking a location's position: a click puts the
@@ -20,11 +21,10 @@ const emit = defineEmits<{ pick: [latitude: number, longitude: number] }>()
 const container = useTemplateRef<HTMLDivElement>('container')
 const failed = ref(false)
 
-let L: typeof Leaflet | null = null
+let L: LeafletModule | null = null
 let map: Leaflet.Map | null = null
 let pin: Leaflet.Marker | null = null
 let circle: Leaflet.Circle | null = null
-let resizes: ResizeObserver | null = null
 
 const position = (): LatLon | null =>
   props.latitude !== null && props.longitude !== null
@@ -69,25 +69,17 @@ function draw() {
 
 onMounted(async () => {
   try {
-    L = await import('leaflet')
-    await import('leaflet/dist/leaflet.css')
+    L = await loadLeaflet()
   } catch {
     failed.value = true // offline and never loaded: the coordinates still work
     return
   }
   if (!container.value) return
   const view = initialView(position(), props.radius, props.fallback)
-  map = L.map(container.value, { attributionControl: false }).setView(view.center, view.zoom)
-  L.control.attribution({ prefix: false }).addTo(map)
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(map)
+  // The dialog sizes the map after it opens; the map follows its container.
+  map = createOsmMap(L, container.value).setView(view.center, view.zoom)
   map.on('click', (event: Leaflet.LeafletMouseEvent) => pick(event.latlng))
   draw()
-  // The dialog sizes the map after it opens; Leaflet needs to hear of it.
-  resizes = new ResizeObserver(() => map?.invalidateSize())
-  resizes.observe(container.value)
 })
 
 // A position set from outside (typed, "Use my position") brings the view to
@@ -105,7 +97,6 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  resizes?.disconnect()
   map?.remove()
   map = null
 })
@@ -134,10 +125,5 @@ onBeforeUnmount(() => {
   border-radius: 9999px;
   background: var(--p-primary-color);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
-}
-
-/* Darker tiles in the dark theme. */
-.dark .location-map .leaflet-tile-pane {
-  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
 }
 </style>

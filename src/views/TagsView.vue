@@ -16,12 +16,14 @@ import AccountBadge from '@/components/accounts/AccountBadge.vue'
 import TagTreeRow from '@/components/tags/TagTreeRow.vue'
 import TagEditDialog from '@/components/tags/TagEditDialog.vue'
 import TagMergeDialog from '@/components/tags/TagMergeDialog.vue'
+import LocationsMap from '@/components/tags/LocationsMap.vue'
 import { KIND_NOUNS } from '@/components/tags/tagForm'
 import { useTagsStore } from '@/stores/tags'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 import { KIND_ICONS, effectiveLook } from '@/tags/look'
 import { mergedNamesByTag } from '@/tags/otherNames'
+import { mapLocations } from '@/tags/locationsMap'
 import {
   buildTree,
   filterTree,
@@ -108,21 +110,36 @@ function linkOf(tag: Tag): RowLink | null {
     deleted: linked.deleted_at_utc !== null,
   }
 }
-// --- Row style: slim one-line rows, or every detail (per device, see the layout store) ---
+// --- Row style: slim one-line rows, or every detail; or, for locations, a map ---
+// (per device, see the layout store)
 
 const layout = useLayoutStore()
 const detailed = computed(() => layout.tagRows === 'detailed')
-const ROW_STYLES: { value: TagRowStyle; label: string; icon: string }[] = [
+const onMap = computed(() => kind.value === 'location' && layout.locationsView === 'map')
+type Display = TagRowStyle | 'map'
+const ROW_STYLES: { value: Display; label: string; icon: string }[] = [
   { value: 'slim', label: 'Slim', icon: 'pi pi-bars' },
   { value: 'detailed', label: 'Detailed', icon: 'pi pi-align-left' },
 ]
-async function setRowStyle(style: TagRowStyle | null) {
-  if (style === null) return // one of the two is always chosen
+const displays = computed(() =>
+  kind.value === 'location'
+    ? [...ROW_STYLES, { value: 'map' as const, label: 'Map', icon: 'pi pi-map' }]
+    : ROW_STYLES,
+)
+const display = computed<Display>(() => (onMap.value ? 'map' : layout.tagRows))
+async function setDisplay(choice: Display | null) {
+  if (choice === null) return // one is always chosen
   actionError.value = null
   try {
-    await layout.setTagRows(style)
+    if (choice === 'map') await layout.setLocationsView('map')
+    else {
+      await Promise.all([
+        layout.setTagRows(choice),
+        kind.value === 'location' ? layout.setLocationsView('list') : undefined,
+      ])
+    }
   } catch (e) {
-    actionError.value = `Could not keep the row style on this device. ${(e as Error).message}`
+    actionError.value = `Could not keep the view on this device. ${(e as Error).message}`
   }
 }
 
@@ -204,6 +221,16 @@ const rows = computed(() =>
   flattenTree(shownTree.value, (id) => filtering.value || !collapsed.value.has(id)),
 )
 
+// The map: every placed location the filter lets through, and a count of the
+// ones it leaves off for want of a position. Worked out only while shown.
+const located = computed(() =>
+  onMap.value
+    ? mapLocations(store.tags, store.detailsById, (t) =>
+        tagMatches(t, query.value, merged.value.get(t.id) ?? []),
+      )
+    : { shown: [], unplaced: 0 },
+)
+
 function toggle(id: ShortId) {
   const next = new Set(collapsed.value)
   if (!next.delete(id)) next.add(id)
@@ -252,6 +279,11 @@ function openAdd(parentId: ShortId | null) {
 function openEdit(tag: Tag) {
   editing.value = { tag, parentId: tag.parent_id }
   editVisible.value = true
+}
+
+function openEditById(id: ShortId) {
+  const tag = store.byId.get(id)
+  if (tag) openEdit(tag)
 }
 
 // The merge dialog opens over the edit dialog; a merge closes both.
@@ -314,13 +346,17 @@ function onMerged() {
               />
             </IconField>
             <SelectButton
-              :model-value="layout.tagRows"
-              :options="ROW_STYLES"
+              :model-value="display"
+              :options="displays"
               option-value="value"
               option-label="label"
               :allow-empty="false"
-              aria-label="Rows: slim or detailed (kept on this device)"
-              @update:model-value="setRowStyle"
+              :aria-label="
+                kind === 'location'
+                  ? 'Show: slim rows, detailed rows or a map (kept on this device)'
+                  : 'Rows: slim or detailed (kept on this device)'
+              "
+              @update:model-value="setDisplay"
             >
               <template #option="{ option }">
                 <span :class="option.icon" aria-hidden="true" />
@@ -334,7 +370,23 @@ function onMerged() {
             were created on two devices. Merge them by hand: Edit → Merge into…
           </Message>
 
-          <ul v-if="rows.length > 0" class="flex flex-col" :aria-label="TAB_LABELS[kind]">
+          <template v-if="onMap">
+            <LocationsMap :locations="located.shown" @edit="openEditById" />
+            <p v-if="located.unplaced > 0" class="text-sm text-gray-500 dark:text-gray-400">
+              {{
+                located.unplaced === 1
+                  ? '1 location has no position, so it is not on the map.'
+                  : `${located.unplaced} locations have no position, so they are not on the map.`
+              }}
+            </p>
+            <p
+              v-else-if="located.shown.length === 0 && filtering"
+              class="text-gray-500 dark:text-gray-400"
+            >
+              Nothing matches “{{ query }}”.
+            </p>
+          </template>
+          <ul v-else-if="rows.length > 0" class="flex flex-col" :aria-label="TAB_LABELS[kind]">
             <li v-for="row in rows" :key="row.tag.id">
               <TagTreeRow
                 :row="row"

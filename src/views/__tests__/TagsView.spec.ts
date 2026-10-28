@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { defineComponent, h, type PropType } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
@@ -13,6 +14,7 @@ import { LayoutKeys } from '@/stores/layout-types'
 import { useLayoutStore } from '@/stores/layout'
 import { formatDay } from '@/format/date'
 import { DERIVED_CLASS } from '@/components/derived'
+import type { MapLocation } from '@/tags/locationsMap'
 import {
   button,
   choose,
@@ -36,6 +38,23 @@ vi.mock('@/db/init', () => ({
 }))
 
 const AT = '2026-10-01T00:00:00.000Z'
+
+// Leaflet does not run in jsdom: the map of all locations is a button per
+// location it was given, which asks to edit it.
+const LocationsMapStub = defineComponent({
+  props: { locations: { type: Array as PropType<MapLocation[]>, required: true } },
+  emits: ['edit'],
+  setup(props, { emit }) {
+    return () =>
+      h(
+        'div',
+        { 'data-map': '' },
+        props.locations.map((l) =>
+          h('button', { type: 'button', onClick: () => emit('edit', l.tag.id) }, l.tag.name),
+        ),
+      )
+  },
+})
 
 describe('TagsView', () => {
   let db: Database
@@ -81,7 +100,11 @@ describe('TagsView', () => {
       global: {
         plugins: [pinia, router, [PrimeVue, { theme: { preset: Aura } }]],
         // Leaflet does not run in jsdom.
-        stubs: { LocationMap: true, ...(transitions ? { transition: false } : {}) },
+        stubs: {
+          LocationMap: true,
+          LocationsMap: LocationsMapStub,
+          ...(transitions ? { transition: false } : {}),
+        },
       },
     })
     await settle()
@@ -328,6 +351,111 @@ describe('TagsView', () => {
       // Summer's dates come from Lisbon's: derived, fainter.
       expect(parts('Summer').map((p) => p.textContent?.trim())).toEqual([from, to])
       expect(parts('Summer').every((p) => p.className.includes(DERIVED_CLASS))).toBe(true)
+    })
+  })
+
+  describe('map of locations', () => {
+    /** Berlin (placed), Rewe Mitte under it (placed), Kiosk and Old Kiosk (no position). */
+    async function locations() {
+      const berlin = await tagsRepo.create({ kind: 'location', name: 'Berlin' })
+      await detailsRepo.setLocation(berlin.id, {
+        address: null,
+        latitude: 52.52,
+        longitude: 13.405,
+        merchant_id: null,
+        radius_metres: 9000,
+      })
+      const mitte = await tagsRepo.create({
+        kind: 'location',
+        name: 'Rewe Mitte',
+        parent_id: berlin.id,
+      })
+      await detailsRepo.setLocation(mitte.id, {
+        address: null,
+        latitude: 52.523,
+        longitude: 13.41,
+        merchant_id: null,
+        radius_metres: 30,
+        auto_match: false,
+      })
+      await tagsRepo.create({ kind: 'location', name: 'Kiosk' })
+      await tagsRepo.create({ kind: 'location', name: 'Old Kiosk', synonyms: ['Rewe Kiosk'] })
+      return { berlin, mitte }
+    }
+
+    /** The names on the (stubbed) map, or null when no map shows. */
+    function onMap(): string[] | null {
+      const map = document.querySelector('[data-map]')
+      return map && [...map.querySelectorAll('button')].map((b) => b.textContent!.trim())
+    }
+
+    const hasButton = (text: string) =>
+      [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === text)
+
+    it('is offered on the Locations tab only', async () => {
+      await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      await locations()
+      await mountView('/tags?kind=merchant')
+      expect(hasButton('Slim')).toBe(true)
+      expect(hasButton('Map')).toBe(false)
+      await router.replace({ query: { kind: 'location' } })
+      await settle()
+      expect(hasButton('Map')).toBe(true)
+    })
+
+    it('replaces the list with the placed locations, filtered, and counts the unplaced', async () => {
+      await locations()
+      await mountView('/tags?kind=location')
+      expect(onMap()).toBeNull()
+      button('Map').click()
+      await settle()
+      expect(treeRows()).toEqual([])
+      expect(onMap()).toEqual(['Berlin', 'Rewe Mitte'])
+      expect(pageText()).toContain('2 locations have no position, so they are not on the map.')
+      expect(await settingsRepo.get(LayoutKeys.locationsView)).toBe('map')
+
+      const filter = document.querySelector<HTMLInputElement>('input[type=search]')!
+      filter.value = 'rewe'
+      filter.dispatchEvent(new Event('input'))
+      await settle()
+      expect(onMap()).toEqual(['Rewe Mitte'])
+      expect(pageText()).toContain('1 location has no position, so it is not on the map.')
+      filter.value = 'zzz'
+      filter.dispatchEvent(new Event('input'))
+      await settle()
+      expect(onMap()).toEqual([])
+      expect(pageText()).toContain('Nothing matches “zzz”.')
+    })
+
+    it('goes back to the list with Slim or Detailed', async () => {
+      await locations()
+      await useLayoutStore().setLocationsView('map')
+      await mountView('/tags?kind=location')
+      expect(onMap()).toEqual(['Berlin', 'Rewe Mitte'])
+      button('Slim').click()
+      await settle()
+      expect(onMap()).toBeNull()
+      expect(treeRows()).toEqual(['Berlin', '  Rewe Mitte', 'Kiosk', 'Old Kiosk'])
+      expect(await settingsRepo.get(LayoutKeys.locationsView)).toBe('list')
+      expect(await settingsRepo.get(LayoutKeys.tagRows)).toBe('slim')
+      button('Map').click()
+      await settle()
+      button('Detailed').click()
+      await settle()
+      expect(onMap()).toBeNull()
+      expect(await settingsRepo.get(LayoutKeys.tagRows)).toBe('detailed')
+    })
+
+    it('opens the edit dialog for a location picked on the map', async () => {
+      await locations()
+      await useLayoutStore().setLocationsView('map')
+      await mountView('/tags?kind=location')
+      button('Rewe Mitte').click()
+      await settle()
+      expect(document.querySelector('[role=dialog] .p-dialog-title')!.textContent).toBe(
+        'Edit location',
+      )
+      expect(input('tag-name').value).toBe('Rewe Mitte')
     })
   })
 

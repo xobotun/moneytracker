@@ -6,11 +6,13 @@ import {
   LayoutKeys,
   isBoolean,
   isCollapseMode,
+  isLocationsView,
   isNavPosition,
   isTagRowStyle,
   isThemePreset,
   type NavPosition,
   type CollapseMode,
+  type LocationsView,
   type TagRowStyle,
   type ThemePreset,
 } from './layout-types'
@@ -18,6 +20,7 @@ import {
 export {
   type NavPosition,
   type CollapseMode,
+  type LocationsView,
   type TagRowStyle,
   type ThemePreset,
 } from './layout-types'
@@ -77,6 +80,7 @@ export const useLayoutStore = defineStore('layout', () => {
   const isDark = ref(false)
   const themePreset = ref<ThemePreset>('Aura')
   const tagRows = ref<TagRowStyle>('detailed')
+  const locationsView = ref<LocationsView>('list')
   const isTemporarilyToggled = ref(false)
 
   const navItems = ref([
@@ -94,6 +98,7 @@ export const useLayoutStore = defineStore('layout', () => {
       hydrateRef(LayoutKeys.isDark, isDark, isBoolean),
       hydrateRef(LayoutKeys.themePreset, themePreset, isThemePreset),
       hydrateRef(LayoutKeys.tagRows, tagRows, isTagRowStyle),
+      hydrateRef(LayoutKeys.locationsView, locationsView, isLocationsView),
     ])
   }
 
@@ -117,6 +122,10 @@ export const useLayoutStore = defineStore('layout', () => {
     await persistOptimistic(LayoutKeys.tagRows, tagRows, value)
   }
 
+  async function setLocationsView(value: LocationsView): Promise<void> {
+    await persistOptimistic(LayoutKeys.locationsView, locationsView, value)
+  }
+
   function effectivePosition(windowWidth: number): Exclude<NavPosition, 'auto'> {
     if (navPosition.value !== 'auto') {
       return navPosition.value
@@ -134,6 +143,7 @@ export const useLayoutStore = defineStore('layout', () => {
     isDark,
     themePreset,
     tagRows,
+    locationsView,
     isTemporarilyToggled,
     navItems,
     hydrate,
@@ -142,6 +152,7 @@ export const useLayoutStore = defineStore('layout', () => {
     setDarkMode,
     setThemePreset,
     setTagRows,
+    setLocationsView,
     effectivePosition,
     isVertical,
   }

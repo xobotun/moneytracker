@@ -11,10 +11,13 @@ export const NAV_POSITIONS = ['auto', 'top', 'bottom', 'left', 'right'] as const
 export const COLLAPSE_MODES = ['always-collapsed', 'opens-on-hover', 'always-expanded'] as const
 /** How the Tags page lists tags: one slim line each, or every detail over a few lines. */
 export const TAG_ROW_STYLES = ['slim', 'detailed'] as const
+/** How the Tags page shows locations: the tree list, or a map of every placed one. */
+export const LOCATIONS_VIEWS = ['list', 'map'] as const
 
 export type NavPosition = (typeof NAV_POSITIONS)[number]
 export type CollapseMode = (typeof COLLAPSE_MODES)[number]
 export type TagRowStyle = (typeof TAG_ROW_STYLES)[number]
+export type LocationsView = (typeof LOCATIONS_VIEWS)[number]
 export type ThemePreset = 'Aura' | 'Material' | 'Lara' | 'Nora'
 
 // --- Typed settings keys ---
@@ -25,6 +28,7 @@ export const LayoutKeys = {
   isDark: settingsKey<boolean>('layout.isDark'),
   themePreset: settingsKey<ThemePreset>('layout.themePreset'),
   tagRows: settingsKey<TagRowStyle>('layout.tagRows'),
+  locationsView: settingsKey<LocationsView>('layout.locationsView'),
 }
 
 // --- Theme presets map (used by bootstrap + settings UI) ---
@@ -50,6 +54,10 @@ export function isCollapseMode(value: unknown): value is CollapseMode {
 
 export function isTagRowStyle(value: unknown): value is TagRowStyle {
   return (TAG_ROW_STYLES as readonly unknown[]).includes(value)
+}
+
+export function isLocationsView(value: unknown): value is LocationsView {
+  return (LOCATIONS_VIEWS as readonly unknown[]).includes(value)
 }
 
 export function isThemePreset(value: unknown): value is ThemePreset {
