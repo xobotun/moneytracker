@@ -4,12 +4,12 @@ import Button from 'primevue/button'
 import IconBadge from '@/components/icons/IconBadge.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import TagChip from '@/components/tags/TagChip.vue'
+import AccountTagChips from './AccountTagChips.vue'
 import BalanceDisplay from './BalanceDisplay.vue'
 import { ACCOUNT_ICON } from './accountForm'
 import { GROUPING_ICON } from './groupingForm'
 import { byCurrency, type MoneyKind } from './byCurrency'
 import { useAccountsStore } from '@/stores/accounts'
-import { useTagsStore } from '@/stores/tags'
 import { useMoneySettingsStore } from '@/stores/moneySettings'
 import { useRatesStore } from '@/stores/rates'
 import { currencyName } from '@/format/currency'
@@ -25,7 +25,6 @@ import type { Account } from '@/db/types'
 const emit = defineEmits<{ edit: [account: Account] }>()
 
 const store = useAccountsStore()
-const tagsStore = useTagsStore()
 const money = useMoneySettingsStore()
 const rates = useRatesStore()
 
@@ -35,14 +34,6 @@ const blocks = computed(() => byCurrency(store.sections, baseCurrency.value))
 const KINDS: Record<MoneyKind, { label: string; icon: string }> = {
   cash: { label: 'Cash', icon: 'pi pi-money-bill' },
   bank: { label: 'Bank', icon: 'pi pi-building-columns' },
-}
-
-/** The account's live tags, by their current names. */
-function shownTags(account: Account) {
-  return account.tags.flatMap((id) => {
-    const tag = tagsStore.byId.get(id)
-    return tag && tag.deleted_at_utc === null ? [tag] : []
-  })
 }
 </script>
 
@@ -102,6 +93,7 @@ function shownTags(account: Account) {
                     <TagChip
                       v-if="grouping"
                       class="flex"
+                      outlined
                       :label="grouping.name"
                       :icon="grouping.icon"
                       :colour="grouping.colour"
@@ -109,13 +101,7 @@ function shownTags(account: Account) {
                       sr-prefix="group: "
                       data-group-chip
                     />
-                    <span
-                      v-for="tag in shownTags(account)"
-                      :key="tag.id"
-                      class="text-xs text-gray-500 dark:text-gray-400"
-                    >
-                      #{{ tag.name }}
-                    </span>
+                    <AccountTagChips :tags="account.tags" />
                   </span>
                 </span>
                 <BalanceDisplay

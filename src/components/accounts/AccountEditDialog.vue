@@ -2,7 +2,6 @@
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
-import AutoComplete from 'primevue/autocomplete'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
@@ -15,9 +14,14 @@ import { useTagsStore } from '@/stores/tags'
 import type { Account } from '@/db/types'
 import type { ShortId } from '@/db/shortId'
 import CurrencyInput from '@/components/CurrencyInput.vue'
+import ChipsInput from '@/components/ChipsInput.vue'
 import MoneyText from '@/components/MoneyText.vue'
 import type { MoneyAmount } from '@/db/MoneyAmount'
 import { currencyName, currencySymbol } from '@/format/currency'
+import { effectiveLook, type TagLook } from '@/tags/look'
+import { foldCase, mergedNamesByTag } from '@/tags/otherNames'
+import { tagSuggestions, type TagSuggestion } from '@/tags/tree'
+import { tagForName } from './accountTags'
 import {
   ACCOUNT_ICON,
   createInputFromDraft,
@@ -44,6 +48,10 @@ const draft = ref<AccountDraft>(newAccountDraft([]))
 // Tag ids the draft cannot show (deleted or unknown tags); saving keeps them.
 // Taken when the dialog opens: saving reloads the tags store meanwhile.
 const hiddenTags = ref<ShortId[]>([])
+// Tags picked from the suggestions, by main name (folded): saving keeps
+// exactly these, where the name alone could find a namesake elsewhere.
+const pickedTags = ref(new Map<string, ShortId>())
+const tagsField = ref<InstanceType<typeof ChipsInput> | null>(null)
 const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
@@ -71,6 +79,7 @@ watch(
       ? draftFromAccount(props.account, visibleTagName)
       : newAccountDraft(store.accounts)
     hiddenTags.value = props.account ? hiddenTagIds(props.account, visibleTagName) : []
+    pickedTags.value = new Map()
     submitted.value = false
     confirmingDelete.value = false
     confirmingArchive.value = false
@@ -107,17 +116,48 @@ const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors
 // While the suggestions are open, Escape closes only them, not the dialog
 // (both listen for it; the dialog reads this flag when the key is pressed).
 const currencyListOpen = ref(false)
-// Likewise while the icon dialog is open on top of this one.
+// Likewise while the icon dialog is open on top of this one, and while tags are suggested.
 const iconDialogOpen = ref(false)
+const tagListOpen = ref(false)
+
+// --- Tags: chips of names; existing plain tags are suggested while typing ---
+
+const mergedNames = computed(() => mergedNamesByTag(tagsStore.tags))
+
+function suggestTags(query: string): TagSuggestion[] {
+  return tagSuggestions(tagsStore.tags, 'tag', query, draft.value.tags, mergedNames.value)
+}
+
+function pickTag(suggestion: TagSuggestion) {
+  pickedTags.value.set(foldCase(suggestion.name), suggestion.id)
+}
+
+/** The look of the tag a chip stands for, as saving finds it; null for a new name. */
+function chipLook(name: string): TagLook | null {
+  const picked = pickedTags.value.get(foldCase(name))
+  const tag =
+    (picked === undefined ? undefined : tagsStore.byId.get(picked)) ??
+    tagForName(name, props.account?.tags ?? [], tagsStore.tags, mergedNames.value)
+  return tag ? effectiveLook(tag, tagsStore.byId) : null
+}
+
+/** The draft's tag names as ids: a picked tag as picked, any other name as `resolvePlainTags` finds or makes it. */
+async function resolveTags(names: readonly string[]): Promise<ShortId[]> {
+  const picked = names.flatMap((name) => pickedTags.value.get(foldCase(name)) ?? [])
+  const typed = names.filter((name) => !pickedTags.value.has(foldCase(name)))
+  const found = await tagsStore.resolvePlainTags(typed, props.account?.tags)
+  return [...new Set([...picked, ...found])]
+}
 
 async function save() {
+  tagsField.value?.commit()
   submitted.value = true
   if (Object.keys(errors.value).length > 0) return
   const clean = normaliseDraft(draft.value)
   saving.value = true
   error.value = null
   try {
-    const tagIds = await tagsStore.resolvePlainTags(clean.tags, props.account?.tags)
+    const tagIds = await resolveTags(clean.tags)
     if (props.account) {
       const toSave = tagIdsToSave(props.account.tags, tagIds, hiddenTags.value)
       await store.update(props.account.id, patchFromDraft(props.account, clean, toSave))
@@ -207,7 +247,7 @@ async function setArchived(archived: boolean) {
     modal
     :header="account ? 'Edit account' : 'New account'"
     :draggable="false"
-    :close-on-escape="!currencyListOpen && !iconDialogOpen"
+    :close-on-escape="!currencyListOpen && !iconDialogOpen && !tagListOpen"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
@@ -308,16 +348,20 @@ async function setArchived(archived: boolean) {
 
       <div class="flex flex-col gap-1">
         <label for="account-tags" class="text-sm font-medium">Tags</label>
-        <AutoComplete
+        <ChipsInput
+          ref="tagsField"
           v-model="draft.tags"
           input-id="account-tags"
-          multiple
-          :typeahead="false"
           fluid
+          :suggest="suggestTags"
+          :chip-look="chipLook"
           :pt="{ input: { 'aria-describedby': 'account-tags-hint' } }"
+          @pick="pickTag"
+          @show="tagListOpen = true"
+          @hide="tagListOpen = false"
         />
         <small id="account-tags-hint" class="text-gray-500 dark:text-gray-400">
-          Optional. Type a tag and press Enter.
+          Optional. Type to find a tag, or type a new one and press Enter.
         </small>
       </div>
 

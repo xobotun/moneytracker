@@ -206,6 +206,38 @@ export function tagOptions(
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 }
 
+/** A tag offered while a name is typed: its option, and the main name picking it gives. */
+export interface TagSuggestion extends TagOption {
+  name: string
+}
+
+/**
+ * The live, active tags of `kind` whose name or another name (a synonym, a
+ * merged tag's name: `merged`) contains `query`, ignoring case, as
+ * `tagOptions` lists them. A tag whose main name is among `taken` (the names
+ * already chosen) is left out; so is every tag for a blank query.
+ */
+export function tagSuggestions(
+  tags: readonly Tag[],
+  kind: TagKind,
+  query: string,
+  taken: readonly string[],
+  merged: ReadonlyMap<ShortId, readonly string[]> = new Map(),
+): TagSuggestion[] {
+  if (query.trim() === '') return []
+  const takenKeys = new Set(taken.map(foldCase))
+  const byId = new Map(tags.map((t) => [t.id, t]))
+  const wanted = new Set(
+    tags
+      .filter((t) => !takenKeys.has(foldCase(t.name)))
+      .filter((t) => tagMatches(t, query, merged.get(t.id) ?? []))
+      .map((t) => t.id),
+  )
+  return tagOptions(tags, kind)
+    .filter((option) => wanted.has(option.id))
+    .map((option) => ({ ...option, name: byId.get(option.id)!.name }))
+}
+
 /** Why a tag is not offered in pickers: deleted, archived, or null when it is offered. */
 export function unofferedState(tag: Tag): 'deleted' | 'archived' | null {
   if (tag.deleted_at_utc !== null) return 'deleted'

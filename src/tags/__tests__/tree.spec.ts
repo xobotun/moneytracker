@@ -13,6 +13,7 @@ import {
   tagMatches,
   tagOptions,
   tagPath,
+  tagSuggestions,
   type LinkChoice,
   type TagNode,
 } from '../tree'
@@ -192,6 +193,42 @@ describe('tagOptions', () => {
       tag('winter', { name: 'Winter' }),
     ]
     expect(tagOptions(tags, 'category').map((o) => o.label)).toEqual(['Summer › Lisbon', 'Winter'])
+  })
+})
+
+describe('tagSuggestions', () => {
+  const plain = (id: string, over: Partial<Tag> = {}) => tag(id, { kind: 'tag', ...over })
+  const tags = [
+    plain('family', { name: 'family', colour: '#ef4444', icon: primeIcon('heart') }),
+    plain('mia', { name: 'mia', ...under('family') }),
+    plain('kids', { name: 'kids', synonyms: ['Mimi'] }),
+    plain('work', { name: 'work' }),
+    plain('old', { name: 'Minsk', archived_at_utc: ARCHIVED }),
+    plain('gone', { name: 'mine', deleted_at_utc: DELETED }),
+    tag('milk', { name: 'Milk' }), // a category
+  ]
+
+  it('offers live, active tags of the kind by a name or another name, by path with their look', () => {
+    const found = tagSuggestions(tags, 'tag', 'MI', [])
+    expect(found.map((s) => [s.label, s.name])).toEqual([
+      ['family', 'family'],
+      ['family › mia', 'mia'],
+      ['kids', 'kids'], // by its synonym; picking it gives the main name
+    ])
+    // Inherited from family.
+    expect(found[1]).toMatchObject({ id: 'mia', icon: primeIcon('heart'), colour: '#ef4444' })
+  })
+
+  it('finds a merged name too', () => {
+    const merged = new Map([[asShortId('work'), ['Office']]])
+    expect(tagSuggestions(tags, 'tag', 'offi', [], merged).map((s) => s.name)).toEqual(['work'])
+  })
+
+  it('leaves out the names already chosen, ignoring case, and offers nothing for a blank query', () => {
+    expect(tagSuggestions(tags, 'tag', 'mi', ['FAMILY', 'kids']).map((s) => s.name)).toEqual([
+      'mia',
+    ])
+    expect(tagSuggestions(tags, 'tag', '  ', [])).toEqual([])
   })
 })
 

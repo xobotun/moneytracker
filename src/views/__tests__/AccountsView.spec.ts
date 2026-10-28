@@ -155,28 +155,78 @@ describe('AccountsView', () => {
     return button
   }
 
+  /** The tag chips on the page: label (without the screen-reader prefix), icon classes, archived. */
+  const tagChips = () =>
+    [...document.querySelectorAll<HTMLElement>('[data-tag-chip]')].map((chip) => ({
+      label: chip.lastElementChild?.textContent?.trim(),
+      icon: chip.querySelector('[data-face]')?.className ?? '',
+      archived: chip.hasAttribute('data-archived'),
+    }))
+
   it('shows a renamed tag on the account', async () => {
     const tag = await tagsRepo.create({ kind: 'tag', name: 'daily' })
     const account = await seed('Cash')
     await accountsRepo.update(account.id, { tags: [tag.id] })
-    const w = await mountView()
-    expect(w.text()).toContain('#daily')
+    await mountView()
+    expect(tagChips().map((c) => c.label)).toEqual(['daily'])
 
     await tagsRepo.update(tag.id, { name: 'everyday' })
     await useAccountsStore().load()
     await useTagsStore().load()
     await settle()
-    expect(w.text()).toContain('#everyday')
-    expect(w.text()).not.toContain('#daily')
+    expect(tagChips().map((c) => c.label)).toEqual(['everyday'])
   })
 
-  it('does not show a deleted tag on the account', async () => {
-    const tag = await tagsRepo.create({ kind: 'tag', name: 'gone' })
+  it('shows the tags as chips with their icon, a nested one by its path, archived ones faint', async () => {
+    const family = await tagsRepo.create({
+      kind: 'tag',
+      name: 'family',
+      colour: '#ef4444',
+      icon: primeIcon('heart'),
+    })
+    const mia = await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
+    const old = await tagsRepo.create({ kind: 'tag', name: 'old', icon: primeIcon('clock') })
+    const gone = await tagsRepo.create({ kind: 'tag', name: 'gone' })
     const account = await seed('Cash')
-    await accountsRepo.update(account.id, { tags: [tag.id] })
-    await tagsRepo.softDelete(tag.id)
+    await accountsRepo.update(account.id, { tags: [mia.id, gone.id, old.id] })
+    await tagsRepo.archive(old.id)
+    await tagsRepo.softDelete(gone.id)
     const w = await mountView()
+
+    const chips = tagChips()
+    expect(chips.map(({ label, archived }) => [label, archived])).toEqual([
+      ['family › mia', false],
+      ['old', true],
+    ])
+    expect(chips[0]!.icon).toContain('pi-heart') // inherited from family
+    expect(chips[1]!.icon).toContain('pi-clock')
+    expect(w.find('[data-tag-chip][data-archived]').classes()).toContain('opacity-60')
     expect(w.text()).not.toContain('gone')
+    expect(w.text()).not.toContain('#')
+  })
+
+  it('shows the tags next to the group chip when shown by currency', async () => {
+    const home = await groupingsRepo.create({
+      name: 'Home',
+      colour: '#16a34a',
+      icon: primeIcon('home'),
+    })
+    const tag = await tagsRepo.create({ kind: 'tag', name: 'daily', icon: primeIcon('sun') })
+    const account = await seed('Cash')
+    await accountsRepo.update(account.id, { grouping_id: home.id, tags: [tag.id] })
+    const w = await mountView()
+    await w.find('button[aria-label="Show accounts by currency"]').trigger('click')
+    await settle()
+
+    expect(w.find('[data-currency-block]').exists()).toBe(true)
+    expect(tagChips()).toEqual([
+      { label: 'daily', icon: expect.stringContaining('pi-sun'), archived: false },
+    ])
+    // The group stays apart: an outlined chip, before the tags.
+    const group = w.find('[data-group-chip]')
+    expect(group.text()).toContain('Home')
+    expect(group.classes()).toContain('ring-1')
+    expect(w.find('[data-tag-chip]').classes()).not.toContain('ring-1')
   })
 
   it('saves tags typed in the editor as plain tags', async () => {
@@ -217,6 +267,121 @@ describe('AccountsView', () => {
     await settle()
     expect((await accountsRepo.findById(account.id))!.tags).toEqual([mia.id])
     expect(await tagsRepo.listAll()).toHaveLength(3)
+  })
+
+  describe('tags in the dialog', () => {
+    const tagsInput = () => document.getElementById('account-tags') as HTMLInputElement
+    async function typeTag(text: string) {
+      tagsInput().value = text
+      tagsInput().dispatchEvent(new Event('input'))
+      // AutoComplete waits 300 ms after typing before it searches.
+      await new Promise((r) => setTimeout(r, 400))
+      await settle()
+    }
+    /** The tags field's suggestions (the currency field has a list of its own). */
+    const suggestions = () => {
+      const list = document.getElementById(tagsInput().getAttribute('aria-controls') ?? '')
+      return list ? [...list.querySelectorAll<HTMLElement>('[role=option]')] : []
+    }
+    const chipsInField = () =>
+      [
+        ...tagsInput().closest('.p-autocomplete')!.querySelectorAll('.p-autocomplete-chip-item'),
+      ].map((item) => ({
+        text: item.textContent?.trim(),
+        icon: item.querySelector('[data-chip-icon]')?.className ?? null,
+      }))
+    async function editFirstAccount() {
+      ;[...document.querySelectorAll('button')]
+        .find((b) => b.textContent?.includes('Edit'))!
+        .click()
+      await settle()
+    }
+
+    it('suggests live, active plain tags by a name or another name, by path with their icon', async () => {
+      const family = await tagsRepo.create({
+        kind: 'tag',
+        name: 'family',
+        icon: primeIcon('heart'),
+        colour: '#ef4444',
+      })
+      await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
+      await tagsRepo.create({ kind: 'tag', name: 'kids', synonyms: ['Mimi'] })
+      const old = await tagsRepo.create({ kind: 'tag', name: 'milan' })
+      await tagsRepo.archive(old.id)
+      await tagsRepo.create({ kind: 'category', name: 'Milk' })
+      await seed('Cash')
+      await mountView()
+      await editFirstAccount()
+
+      await typeTag('MI')
+      expect(suggestions().map((o) => o.textContent?.trim())).toEqual([
+        'family',
+        'family › mia',
+        'kids', // by its other name, Mimi
+      ])
+      expect(suggestions()[1]!.querySelector('.pi-heart')).not.toBeNull()
+    })
+
+    it('adds a picked tag and saves that very tag, with no new one', async () => {
+      // A top-level namesake that is clearly older: a lookup by name alone would pick it.
+      const at = '2020-01-01T00:00:00.000Z'
+      await db.run(
+        `INSERT INTO tags (id, kind, name, moved_at_utc, created_at_utc, updated_at_utc)
+         VALUES ('miaTop000001', 'tag', 'mia', ?, ?, ?)`,
+        [at, at, at],
+      )
+      const family = await tagsRepo.create({
+        kind: 'tag',
+        name: 'family',
+        icon: primeIcon('heart'),
+      })
+      const mia = await tagsRepo.create({ kind: 'tag', name: 'mia', parent_id: family.id })
+      const account = await seed('Cash')
+      await mountView()
+      await editFirstAccount()
+
+      await typeTag('mi')
+      suggestions()
+        .find((o) => o.textContent?.trim() === 'family › mia')!
+        .click()
+      await settle()
+      // A new name typed next to it stays plain.
+      await typeTag('brand new')
+      tagsInput().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }),
+      )
+      await settle()
+      expect(chipsInField()).toEqual([
+        { text: 'mia', icon: expect.stringContaining('pi-heart') },
+        { text: 'brand new', icon: null },
+      ])
+
+      buttonByText('Save').click()
+      await settle()
+      const saved = (await accountsRepo.findById(account.id))!.tags
+      expect(saved[0]).toBe(mia.id)
+      expect(saved).toHaveLength(2)
+      const created = (await tagsRepo.listAll()).find((t) => t.id === saved[1])!
+      expect(created).toMatchObject({ name: 'brand new', kind: 'tag', parent_id: null })
+      expect(await tagsRepo.listAll()).toHaveLength(4) // mia, mia, family, brand new
+    })
+
+    it('saves a name left typed without Enter', async () => {
+      const daily = await tagsRepo.create({ kind: 'tag', name: 'daily' })
+      const account = await seed('Cash')
+      await accountsRepo.update(account.id, { tags: [daily.id] })
+      await mountView()
+      await editFirstAccount()
+      expect(chipsInField().map((c) => c.text)).toEqual(['daily'])
+
+      tagsInput().value = 'groceries'
+      tagsInput().dispatchEvent(new Event('input'))
+      buttonByText('Save').click()
+      await settle()
+      const saved = (await accountsRepo.findById(account.id))!.tags
+      expect(saved[0]).toBe(daily.id)
+      expect((await tagsRepo.findById(saved[1]!))?.name).toBe('groceries')
+    })
   })
 
   it('shows an empty state with a way to add the first account', async () => {

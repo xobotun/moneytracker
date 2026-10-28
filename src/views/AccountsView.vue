@@ -7,6 +7,7 @@ import Tag from 'primevue/tag'
 import IconBadge from '@/components/icons/IconBadge.vue'
 import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
 import AccountsByCurrency from '@/components/accounts/AccountsByCurrency.vue'
+import AccountTagChips from '@/components/accounts/AccountTagChips.vue'
 import BalanceDisplay from '@/components/accounts/BalanceDisplay.vue'
 import { YELLOW_BUTTON } from '@/components/accounts/yellowButton'
 import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
@@ -34,14 +35,6 @@ onMounted(async () => {
     loadError.value = `Could not load the accounts. ${(e as Error).message}`
   }
 })
-
-/** The account's live tags, by their current names. */
-function shownTags(account: Account) {
-  return account.tags.flatMap((id) => {
-    const tag = tagsStore.byId.get(id)
-    return tag && tag.deleted_at_utc === null ? [tag] : []
-  })
-}
 
 const isEmpty = computed(() => store.accounts.length === 0 && store.groupings.length === 0)
 
@@ -549,13 +542,7 @@ function tintStyle(grouping: AccountGrouping) {
                     <span class="truncate font-medium">{{ account.name }}</span>
                     <span v-if="!reordering" class="flex flex-wrap items-center gap-1">
                       <Tag :value="account.balance.currency" severity="secondary" />
-                      <span
-                        v-for="tag in shownTags(account)"
-                        :key="tag.id"
-                        class="text-xs text-gray-500 dark:text-gray-400"
-                      >
-                        #{{ tag.name }}
-                      </span>
+                      <AccountTagChips :tags="account.tags" />
                     </span>
                   </span>
                   <BalanceDisplay
@@ -658,13 +645,7 @@ function tintStyle(grouping: AccountGrouping) {
                   <span class="truncate font-medium">{{ account.name }}</span>
                   <span class="flex flex-wrap items-center gap-1">
                     <Tag :value="account.balance.currency" severity="secondary" />
-                    <span
-                      v-for="tag in shownTags(account)"
-                      :key="tag.id"
-                      class="text-xs text-gray-500 dark:text-gray-400"
-                    >
-                      #{{ tag.name }}
-                    </span>
+                    <AccountTagChips :tags="account.tags" />
                   </span>
                 </span>
                 <BalanceDisplay
