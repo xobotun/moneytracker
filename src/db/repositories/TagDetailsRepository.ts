@@ -344,6 +344,135 @@ export async function writeDetailValues(
 }
 
 /**
+ * A journey's start and end dates ('YYYY-MM-DD'): each the date the user
+ * typed (`*Typed`), else derived — the first and the last of the local
+ * calendar dates of the journey's live transactions (by their date override
+ * when they have one) and of its live journeys below it, including the dates
+ * typed on those, so a parent covers its children (decisions §2.7). A deleted
+ * journey and everything under it no longer count. Null when there is nothing
+ * to derive from. `derivedStart` / `derivedEnd` are the derived ones even
+ * where a date is typed: what a reset goes back to.
+ */
+export interface JourneyDates {
+  start: string | null
+  end: string | null
+  startTyped: boolean
+  endTyped: boolean
+  derivedStart: string | null
+  derivedEnd: string | null
+}
+
+// Each transaction counts by its own local date, so the range contains every
+// one of them even when their offsets differ ('YYYY-MM-DD' text sorts as
+// dates; the full offset-bearing moments would not).
+const TRANSACTION_DATE = 'substr(COALESCE(date_override_local, transaction_at_local), 1, 10)'
+
+function journeyDatesFrom(
+  typed: { start_date: string | null; end_date: string | null } | null,
+  derived: { first_date: string | null; last_date: string | null },
+): JourneyDates {
+  const start = typed?.start_date ?? null
+  const end = typed?.end_date ?? null
+  return {
+    start: start ?? derived.first_date,
+    end: end ?? derived.last_date,
+    startTyped: start !== null,
+    endTyped: end !== null,
+    derivedStart: derived.first_date,
+    derivedEnd: derived.last_date,
+  }
+}
+
+/** The dates of journey `id` (see `JourneyDates`), of any liveness; usable inside a transaction. */
+export async function readJourneyDates(ex: SqlExecutor, id: ShortId): Promise<JourneyDates> {
+  const typed = await readJourney(ex, id)
+  const rows = await ex.exec<{ first_date: string | null; last_date: string | null }>(
+    `WITH RECURSIVE journey(id) AS (
+       SELECT ?
+       UNION
+       SELECT t.id FROM tags t JOIN journey j ON t.parent_id = j.id
+       WHERE t.deleted_at_utc IS NULL
+     ),
+     dates(d) AS (
+       SELECT ${TRANSACTION_DATE}
+       FROM transactions
+       WHERE deleted_at_utc IS NULL AND journey_id IN (SELECT id FROM journey)
+       UNION ALL
+       SELECT start_date FROM journey_details
+       WHERE deleted_at_utc IS NULL AND tag_id <> ? AND tag_id IN (SELECT id FROM journey)
+       UNION ALL
+       SELECT end_date FROM journey_details
+       WHERE deleted_at_utc IS NULL AND tag_id <> ? AND tag_id IN (SELECT id FROM journey)
+     )
+     SELECT MIN(d) AS first_date, MAX(d) AS last_date FROM dates`,
+    [id, id, id],
+  )
+  return journeyDatesFrom(typed, rows[0]!)
+}
+
+/**
+ * The dates of every live journey, by id (see `JourneyDates`), in one query:
+ * each live journey with the live journeys below it (`UNION` stops on a
+ * parent loop that sync left), the first and last transaction date of each
+ * journey, and the typed dates of the ones below it.
+ */
+export async function readAllJourneyDates(ex: SqlExecutor): Promise<Map<ShortId, JourneyDates>> {
+  const rows = await ex.exec<{
+    id: string
+    start_date: string | null
+    end_date: string | null
+    first_date: string | null
+    last_date: string | null
+  }>(
+    `WITH RECURSIVE
+     journeys(id) AS (
+       SELECT id FROM tags WHERE kind = 'journey' AND deleted_at_utc IS NULL
+     ),
+     below(top, id) AS (
+       SELECT id, id FROM journeys
+       UNION
+       SELECT b.top, t.id FROM tags t JOIN below b ON t.parent_id = b.id
+       WHERE t.deleted_at_utc IS NULL
+     ),
+     spent(id, first_date, last_date) AS (
+       SELECT journey_id, MIN(d), MAX(d)
+       FROM (SELECT journey_id, ${TRANSACTION_DATE} AS d FROM transactions
+             WHERE deleted_at_utc IS NULL AND journey_id IS NOT NULL)
+       GROUP BY journey_id
+     ),
+     typed(id, start_date, end_date) AS (
+       SELECT tag_id, start_date, end_date FROM journey_details WHERE deleted_at_utc IS NULL
+     ),
+     dates(top, d) AS (
+       SELECT b.top, s.first_date FROM below b JOIN spent s ON s.id = b.id
+       UNION ALL
+       SELECT b.top, s.last_date FROM below b JOIN spent s ON s.id = b.id
+       UNION ALL
+       SELECT b.top, t.start_date FROM below b JOIN typed t ON t.id = b.id WHERE b.id <> b.top
+       UNION ALL
+       SELECT b.top, t.end_date FROM below b JOIN typed t ON t.id = b.id WHERE b.id <> b.top
+     ),
+     derived(id, first_date, last_date) AS (
+       SELECT top, MIN(d), MAX(d) FROM dates GROUP BY top
+     )
+     SELECT j.id AS id, t.start_date AS start_date, t.end_date AS end_date,
+            d.first_date AS first_date, d.last_date AS last_date
+     FROM journeys j
+     LEFT JOIN typed t ON t.id = j.id
+     LEFT JOIN derived d ON d.id = j.id`,
+  )
+  return new Map(
+    rows.map((row) => [
+      shortIdFromColumn(row.id),
+      journeyDatesFrom(row.start_date === null && row.end_date === null ? null : row, {
+        first_date: row.first_date ?? null,
+        last_date: row.last_date ?? null,
+      }),
+    ]),
+  )
+}
+
+/**
  * What only one kind of tag has, in a side table keyed by the tag's id: a
  * location's address, coordinates and merchant; a merchant's default
  * category; a journey's typed dates and currency. Each kind is checked on
@@ -503,60 +632,18 @@ export class TagDetailsRepository {
     })
   }
 
+  /** A journey's start and end dates (see `JourneyDates`). */
+  journeyDates(id: ShortId): Promise<JourneyDates> {
+    return readJourneyDates(this.db, id)
+  }
+
   /**
-   * A journey's start and end dates ('YYYY-MM-DD'): each the date the user
-   * typed (`*Typed`), else derived — the first and the last of the local
-   * calendar dates of the journey's live transactions (by their date
-   * override when they have one) and of its live journeys below it, including
-   * the dates typed on those, so a parent covers its children (decisions
-   * §2.7). A deleted journey and everything under it no longer count. Null
-   * when there is nothing to derive from. `derivedStart` / `derivedEnd` are
-   * the derived ones even where a date is typed: what a reset goes back to.
+   * The dates of every live journey, by id, in one query: for each, what
+   * `journeyDates` gives (the same rules: typed dates win, a parent covers
+   * its live children, deleted journeys and what is under them drop out).
    */
-  async journeyDates(id: ShortId): Promise<{
-    start: string | null
-    end: string | null
-    startTyped: boolean
-    endTyped: boolean
-    derivedStart: string | null
-    derivedEnd: string | null
-  }> {
-    const typed = await this.getJourney(id)
-    // Each transaction counts by its own local date, so the range contains
-    // every one of them even when their offsets differ ('YYYY-MM-DD' text
-    // sorts as dates; the full offset-bearing moments would not).
-    const rows = await this.db.exec<{ first_date: string | null; last_date: string | null }>(
-      `WITH RECURSIVE journey(id) AS (
-         SELECT ?
-         UNION
-         SELECT t.id FROM tags t JOIN journey j ON t.parent_id = j.id
-         WHERE t.deleted_at_utc IS NULL
-       ),
-       dates(d) AS (
-         SELECT substr(COALESCE(date_override_local, transaction_at_local), 1, 10)
-         FROM transactions
-         WHERE deleted_at_utc IS NULL AND journey_id IN (SELECT id FROM journey)
-         UNION ALL
-         SELECT start_date FROM journey_details
-         WHERE deleted_at_utc IS NULL AND tag_id <> ? AND tag_id IN (SELECT id FROM journey)
-         UNION ALL
-         SELECT end_date FROM journey_details
-         WHERE deleted_at_utc IS NULL AND tag_id <> ? AND tag_id IN (SELECT id FROM journey)
-       )
-       SELECT MIN(d) AS first_date, MAX(d) AS last_date FROM dates`,
-      [id, id, id],
-    )
-    const derived = rows[0]!
-    const start = typed?.start_date ?? null
-    const end = typed?.end_date ?? null
-    return {
-      start: start ?? derived.first_date,
-      end: end ?? derived.last_date,
-      startTyped: start !== null,
-      endTyped: end !== null,
-      derivedStart: derived.first_date,
-      derivedEnd: derived.last_date,
-    }
+  allJourneyDates(): Promise<Map<ShortId, JourneyDates>> {
+    return readAllJourneyDates(this.db)
   }
 
   /**

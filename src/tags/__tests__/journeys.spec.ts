@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { asShortId, type ShortId } from '@/db/shortId'
-import { effectiveCurrency, inheritedCurrency } from '../journeys'
+import { byJourneyDate, effectiveCurrency, inheritedCurrency } from '../journeys'
+import { buildTree } from '../tree'
 import { byId, tag } from './fixtures'
 
 const journey = (id: string, parent: string | null = null) =>
@@ -45,5 +46,59 @@ describe('effectiveCurrency and inheritedCurrency', () => {
       currency: null,
       from: null,
     })
+  })
+})
+
+describe('byJourneyDate', () => {
+  const starts = (entries: Record<string, string | null>) =>
+    new Map(Object.entries(entries).map(([id, start]) => [asShortId(id), { start }]))
+
+  it('sorts by start date, newest first, undated ones on top, ties by name then id', () => {
+    const journeys = [
+      journey('lisbon'),
+      journey('armenia'),
+      journey('planned'),
+      journey('georgia'),
+      journey('alps'),
+      tag('rome-b', { kind: 'journey', name: 'Rome' }),
+      tag('rome-a', { kind: 'journey', name: 'Rome' }),
+    ]
+    const dates = starts({
+      lisbon: '2025-07-01',
+      armenia: '2024-05-01',
+      georgia: '2026-09-15',
+      alps: null, // a row with no dates is undated too
+      'rome-a': '2025-07-01',
+      'rome-b': '2025-07-01',
+    })
+    expect(journeys.sort(byJourneyDate(dates)).map((j) => j.id)).toEqual([
+      'alps',
+      'planned',
+      'georgia',
+      'lisbon',
+      'rome-a',
+      'rome-b',
+      'armenia',
+    ])
+  })
+
+  it('orders the children of a journey the same way, in the tree', () => {
+    const tags = [
+      journey('summer'),
+      journey('winter'),
+      journey('porto', 'summer'),
+      journey('lisbon', 'summer'),
+    ]
+    const dates = starts({
+      summer: '2026-07-01',
+      winter: '2026-12-20',
+      porto: '2026-07-10',
+      lisbon: '2026-07-01',
+    })
+    const tree = buildTree(tags, 'journey', byJourneyDate(dates))
+    expect(tree.map((n) => [n.tag.id, n.children.map((c) => c.tag.id)])).toEqual([
+      ['winter', []],
+      ['summer', ['porto', 'lisbon']],
+    ])
   })
 })

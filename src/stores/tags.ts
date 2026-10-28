@@ -4,6 +4,7 @@ import { getTagDetailsRepository, getTagsRepository } from '@/db/init'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailValues } from '@/db/types'
 import type { TagCreateInput, TagSaveInput } from '@/db/repositories/TagsRepository'
+import type { JourneyDates } from '@/db/repositories/TagDetailsRepository'
 import { newTagLook } from '@/tags/look'
 import { foldCase } from '@/tags/otherNames'
 
@@ -24,6 +25,8 @@ export const useTagsStore = defineStore('tags', () => {
   const duplicateIds = ref<ReadonlySet<ShortId>>(new Set())
   /** The details of every tag that has any, by tag id (for lists; dialogs read their own). */
   const detailsById = ref<ReadonlyMap<ShortId, TagDetailValues>>(new Map())
+  /** Every live journey's dates, typed or derived, by id (read in one query). */
+  const journeyDatesById = ref<ReadonlyMap<ShortId, JourneyDates>>(new Map())
   /** Each merchant's default category and each location's merchant, by tag id. */
   const detailLinks = computed(() => {
     const links = new Map<ShortId, ShortId>()
@@ -38,14 +41,17 @@ export const useTagsStore = defineStore('tags', () => {
 
   async function load(): Promise<void> {
     const repo = getTagsRepository()
-    const [all, groups, byTag] = await Promise.all([
+    const details = getTagDetailsRepository()
+    const [all, groups, byTag, dates] = await Promise.all([
       repo.listAll(),
       repo.duplicates(),
-      getTagDetailsRepository().detailsByTag(),
+      details.detailsByTag(),
+      details.allJourneyDates(),
     ])
     tags.value = all
     duplicateIds.value = new Set(groups.flat())
     detailsById.value = byTag
+    journeyDatesById.value = dates
     loaded.value = true
   }
 
@@ -154,6 +160,7 @@ export const useTagsStore = defineStore('tags', () => {
     loaded,
     duplicateIds,
     detailsById,
+    journeyDatesById,
     detailLinks,
     byId,
     load,

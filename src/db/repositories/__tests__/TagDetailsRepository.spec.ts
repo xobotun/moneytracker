@@ -432,6 +432,56 @@ describe('TagDetailsRepository', () => {
     expect(await repo.journeyDates(lisbon.id)).toEqual(derived('2026-07-01', '2026-07-02'))
   })
 
+  it('allJourneyDates gives what journeyDates gives, for every live journey at once', async () => {
+    const summer = await tags.create({ kind: 'journey', name: 'Summer 2026' })
+    const lisbon = await tags.create({ kind: 'journey', name: 'Lisbon', parent_id: summer.id })
+    const sintra = await tags.create({ kind: 'journey', name: 'Sintra', parent_id: lisbon.id })
+    const porto = await tags.create({ kind: 'journey', name: 'Porto', parent_id: summer.id })
+    const douro = await tags.create({ kind: 'journey', name: 'Douro', parent_id: porto.id })
+    const gone = await tags.create({ kind: 'journey', name: 'Gone', parent_id: summer.id })
+    const winter = await tags.create({ kind: 'journey', name: 'Winter' })
+    const someday = await tags.create({ kind: 'journey', name: 'Someday' })
+    const empty = await tags.create({ kind: 'journey', name: 'Empty' })
+    const x = await tags.create({ kind: 'journey', name: 'X' })
+    const y = await tags.create({ kind: 'journey', name: 'Y', parent_id: x.id })
+    await tags.archive(winter.id)
+
+    await spendOn(summer.id, '2026-07-05T12:00:00.000+01:00')
+    await spendOn(lisbon.id, '2026-07-03T12:00:00.000+01:00')
+    await spendOn(sintra.id, '2026-07-01T09:30:00.000+01:00')
+    await spendOn(porto.id, '2026-07-20T12:00:00.000+01:00', {
+      override: '2026-07-12T12:00:00.000+01:00',
+    })
+    await spendOn(porto.id, '2026-06-01T12:00:00.000+01:00', { deleted: true })
+    await spendOn(gone.id, '2026-05-01T12:00:00.000+01:00')
+    await spendOn(winter.id, '2026-12-01T12:00:00.000+00:00')
+    await spendOn(winter.id, '2026-12-24T12:00:00.000+00:00')
+    await spendOn(x.id, '2026-03-01T12:00:00.000+00:00')
+    await spendOn(y.id, '2026-03-09T12:00:00.000+00:00')
+    await spendOn(null, '2026-08-01T12:00:00.000+01:00')
+    await repo.setJourney(lisbon.id, { start_date: '2026-06-30', end_date: null })
+    await repo.setJourney(douro.id, { start_date: null, end_date: '2026-07-25' })
+    await repo.setJourney(winter.id, { start_date: '2026-11-30', end_date: '2027-01-02' })
+    await repo.setJourney(someday.id, { start_date: null, end_date: '2027-05-01' })
+    await repo.setJourney(gone.id, { start_date: '2026-04-01', end_date: null })
+    await tags.softDelete(gone.id)
+    // A parent loop that sync left: X > Y > X.
+    await db.run('UPDATE tags SET parent_id = ? WHERE id = ?', [y.id, x.id])
+
+    const all = await repo.allJourneyDates()
+    const live = await tags.list('journey')
+    expect([...all.keys()].sort()).toEqual(live.map((t) => t.id).sort())
+    expect(all.has(gone.id)).toBe(false)
+    for (const journey of live) {
+      expect(all.get(journey.id), journey.name).toEqual(await repo.journeyDates(journey.id))
+    }
+    // Not just empty on both sides.
+    expect(all.get(summer.id)).toEqual(derived('2026-06-30', '2026-07-25'))
+    expect(all.get(x.id)).toEqual(derived('2026-03-01', '2026-03-09'))
+    expect(all.get(empty.id)).toEqual(derived(null, null))
+    expect(all.get(someday.id)).toMatchObject({ start: null, end: '2027-05-01', endTyped: true })
+  })
+
   it("detailsByTag reads every live details row, each kind's fields", async () => {
     const food = await tags.create({ kind: 'category', name: 'Food' })
     const rewe = await tags.create({ kind: 'merchant', name: 'Rewe' })

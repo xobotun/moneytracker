@@ -226,6 +226,13 @@ describe('useTagsStore', () => {
         startTyped: true,
         end: null,
       })
+      // Every journey's dates are held, read again with the tags.
+      expect(store.journeyDatesById.get(rome.id)).toMatchObject({ start: '2026-05-01' })
+      await store.save(rome.id, {
+        ...saveInput(rome),
+        details: { ...noDetails(), start_date: '2026-06-01' },
+      })
+      expect(store.journeyDatesById.get(rome.id)).toMatchObject({ start: '2026-06-01' })
     })
   })
 

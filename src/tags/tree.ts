@@ -30,12 +30,16 @@ function liveChildren(tags: readonly Tag[], kind: TagKind) {
 }
 
 /**
- * The live tags of `kind` as a tree, siblings sorted by name. A tag whose
- * parent is not a live tag of the kind sits at the top level. Tags in a
- * parent loop are reached from nowhere: the first of them by name is lifted
- * to the top level, so each tag shows exactly once.
+ * The live tags of `kind` as a tree, siblings sorted by name (or by
+ * `compare`). A tag whose parent is not a live tag of the kind sits at the
+ * top level. Tags in a parent loop are reached from nowhere: the first of
+ * them by name is lifted to the top level, so each tag shows exactly once.
  */
-export function buildTree(tags: readonly Tag[], kind: TagKind): TagNode[] {
+export function buildTree(
+  tags: readonly Tag[],
+  kind: TagKind,
+  compare: (a: Tag, b: Tag) => number = byName,
+): TagNode[] {
   const { live, children } = liveChildren(tags, kind)
   const placed = new Set<ShortId>()
   const node = (tag: Tag): TagNode => {
@@ -45,13 +49,13 @@ export function buildTree(tags: readonly Tag[], kind: TagKind): TagNode[] {
   const grow = (parent: ShortId): TagNode[] =>
     (children.get(parent) ?? [])
       .filter((t) => !placed.has(t.id))
-      .sort(byName)
+      .sort(compare)
       .map(node)
-  const roots = [...(children.get(null) ?? [])].sort(byName).map(node)
+  const roots = [...(children.get(null) ?? [])].sort(compare).map(node)
   for (const tag of [...live].sort(byName)) {
     if (!placed.has(tag.id)) roots.push(node(tag))
   }
-  return roots.sort((a, b) => byName(a.tag, b.tag))
+  return roots.sort((a, b) => compare(a.tag, b.tag))
 }
 
 /** The nodes that match, with their ancestors; descendants that do not match are left out. */

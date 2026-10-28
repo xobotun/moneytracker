@@ -170,6 +170,35 @@ describe('TagsView', () => {
     expect(treeRows()).toEqual(['cars', 'Food', '  Bakery', '  snacks'])
   })
 
+  it('sorts journeys by date, newest first, undated ones on top; other tabs by name', async () => {
+    const journey = async (
+      name: string,
+      start: string | null,
+      parent: { id: ShortId } | null = null,
+    ) => {
+      const tag = await tagsRepo.create({ kind: 'journey', name, parent_id: parent?.id ?? null })
+      if (start) await detailsRepo.setJourney(tag.id, { start_date: start, end_date: null })
+      return tag
+    }
+    const summer = await journey('Summer 2025', '2025-07-01')
+    await journey('Lisbon', '2025-07-01', summer)
+    await journey('Porto', '2025-07-10', summer)
+    await journey('Armenia 2024', '2024-05-01')
+    await journey('Georgia', '2026-09-15')
+    await journey('Someday', null)
+    await useLayoutStore().setTagRows('slim')
+    await mountView('/tags?kind=journey')
+    // Slim rows too: the dates are read with the tags.
+    expect(treeRows()).toEqual([
+      'Someday',
+      'Georgia',
+      'Summer 2025',
+      '  Porto',
+      '  Lisbon',
+      'Armenia 2024',
+    ])
+  })
+
   it('collapses and expands a branch', async () => {
     await foodTree()
     await mountView()

@@ -1,8 +1,10 @@
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues } from '@/db/types'
+import type { JourneyDates } from '@/db/repositories/TagDetailsRepository'
+import { byName } from './tree'
 
 // Journeys as the Tags page shows them: the currency a journey passes down
-// its tree.
+// its tree, and their order by date.
 
 /** A journey's currency and the journey it is set on; both null when none is set up the tree. */
 export interface JourneyCurrency {
@@ -51,4 +53,24 @@ export function inheritedCurrency(
   details: CurrencyDetails,
 ): JourneyCurrency {
   return currencyFrom(parentId === null ? undefined : byId.get(parentId), byId, details)
+}
+
+/**
+ * Journeys by their start date (`dates`: typed or derived, as
+ * `allJourneyDates` gives them), newest first; those with no start yet come
+ * first, as the ones being planned. Ties by name, then id.
+ */
+export function byJourneyDate(
+  dates: ReadonlyMap<ShortId, Pick<JourneyDates, 'start'>>,
+): (a: Tag, b: Tag) => number {
+  return (a, b) => {
+    const x = dates.get(a.id)?.start ?? null
+    const y = dates.get(b.id)?.start ?? null
+    if (x !== y) {
+      if (x === null) return -1
+      if (y === null) return 1
+      return x < y ? 1 : -1
+    }
+    return byName(a, b)
+  }
 }

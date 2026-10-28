@@ -28,7 +28,7 @@ import { KIND_ICONS, effectiveLook } from '@/tags/look'
 import { setIconClass } from '@/icons/sets'
 import { mergedNamesByTag } from '@/tags/otherNames'
 import { mapLocations } from '@/tags/locationsMap'
-import { effectiveCurrency } from '@/tags/journeys'
+import { byJourneyDate, effectiveCurrency } from '@/tags/journeys'
 import {
   buildTree,
   filterTree,
@@ -198,23 +198,9 @@ async function setDisplay(choice: Display | null) {
   }
 }
 
-// A journey's dates, derived from its transactions until typed. Read for
-// detailed rows on the Journeys tab only: one query per journey.
-const journeyDates = ref(new Map<ShortId, Awaited<ReturnType<typeof store.journeyDates>>>())
-watch(
-  () => [kind.value, detailed.value, store.tags] as const,
-  async ([k, wanted]) => {
-    if (k !== 'journey' || !wanted) return
-    const journeys = store.tags.filter((t) => t.kind === 'journey' && t.deleted_at_utc === null)
-    try {
-      const dates = await Promise.all(journeys.map((t) => store.journeyDates(t.id)))
-      journeyDates.value = new Map(journeys.map((t, i) => [t.id, dates[i]!]))
-    } catch (e) {
-      actionError.value = `Could not work out the journeys' dates. ${(e as Error).message}`
-    }
-  },
-  { immediate: true },
-)
+// A journey's dates, derived from its transactions until typed: read with
+// the tags, every journey in one query.
+const journeyDates = computed(() => store.journeyDatesById)
 
 /**
  * What a detailed row lists under the names: a location's place, a journey's
@@ -295,7 +281,14 @@ const archivedCount = computed(
 // The live tree, archived tags included; the page shows the tags the filter
 // lets through with their ancestors, so an archived tag with active children
 // stays as their (faint) parent.
-const tree = computed(() => buildTree(store.tags, kind.value))
+// Journeys go by date, the newest first; the other kinds by name.
+const tree = computed(() =>
+  buildTree(
+    store.tags,
+    kind.value,
+    kind.value === 'journey' ? byJourneyDate(journeyDates.value) : undefined,
+  ),
+)
 const typed = computed(() => query.value.trim() !== '')
 const filtering = computed(() => typed.value || linkChoice.value !== 'any')
 const shows = (t: Tag) =>
