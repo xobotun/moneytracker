@@ -161,6 +161,50 @@ describe('TagsView', () => {
     expect(pageText()).toContain('Eats, Lunch')
   })
 
+  /** The linked tag shown on the row of `name`, as its text. */
+  function linkOn(name: string): string | undefined {
+    const row = [...document.querySelectorAll('li')].find(
+      (li) => li.querySelector('.font-medium')?.textContent?.trim() === name,
+    )
+    return row?.querySelector('[data-link]')?.textContent?.replace(/\s+/g, ' ').trim()
+  }
+
+  it("shows a merchant's default category, as plain text", async () => {
+    const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
+    const groceries = await tagsRepo.create({
+      kind: 'category',
+      name: 'Groceries',
+      parent_id: food.id,
+    })
+    const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+    await tagsRepo.create({ kind: 'merchant', name: 'Edeka' })
+    await detailsRepo.setMerchant(rewe.id, { default_category_id: groceries.id })
+    await mountView('/tags?kind=merchant')
+    expect(linkOn('Rewe')).toBe('default category: Food › Groceries')
+    expect(linkOn('Edeka')).toBeUndefined()
+    expect(document.querySelector('main a, ul a')).toBeNull()
+  })
+
+  it("shows a location's merchant, marking one deleted since", async () => {
+    const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+    const mitte = await tagsRepo.create({ kind: 'location', name: 'Rewe Mitte' })
+    await detailsRepo.setLocation(mitte.id, {
+      address: null,
+      latitude: null,
+      longitude: null,
+      merchant_id: rewe.id,
+    })
+    await mountView('/tags?kind=location')
+    expect(linkOn('Rewe Mitte')).toBe('merchant: Rewe')
+
+    await tagsRepo.softDelete(rewe.id)
+    button('Edit Rewe Mitte').click()
+    await settle()
+    button('Save').click()
+    await settle()
+    expect(linkOn('Rewe Mitte')).toBe('merchant: Rewe (deleted)')
+  })
+
   it('marks duplicates and explains them', async () => {
     for (const id of ['reweA0000001', 'reweB0000001']) {
       await db.run(

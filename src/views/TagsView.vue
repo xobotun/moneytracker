@@ -21,7 +21,15 @@ import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 import { KIND_ICONS, effectiveLook } from '@/tags/look'
 import { mergedNamesByTag } from '@/tags/otherNames'
-import { buildTree, filterTree, flattenTree, tagMatches } from '@/tags/tree'
+import {
+  buildTree,
+  filterTree,
+  flattenTree,
+  pathLabel,
+  tagMatches,
+  tagPath,
+  type RowLink,
+} from '@/tags/tree'
 
 const KINDS: readonly TagKind[] = ['category', 'merchant', 'location', 'journey', 'tag']
 const TAB_LABELS: Record<TagKind, string> = {
@@ -76,6 +84,24 @@ watch(kind, () => {
 
 const merged = computed(() => mergedNamesByTag(store.tags))
 const otherNames = (tag: Tag) => [...tag.synonyms, ...(merged.value.get(tag.id) ?? [])]
+
+// What a merchant or location links to, shown on its row as plain text.
+const LINK_ROLES: Partial<Record<TagKind, string>> = {
+  merchant: 'default category',
+  location: 'merchant',
+}
+function linkOf(tag: Tag): RowLink | null {
+  const role = LINK_ROLES[tag.kind]
+  const id = store.detailLinks.get(tag.id)
+  const linked = id === undefined ? undefined : store.byId.get(id)
+  if (!role || !linked) return null
+  return {
+    role,
+    label: pathLabel(tagPath(linked, store.byId)),
+    look: effectiveLook(linked, store.byId),
+    deleted: linked.deleted_at_utc !== null,
+  }
+}
 const tree = computed(() => buildTree(store.tags, kind.value))
 const filtering = computed(() => query.value.trim() !== '')
 const shownTree = computed(() =>
@@ -208,6 +234,7 @@ function onMerged() {
                 :row="row"
                 :look="effectiveLook(row.tag, store.byId)"
                 :other-names="otherNames(row.tag)"
+                :link="linkOf(row.tag)"
                 :duplicate="store.duplicateIds.has(row.tag.id)"
                 :noun="noun"
                 @toggle="toggle(row.tag.id)"

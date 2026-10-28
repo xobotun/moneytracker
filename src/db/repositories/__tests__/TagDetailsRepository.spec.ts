@@ -413,4 +413,45 @@ describe('TagDetailsRepository', () => {
     await spendOn(lisbon.id, '2026-07-01T23:20:00.000+01:00')
     expect(await repo.journeyDates(lisbon.id)).toEqual(derived('2026-07-01', '2026-07-02'))
   })
+
+  it('detailLinks maps each merchant to its default category and each location to its merchant', async () => {
+    const food = await tags.create({ kind: 'category', name: 'Food' })
+    const rewe = await tags.create({ kind: 'merchant', name: 'Rewe' })
+    const edeka = await tags.create({ kind: 'merchant', name: 'Edeka' })
+    const mitte = await tags.create({ kind: 'location', name: 'Rewe Mitte' })
+    const home = await tags.create({ kind: 'location', name: 'Home' })
+    await repo.setMerchant(rewe.id, { default_category_id: food.id })
+    await repo.setMerchant(edeka.id, { default_category_id: null })
+    await repo.setLocation(mitte.id, {
+      address: null,
+      latitude: null,
+      longitude: null,
+      merchant_id: rewe.id,
+    })
+    await repo.setLocation(home.id, {
+      address: 'Weg 1',
+      latitude: null,
+      longitude: null,
+      merchant_id: null,
+    })
+    // A deleted details row links nothing.
+    const gone = await tags.create({ kind: 'location', name: 'Gone' })
+    await repo.setLocation(gone.id, {
+      address: null,
+      latitude: null,
+      longitude: null,
+      merchant_id: rewe.id,
+    })
+    await db.run('UPDATE location_details SET deleted_at_utc = ? WHERE tag_id = ?', [
+      '2026-10-26T11:00:00.000Z',
+      gone.id,
+    ])
+
+    expect(await repo.detailLinks()).toEqual(
+      new Map([
+        [rewe.id, food.id],
+        [mitte.id, rewe.id],
+      ]),
+    )
+  })
 })

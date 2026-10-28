@@ -147,6 +147,19 @@ describe('useTagsStore', () => {
       expect(store.byId.get(food.id)?.deleted_at_utc).toBeNull()
     })
 
+    it('load reads what merchants and locations link to, and a save updates it', async () => {
+      const store = useTagsStore()
+      const food = await store.create({ kind: 'category', name: 'Food' })
+      const rewe = await store.create({
+        kind: 'merchant',
+        name: 'Rewe',
+        details: { ...noDetails(), default_category_id: food.id },
+      })
+      expect(store.detailLinks.get(rewe.id)).toBe(food.id)
+      await store.save(rewe.id, saveInput(rewe))
+      expect(store.detailLinks.has(rewe.id)).toBe(false)
+    })
+
     it('load collects duplicate ids', async () => {
       const store = useTagsStore()
       const at = '2026-10-01T00:00:00.000Z'

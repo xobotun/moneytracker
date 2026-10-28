@@ -8,6 +8,7 @@ import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { AccountGroupingsRepository } from '@/db/repositories/AccountGroupingsRepository'
 import { TagsRepository } from '@/db/repositories/TagsRepository'
+import { TagDetailsRepository } from '@/db/repositories/TagDetailsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
 import { localMoment } from '@/db/LocalMoment'
@@ -34,6 +35,7 @@ let rateService: RateService
 let sourceAnswers: ExchangeRateInput[] | (() => ExchangeRateInput[]) = []
 let transactionsRepo: TransactionsRepository
 let tagsRepo: TagsRepository
+let detailsRepo: TagDetailsRepository
 vi.mock('@/db/init', () => ({
   getAccountsRepository: () => accountsRepo,
   getAppliedRatesRepository: () => appliedRepo,
@@ -41,6 +43,7 @@ vi.mock('@/db/init', () => ({
   getAccountGroupingsRepository: () => groupingsRepo,
   getTransactionsRepository: () => transactionsRepo,
   getTagsRepository: () => tagsRepo,
+  getTagDetailsRepository: () => detailsRepo,
 }))
 
 function seed(name: string) {
@@ -89,6 +92,7 @@ describe('AccountsView', () => {
     groupingsRepo = new AccountGroupingsRepository(db)
     transactionsRepo = new TransactionsRepository(db)
     tagsRepo = new TagsRepository(db)
+    detailsRepo = new TagDetailsRepository(db)
     appliedRepo = new AppliedRatesRepository(db)
     rateService = new RateService({
       exchangeRates: new ExchangeRatesRepository(db),

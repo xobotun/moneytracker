@@ -1,5 +1,6 @@
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
+import type { TagLook } from './look'
 import { foldCase } from './otherNames'
 
 // The tags of one kind as the Tags page shows them: a tree, its filter, and
@@ -68,6 +69,16 @@ export interface TreeRow {
   hasChildren: boolean
   /** Its children are listed (false for a leaf). */
   open: boolean
+}
+
+/** The tag a merchant or location links to, as its row shows it. */
+export interface RowLink {
+  /** What the linked tag is to this one: 'default category', 'merchant'. */
+  role: string
+  /** Its path, e.g. 'Food › Groceries'. */
+  label: string
+  look: TagLook
+  deleted: boolean
 }
 
 /** The rows of the tree in order, depth first; the children of a closed tag are left out. */

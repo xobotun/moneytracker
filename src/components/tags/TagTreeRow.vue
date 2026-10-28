@@ -2,8 +2,9 @@
 import Button from 'primevue/button'
 import PrimeTag from 'primevue/tag'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
+import { accountIconClass } from '@/components/accounts/accountForm'
 import type { TagLook } from '@/tags/look'
-import type { TreeRow } from '@/tags/tree'
+import type { RowLink, TreeRow } from '@/tags/tree'
 
 /** One tag on the Tags page: its badge, names and buttons, indented by depth. */
 defineProps<{
@@ -11,9 +12,13 @@ defineProps<{
   look: TagLook
   /** Synonyms and merged names, shown fainter after the name. */
   otherNames: readonly string[]
+  /** Shown as plain text after the name: no link, the row stays one target. */
+  link: RowLink | null
   duplicate: boolean
   noun: string
 }>()
+
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
 </script>
 
@@ -40,8 +45,26 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
     <div class="flex min-w-0 flex-1 items-baseline gap-2">
       <span class="truncate font-medium">{{ row.tag.name }}</span>
       <span
+        v-if="link"
+        data-link
+        class="flex min-w-0 shrink-[2] items-baseline gap-1 text-sm text-gray-600 dark:text-gray-300"
+        :title="`${capitalise(link.role)}: ${link.label}${link.deleted ? ' (deleted)' : ''}`"
+      >
+        <span class="sr-only">{{ `${link.role}: ` }}</span>
+        <span
+          :class="accountIconClass(link.look.icon)"
+          class="self-center text-xs"
+          :style="{ color: link.look.colour }"
+          aria-hidden="true"
+        />
+        <span class="truncate" :class="link.deleted ? 'line-through' : undefined">
+          {{ link.label }}
+        </span>
+        <span v-if="link.deleted" class="shrink-0">{{ ' (deleted)' }}</span>
+      </span>
+      <span
         v-if="otherNames.length > 0"
-        class="truncate text-sm text-gray-500 dark:text-gray-400"
+        class="shrink-[3] truncate text-sm text-gray-500 dark:text-gray-400"
         :title="`Also found by: ${otherNames.join(', ')}`"
       >
         {{ otherNames.join(', ') }}

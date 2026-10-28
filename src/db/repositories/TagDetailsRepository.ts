@@ -295,6 +295,22 @@ export class TagDetailsRepository {
     return readDetailValues(this.db, id, kind)
   }
 
+  /**
+   * The tag each merchant and location links to, by its id: a merchant's
+   * default category, a location's merchant. Only links that are set, from
+   * live details rows; the linked tag may be deleted since.
+   */
+  async detailLinks(): Promise<Map<ShortId, ShortId>> {
+    const rows = await this.db.exec<{ tag_id: string; link: string }>(
+      `SELECT tag_id, default_category_id AS link FROM merchant_details
+       WHERE deleted_at_utc IS NULL AND default_category_id IS NOT NULL
+       UNION ALL
+       SELECT tag_id, merchant_id AS link FROM location_details
+       WHERE deleted_at_utc IS NULL AND merchant_id IS NOT NULL`,
+    )
+    return new Map(rows.map((row) => [shortIdFromColumn(row.tag_id), shortIdFromColumn(row.link)]))
+  }
+
   getLocation(id: ShortId): Promise<LocationDetails | null> {
     return readLocation(this.db, id)
   }
