@@ -23,6 +23,7 @@ import { formatDay } from '@/format/date'
 import { useAccountsStore } from '@/stores/accounts'
 import { useTagsStore } from '@/stores/tags'
 import { useMoneySettingsStore } from '@/stores/moneySettings'
+import { useLayoutStore } from '@/stores/layout'
 import type { ShortId } from '@/db/shortId'
 import { formatApprox, formatMoney } from '@/format/currency'
 import AccountsView from '../AccountsView.vue'
@@ -609,10 +610,16 @@ describe('AccountsView', () => {
   })
 
   describe('balances', () => {
-    function accountIn(name: string, currency: string, grouping_id: ShortId | null = null) {
+    function accountIn(
+      name: string,
+      currency: string,
+      grouping_id: ShortId | null = null,
+      is_cash = false,
+    ) {
       return accountsRepo.create({
         name,
         balance: zeroMoney(currency),
+        is_cash,
         tags: [],
         location_id: null,
         grouping_id,
@@ -969,6 +976,226 @@ describe('AccountsView', () => {
         await settle()
         expect(listedIn(w, 'Trip')).toEqual(['Card'])
         expect(archivedSection(w).exists()).toBe(false)
+      })
+    })
+
+    describe('hidden amounts', () => {
+      const HIDDEN = 'button[aria-label="Amount hidden, show it"]'
+      const row = (w: VueWrapper, name: string) =>
+        w.findAll('li').find((li) => li.find('.font-medium').text() === name)!
+
+      // Trip: a 10 USD card (≈ €5); no group: €12.50 cash; archived: €3.
+      async function seedMixed() {
+        await eurRates({ USD: 2 })
+        const trip = await groupingsRepo.create({
+          name: 'Trip',
+          colour: '#000000',
+          icon: primeIcon('car'),
+        })
+        const card = await accountIn('Card', 'USD', trip.id)
+        const cash = await accountIn('Cash', 'EUR')
+        const old = await accountIn('Old card', 'EUR')
+        await income(card.id, 1000, 'USD')
+        await income(cash.id, 1250, 'EUR')
+        await income(old.id, 300, 'EUR')
+        await accountsRepo.archive(old.id)
+      }
+      const values = () => [
+        formatMoney(moneyAmount(1000, 2, 'USD')),
+        formatApprox({ value: 5, currency: 'EUR' }),
+        formatMoney(moneyAmount(1250, 2, 'EUR')),
+        formatApprox({ value: 17.5, currency: 'EUR' }),
+        formatMoney(moneyAmount(300, 2, 'EUR')),
+      ]
+
+      it('shows a placeholder for every amount on the page and none of the values', async () => {
+        await seedMixed()
+        useLayoutStore(pinia).hideAmounts = true
+        const w = await mountSettled()
+        await w
+          .find('section[aria-label="Archived accounts"] button[aria-expanded]')
+          .trigger('click')
+        await settle()
+
+        const html = document.body.innerHTML
+        for (const value of values()) expect(html).not.toContain(value)
+        expect(html).not.toMatch(/[€$]/)
+        expect(row(w, 'Card').findAll(HIDDEN)).toHaveLength(2) // the balance and ≈ EUR
+        expect(row(w, 'Cash').findAll(HIDDEN)).toHaveLength(1)
+        expect(row(w, 'Old card').findAll(HIDDEN)).toHaveLength(1)
+        expect(w.find('section[aria-label="Trip"] > div').findAll(HIDDEN)).toHaveLength(2)
+        expect(w.find('[aria-label="Total of all accounts"]').findAll(HIDDEN)).toHaveLength(1)
+        expect(w.find('[data-archived-total]').findAll(HIDDEN)).toHaveLength(1)
+      })
+
+      it('shows one amount when its placeholder is pressed, until the page is left', async () => {
+        await seedMixed()
+        useLayoutStore(pinia).hideAmounts = true
+        let w = await mountSettled()
+
+        await row(w, 'Cash').find(HIDDEN).trigger('click')
+
+        expect(row(w, 'Cash').text()).toContain(formatMoney(moneyAmount(1250, 2, 'EUR')))
+        expect(row(w, 'Cash').find(HIDDEN).exists()).toBe(false)
+        expect(row(w, 'Card').findAll(HIDDEN)).toHaveLength(2)
+        expect(w.find('[aria-label="Total of all accounts"]').find(HIDDEN).exists()).toBe(true)
+
+        wrapper!.unmount()
+        w = await mountSettled()
+        expect(row(w, 'Cash').find(HIDDEN).exists()).toBe(true)
+        expect(document.body.innerHTML).not.toContain(formatMoney(moneyAmount(1250, 2, 'EUR')))
+      })
+
+      it('hides the amounts in the account dialog too', async () => {
+        await seedMixed()
+        useLayoutStore(pinia).hideAmounts = true
+        const w = await mountSettled()
+        await w.find('button[aria-label="Edit Cash"]').trigger('click')
+        await settle()
+        const dialog = () => document.querySelector('.p-dialog')!
+        const shown = formatMoney(moneyAmount(1250, 2, 'EUR'))
+
+        dialog()
+          .querySelector<HTMLButtonElement>('button[aria-label="Recalculate balance"]')!
+          .click()
+        await settle()
+        expect(dialog().textContent).toContain('The balance was already right: •••.')
+        dialog().querySelector<HTMLButtonElement>('button[aria-label="Archive Cash"]')!.click()
+        await settle()
+        // The archive question (the recalculation message is an alert too).
+        const question = () =>
+          [...dialog().querySelectorAll('[role=alert]')].find((a) =>
+            a.textContent?.includes('It still holds'),
+          )!
+        expect(question().textContent).toContain('It still holds •••. Archive it anyway?')
+        expect(dialog().innerHTML).not.toContain(shown)
+
+        question().querySelector<HTMLButtonElement>(HIDDEN)!.click()
+        await settle()
+        expect(question().textContent).toContain(`It still holds ${shown}.`)
+        expect(document.querySelector('.p-dialog')).not.toBeNull() // pressing it did not submit
+      })
+    })
+
+    describe('show by currency', () => {
+      const toggle = (w: VueWrapper) => w.find('button[aria-label="Show accounts by currency"]')
+      const hasButton = (text: string) =>
+        [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === text)
+      const namesIn = (w: VueWrapper, selector: string) =>
+        w
+          .find(selector)
+          .findAll('li .font-medium')
+          .map((n) => n.text())
+      const kindTotal = (w: VueWrapper, label: string) =>
+        w.find(`[role=group][aria-label="${label}"] [data-kind-total]`).text()
+
+      // EUR: Home's card €10 and wallet €2.50 (cash), €0.50 coins (cash, no
+      // group). USD: Trip's $40 cash and $6 card. Archived: a €3 card.
+      async function seedCurrencies() {
+        await eurRates({ USD: 2 })
+        const home = await groupingsRepo.create({
+          name: 'Home',
+          colour: '#16a34a',
+          icon: primeIcon('home'),
+        })
+        const trip = await groupingsRepo.create({
+          name: 'Trip',
+          colour: '#000000',
+          icon: primeIcon('car'),
+        })
+        const accounts = [
+          [await accountIn('Main card', 'EUR', home.id), 1000],
+          [await accountIn('Wallet', 'EUR', home.id, true), 250],
+          [await accountIn('Coins', 'EUR', null, true), 50],
+          [await accountIn('Travel cash', 'USD', trip.id, true), 4000],
+          [await accountIn('Dollar card', 'USD', trip.id), 600],
+          [await accountIn('Old card', 'EUR'), 300],
+        ] as const
+        for (const [account, value] of accounts) {
+          await income(account.id, value, account.balance.currency)
+        }
+        await accountsRepo.archive(accounts[5][0].id)
+      }
+
+      it('regroups the active accounts by currency, then cash and bank, with subtotals', async () => {
+        await seedCurrencies()
+        const w = await mountSettled()
+        const pageTotal = w.find('[aria-label="Total of all accounts"]').text()
+        expect(toggle(w).attributes('aria-pressed')).toBe('false')
+        expect(toggle(w).text()).toBe('Show by currency')
+
+        await toggle(w).trigger('click')
+
+        expect(toggle(w).attributes('aria-pressed')).toBe('true')
+        expect(w.find('section[aria-label="Home"]').exists()).toBe(false)
+        expect(w.findAll('[data-currency-block]').map((b) => b.attributes('aria-label'))).toEqual([
+          'Accounts in EUR',
+          'Accounts in USD',
+        ])
+        expect(namesIn(w, '[aria-label="Cash in EUR"]')).toEqual(['Wallet', 'Coins'])
+        expect(namesIn(w, '[aria-label="Bank in EUR"]')).toEqual(['Main card'])
+        expect(namesIn(w, '[aria-label="Cash in USD"]')).toEqual(['Travel cash'])
+        expect(namesIn(w, '[aria-label="Bank in USD"]')).toEqual(['Dollar card'])
+        expect(kindTotal(w, 'Cash in EUR')).toBe(formatMoney(moneyAmount(300, 2, 'EUR')))
+        expect(kindTotal(w, 'Bank in EUR')).toBe(formatMoney(moneyAmount(1000, 2, 'EUR')))
+        expect(kindTotal(w, 'Cash in USD')).toBe(formatMoney(moneyAmount(4000, 2, 'USD')))
+        expect(kindTotal(w, 'Bank in USD')).toBe(formatMoney(moneyAmount(600, 2, 'USD')))
+
+        const eurTotal = w.find('[aria-label="Accounts in EUR"] [data-currency-total]').text()
+        expect(eurTotal).toBe(formatMoney(moneyAmount(1300, 2, 'EUR')))
+        const usdTotal = w.find('[aria-label="Accounts in USD"] [data-currency-total]').text()
+        expect(usdTotal).toContain(formatMoney(moneyAmount(4600, 2, 'USD')))
+        expect(usdTotal).toContain(`≈ ${formatApprox({ value: 23, currency: 'EUR' })}`)
+
+        // Each row keeps its group as a chip; the page total and the archived
+        // section stay as they are.
+        expect(rowText(w, 'Wallet')).toContain('Home')
+        expect(rowText(w, 'Travel cash')).toContain('Trip')
+        const coins = w.findAll('li').find((li) => li.text().includes('Coins'))!
+        expect(coins.find('[data-group-chip]').exists()).toBe(false)
+        expect(w.find('[aria-label="Total of all accounts"]').text()).toBe(pageTotal)
+        expect(pageTotal).toContain(`≈ ${formatApprox({ value: 36, currency: 'EUR' })}`)
+        expect(w.find('[data-archived-total]').text()).toContain(
+          formatMoney(moneyAmount(300, 2, 'EUR')),
+        )
+
+        await toggle(w).trigger('click')
+        expect(w.find('[data-currency-block]').exists()).toBe(false)
+        expect(w.find('section[aria-label="Home"]').exists()).toBe(true)
+      })
+
+      it('keeps reorder mode and itself apart', async () => {
+        await seedCurrencies()
+        const w = await mountSettled()
+        await toggle(w).trigger('click')
+        expect(hasButton('Reorder')).toBe(false)
+
+        await toggle(w).trigger('click')
+        buttonByText('Reorder').click()
+        await settle()
+        expect(toggle(w).exists()).toBe(false)
+      })
+
+      it('is kept nowhere: the page starts grouped again', async () => {
+        await seedCurrencies()
+        let w = await mountSettled()
+        await toggle(w).trigger('click')
+        expect(w.find('[data-currency-block]').exists()).toBe(true)
+
+        wrapper!.unmount()
+        w = await mountSettled()
+        expect(toggle(w).attributes('aria-pressed')).toBe('false')
+        expect(w.find('[data-currency-block]').exists()).toBe(false)
+        expect(w.find('section[aria-label="Home"]').exists()).toBe(true)
+      })
+
+      it('opens an account from its row', async () => {
+        await seedCurrencies()
+        const w = await mountSettled()
+        await toggle(w).trigger('click')
+        await w.find('button[aria-label="Edit Wallet"]').trigger('click')
+        await settle()
+        expect((document.getElementById('account-name') as HTMLInputElement).value).toBe('Wallet')
       })
     })
   })
