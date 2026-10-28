@@ -87,6 +87,7 @@ const disc = computed(() => {
 <template>
   <span
     v-if="inline && face.kind === 'glyph'"
+    class="w-[1.4em] shrink-0 text-center"
     :class="face.className"
     :style="{ color: colour }"
     data-face="glyph"

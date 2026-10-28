@@ -92,7 +92,8 @@ describe('IconBadge', () => {
   it('inline, keeps a pack icon a bare icon in the colour, and other kinds a tiny badge', async () => {
     const bare = await draw(primeIcon('gift'), { inline: true })
     expect(bare.element.tagName).toBe('SPAN')
-    expect(bare.classes()).toEqual(['pi', 'pi-gift'])
+    // As wide as the tiny badge, so labels after either line up.
+    expect(bare.classes()).toEqual(expect.arrayContaining(['pi', 'pi-gift', 'w-[1.4em]']))
     expect(bare.attributes('style')).toBe('color: rgb(30, 58, 138);')
 
     const emoji = await draw(emojiIcon('🛒'), { inline: true })
