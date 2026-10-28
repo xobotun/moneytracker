@@ -77,28 +77,43 @@ export function byJourneyDate(
   }
 }
 
+type CurrentDates = Pick<JourneyDates, 'start' | 'end' | 'startTyped' | 'endTyped'>
+
+/**
+ * A journey's span if it is under way on `today`, else null; its end null
+ * while it is open. It has started: a start (typed or derived) on or before
+ * today. And it has not ended: a typed end is the day it ended ("End
+ * journey" types today), so it is under way only before it; a typed start
+ * with no typed end stays open until one is typed (its last transaction does
+ * not end it); with a derived start the derived end is its last day, which
+ * counts.
+ */
+function underWayOn(d: CurrentDates, today: string): { start: string; end: string | null } | null {
+  if (d.start === null || d.start > today) return null
+  if (d.endTyped) return d.end !== null && d.end > today ? { start: d.start, end: d.end } : null
+  if (d.startTyped) return { start: d.start, end: null }
+  return d.end === null || d.end >= today ? { start: d.start, end: d.end } : null
+}
+
 /**
  * The journey under way on `today` ('YYYY-MM-DD'): a live, active one of the
- * `tree` whose dates (typed or derived) hold today — a start on or before
- * it, and no end or one on or after it. The deepest such one wins (the most
- * specific: Tbilisi inside Georgia), then the one that started later, then
- * the one that ends later (no end: still open, the latest) — so a journey
- * continued on the day it started gives way to the one continuing it — then
- * by name and id. Null when there is none.
+ * `tree` that has started and not ended (see `underWayOn`). The deepest such
+ * one wins (the most specific: Tbilisi inside Georgia), then the one that
+ * started later, then the one that ends later (open: the latest) — so a
+ * journey continued on the day it started gives way to the one continuing
+ * it — then by name and id. Null when there is none.
  */
 export function currentJourney(
   tree: readonly TagNode[],
-  dates: ReadonlyMap<ShortId, Pick<JourneyDates, 'start' | 'end'>>,
+  dates: ReadonlyMap<ShortId, CurrentDates>,
   today: string,
 ): Tag | null {
   const underWay: { tag: Tag; depth: number; start: string; end: string | null }[] = []
   const visit = (nodes: readonly TagNode[], depth: number) => {
     for (const { tag, children } of nodes) {
       const d = dates.get(tag.id)
-      const holdsToday = !!d?.start && d.start <= today && (d.end === null || d.end >= today)
-      if (holdsToday && tag.archived_at_utc === null) {
-        underWay.push({ tag, depth, start: d.start!, end: d.end })
-      }
+      const span = d && underWayOn(d, today)
+      if (span && tag.archived_at_utc === null) underWay.push({ tag, depth, ...span })
       visit(children, depth + 1)
     }
   }

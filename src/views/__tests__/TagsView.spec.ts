@@ -657,9 +657,32 @@ describe('TagsView', () => {
       await journey('Lisbon', { start: daysAgo(100), end: daysAgo(90) })
       await mountView('/tags?kind=journey')
       expect(bar()).toBe(
-        `Current journey: Caucasus › Georgia since ${formatDay(daysAgo(20))} Continue journey`,
+        `Current journey: Caucasus › Georgia since ${formatDay(daysAgo(20))} Continue journey End journey`,
       )
       expect(button('Continue Georgia with a new journey')).toBeDefined()
+      expect(button('End Georgia today')).toBeDefined()
+    })
+
+    it('ends the journey under way today; the bar shows the next one, then none', async () => {
+      const caucasus = await journey('Caucasus', { start: daysAgo(30) })
+      const georgia = await journey('Georgia', { start: daysAgo(20), currency: 'GEL' }, caucasus)
+      await mountView('/tags?kind=journey')
+      button('End Georgia today').click()
+      await settle()
+      expect(await detailsRepo.getJourney(georgia.id)).toMatchObject({
+        start_date: daysAgo(20),
+        end_date: today,
+        currency: 'GEL',
+      })
+      expect(bar()).toBe(
+        `Current journey: Caucasus since ${formatDay(daysAgo(30))} Continue journey End journey`,
+      )
+      expect(treeRows()).toEqual(['Caucasus', '  Georgia'])
+
+      button('End Caucasus today').click()
+      await settle()
+      expect((await detailsRepo.getJourney(caucasus.id))!.end_date).toBe(today)
+      expect(bar()).toBeUndefined()
     })
 
     it('shows nothing when no journey is under way, or on other tabs', async () => {

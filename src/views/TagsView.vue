@@ -338,6 +338,16 @@ const currentSince = computed(() =>
   current.value ? journeyDates.value.get(current.value.id) : undefined,
 )
 
+/** "End journey": it ends today, and the bar moves on to the next one under way, if any. */
+async function endJourney(journey: Tag) {
+  actionError.value = null
+  try {
+    await store.endJourney(journey.id)
+  } catch (e) {
+    actionError.value = `Could not end “${journey.name}”. ${(e as Error).message}`
+  }
+}
+
 const hasDuplicates = computed(() =>
   store.tags.some((t) => t.kind === kind.value && store.duplicateIds.has(t.id)),
 )
@@ -502,6 +512,16 @@ function onMerged() {
               class="ml-auto"
               :aria-label="`Continue ${current.name} with a new journey`"
               @click="openContinue(current)"
+            />
+            <Button
+              type="button"
+              label="End journey"
+              icon="pi pi-flag"
+              severity="secondary"
+              size="small"
+              :pt="{ label: { class: 'hidden sm:inline' } }"
+              :aria-label="`End ${current.name} today`"
+              @click="endJourney(current)"
             />
           </div>
 

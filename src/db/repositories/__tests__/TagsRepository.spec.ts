@@ -1720,4 +1720,51 @@ describe('TagsRepository', () => {
       )
     })
   })
+
+  describe('endJourney', () => {
+    const TODAY = '2026-10-28'
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+    const journey = (name: string, dates: { start_date: string | null; end_date: string | null }) =>
+      repo.create({
+        kind: 'journey',
+        name,
+        details: { ...noDetails(), ...dates, currency: 'GEL' },
+      })
+
+    it('types today as its end, keeping its other details; a later end becomes today', async () => {
+      const open = await journey('Georgia', { start_date: '2026-10-01', end_date: null })
+      await repo.endJourney(open.id, TODAY)
+      expect(await details.getJourney(open.id)).toMatchObject({
+        start_date: '2026-10-01',
+        end_date: TODAY,
+        currency: 'GEL',
+      })
+
+      const planned = await journey('Armenia', { start_date: null, end_date: '2026-11-30' })
+      await repo.endJourney(planned.id, TODAY)
+      expect(await details.getJourney(planned.id)).toMatchObject({
+        start_date: null,
+        end_date: TODAY,
+        currency: 'GEL',
+      })
+    })
+
+    it('keeps an end typed before today', async () => {
+      const ended = await journey('Georgia', { start_date: '2026-10-01', end_date: '2026-10-20' })
+      const before = await db.exec('SELECT * FROM journey_details')
+      await repo.endJourney(ended.id, TODAY)
+      expect(await db.exec('SELECT * FROM journey_details')).toEqual(before)
+    })
+
+    it('refuses a tag that is no journey, or a deleted one', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      await expect(repo.endJourney(food.id, TODAY)).rejects.toThrow(TagKindMismatchError)
+      const gone = await journey('Georgia', { start_date: '2026-10-01', end_date: null })
+      await repo.softDelete(gone.id)
+      await expect(repo.endJourney(gone.id, TODAY)).rejects.toThrow(DeletedTagError)
+    })
+  })
 })
