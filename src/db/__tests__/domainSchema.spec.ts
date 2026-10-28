@@ -14,6 +14,7 @@ const EXPECTED_TABLES = [
   'journey_details',
   'account_groupings',
   'applied_rates',
+  'images',
 ]
 
 const AT = '2026-05-20T00:00:00.000Z'

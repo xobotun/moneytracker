@@ -11,9 +11,26 @@ import type { Migration } from './index'
 // but only the repository checks that: there is no unique index, since two
 // devices creating the same name offline must both survive the sync (the
 // duplicates are shown, and merged by hand).
+//
+// `images` holds the pictures icons show (docs/plans/2026-10-28-icons-design.md
+// §3). A row never changes after it is written: a new picture is a new row,
+// and the same picture is the same row on every device (the id is derived
+// from the content).
 export const migration: Migration = {
   version: 2,
   up: `
+    CREATE TABLE images (
+      id              TEXT PRIMARY KEY,                                  -- UUIDv5 of the content's SHA-256
+      media_type      TEXT NOT NULL CHECK (media_type IN ('image/webp', 'image/svg+xml')),
+      content         TEXT NOT NULL,                                     -- base64 for WebP, the cleaned markup for SVG
+      width           INTEGER,                                           -- pixels; NULL = unknown (an SVG without a size)
+      height          INTEGER,                                           -- pixels; NULL = unknown
+      source          TEXT CHECK (source IS NULL OR json_valid(source)), -- JSON object: the Text tab's settings for a word; NULL for an upload
+      created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
+      deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
+    );
+
     CREATE TABLE tags (
       id              TEXT PRIMARY KEY,                                  -- short id (12 base-62 characters)
       kind            TEXT NOT NULL CHECK (kind IN ('category', 'merchant', 'location', 'journey', 'tag')),

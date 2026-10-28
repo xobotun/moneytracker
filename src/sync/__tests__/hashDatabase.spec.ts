@@ -111,12 +111,13 @@ describe('hashDatabase', () => {
     const db = await migratedDb()
     dbs.push(db)
     // Start hashing; the write below queues behind the first table read, so it
-    // lands after `tags` was already hashed but before the walk finishes.
+    // lands after `images` (the first table) was already hashed but before the
+    // walk finishes.
     const during = hashDatabase(db)
     await db.run(
-      `INSERT INTO tags (id, kind, name, synonyms, moved_at_utc, created_at_utc, updated_at_utc)
-       VALUES (?, 'location', 'Home', '[]', ?, ?, ?)`,
-      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
+      `INSERT INTO images (id, media_type, content, created_at_utc, updated_at_utc)
+       VALUES (?, 'image/svg+xml', '<svg/>', ?, ?)`,
+      [newId(), '2026-05-01T00:00:00.000Z', '2026-05-01T00:00:00.000Z'],
     )
     const hashMissingTheRow = await during
     // The row is now in the DB, so the next hash must reflect it.

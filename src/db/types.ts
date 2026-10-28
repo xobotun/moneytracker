@@ -134,6 +134,25 @@ export interface AppliedRate {
   deleted_at_utc: Date | null
 }
 
+/** What an image holds: WebP pixels or SVG markup. */
+export type ImageMediaType = 'image/webp' | 'image/svg+xml'
+
+/**
+ * A picture an icon shows (docs/plans/2026-10-28-icons-design.md §3): an
+ * upload, or a word the Text tab made. Never changes once written.
+ */
+export interface StoredImage {
+  id: UUID // UUIDv5 of the content's SHA-256: the same picture is one row on every device
+  media_type: ImageMediaType
+  content: string // base64 for WebP, the cleaned markup for SVG
+  width: number | null // pixels; null = unknown (an SVG without a size)
+  height: number | null
+  source: Record<string, unknown> | null // the Text tab's settings for a word; null for an upload
+  created_at_utc: Date
+  updated_at_utc: Date
+  deleted_at_utc: Date | null
+}
+
 export interface AccountGrouping {
   id: ShortId
   name: string

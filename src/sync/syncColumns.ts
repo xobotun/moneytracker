@@ -37,13 +37,15 @@ export const DERIVED_COLUMNS: Record<string, readonly string[]> = {
 /**
  * Columns the merge comparison and the database hash skip: the derived ones,
  * plus the timestamps of rows each device computes on its own. Two devices
- * that resolve the same applied rate write the same row at different moments;
- * that is neither a conflict nor a difference. A real change still counts —
- * the merge reads the timestamps to see which side moved.
+ * that resolve the same applied rate, or add the same picture (an image's id
+ * comes from its content), write the same row at different moments; that is
+ * neither a conflict nor a difference. A real change still counts — the merge
+ * reads the timestamps to see which side moved.
  */
 export const EQUALITY_IGNORED_COLUMNS: Record<string, readonly string[]> = {
   ...DERIVED_COLUMNS,
   applied_rates: ['created_at_utc', 'updated_at_utc'],
+  images: ['created_at_utc', 'updated_at_utc'],
 }
 
 /**
@@ -71,6 +73,18 @@ export const ROW_RANK: Record<string, (row: SyncRow) => number> = {
 }
 
 export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
+  images: [
+    { name: 'id', sqlType: 'TEXT', nullable: true },
+    { name: 'media_type', sqlType: 'TEXT', nullable: false },
+    { name: 'content', sqlType: 'TEXT', nullable: false },
+    { name: 'width', sqlType: 'INTEGER', nullable: true },
+    { name: 'height', sqlType: 'INTEGER', nullable: true },
+    { name: 'source', sqlType: 'TEXT', nullable: true },
+    { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
+    { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },
+  ],
+
   tags: [
     { name: 'id', sqlType: 'TEXT', nullable: true },
     { name: 'kind', sqlType: 'TEXT', nullable: false },
