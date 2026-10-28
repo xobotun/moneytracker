@@ -38,9 +38,10 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       workbox: {
-        // Workbox's default plus JSON: the emoji picker's data
-        // (src/icons/emojiPicker.ts) must be there offline.
-        globPatterns: ['**/*.{js,wasm,css,html,json}'],
+        // Workbox's default plus what must be there offline: JSON for the
+        // emoji picker's data (src/icons/emojiPicker.ts), WOFF2 for the
+        // PrimeIcons font (every browser the app runs in reads WOFF2).
+        globPatterns: ['**/*.{js,wasm,css,html,json,woff2}'],
       },
       manifest: {
         name: 'Money Tracker',
