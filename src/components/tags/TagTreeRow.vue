@@ -2,7 +2,8 @@
 import Button from 'primevue/button'
 import PrimeTag from 'primevue/tag'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
-import { accountIconClass } from '@/components/accounts/accountForm'
+import TagChip from './TagChip.vue'
+import NamePills from './NamePills.vue'
 import type { TagLook } from '@/tags/look'
 import type { RowFact, RowLink, TreeRow } from '@/tags/tree'
 import { DERIVED_CLASS } from '@/components/derived'
@@ -31,9 +32,6 @@ defineProps<{
 
 const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
-// An outline, unlike the filled link chip.
-const PILL =
-  'rounded border border-gray-300 px-1.5 text-xs text-gray-600 dark:border-gray-600 dark:text-gray-300'
 const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
 </script>
 
@@ -63,42 +61,28 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
           {{ row.tag.name }}
         </span>
         <!-- A chip, not a link: the row stays one target. -->
-        <span
+        <TagChip
           v-if="link"
           data-link
-          class="min-w-0 shrink-[2] items-center gap-1 rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200"
+          :label="link.label"
+          :icon="link.look.icon"
+          :colour="link.look.colour"
+          :deleted="link.deleted"
+          :sr-prefix="`${link.role}: `"
+          class="shrink-[2]"
           :class="detailed ? 'flex max-w-full' : 'hidden sm:flex'"
           :title="`${capitalise(link.role)}: ${link.label}${link.deleted ? ' (deleted)' : ''}`"
-        >
-          <span class="sr-only">{{ `${link.role}: ` }}</span>
-          <span
-            :class="accountIconClass(link.look.icon)"
-            class="text-[0.7rem]"
-            :style="{ color: link.look.colour }"
-            aria-hidden="true"
-          />
-          <span class="truncate" :class="link.deleted ? 'line-through' : undefined">
-            {{ link.label }}
-          </span>
-          <span v-if="link.deleted" class="shrink-0">{{ ' (deleted)' }}</span>
-        </span>
+        />
         <template v-if="!detailed">
           <!-- Cut at the edge rather than wrapped: the row stays one line. -->
-          <ul
+          <NamePills
             v-if="otherNames.length > 0"
             data-names
-            aria-label="Other names"
-            class="hidden min-w-0 shrink-[3] items-center gap-1 overflow-hidden md:flex"
-          >
-            <li
-              v-for="(name, i) in otherNames"
-              :key="i"
-              :class="PILL"
-              class="shrink-0 whitespace-nowrap"
-            >
-              {{ name }}
-            </li>
-          </ul>
+            :names="otherNames"
+            label="Other names"
+            one-line
+            class="hidden shrink-[3] md:flex"
+          />
           <!-- Only the room left over; newlines collapse into the one line. -->
           <span
             v-if="row.tag.description"
@@ -110,16 +94,13 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
         </template>
       </div>
       <template v-if="detailed">
-        <ul
+        <NamePills
           v-if="otherNames.length > 0"
           data-names
-          aria-label="Other names"
-          class="mt-0.5 flex flex-wrap gap-1"
-        >
-          <li v-for="(name, i) in otherNames" :key="i" :class="PILL" class="max-w-full break-words">
-            {{ name }}
-          </li>
-        </ul>
+          :names="otherNames"
+          label="Other names"
+          class="mt-0.5 flex"
+        />
         <p
           v-if="row.tag.description"
           data-description

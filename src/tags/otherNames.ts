@@ -61,6 +61,18 @@ export function mergedNamesByTag(tags: readonly Tag[]): Map<ShortId, string[]> {
 }
 
 /**
+ * The names a merge adds to the target's synonyms: the source's name and
+ * synonyms, except those the target already has as its name or a synonym
+ * (ignoring case; the first spelling stays).
+ */
+export function namesAddedByMerge(
+  source: Pick<Tag, 'name' | 'synonyms'>,
+  target: Pick<Tag, 'name' | 'synonyms'>,
+): string[] {
+  return distinct([source.name, ...source.synonyms], [target.name, ...target.synonyms])
+}
+
+/**
  * The retired names a merge target keeps: its own and the source's, except
  * the names it still has after the merge — its name, its `synonyms` then and
  * its `merged` names (what tags merged into it carry and it did not retire).

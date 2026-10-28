@@ -6,6 +6,7 @@ import {
   cleanOtherNames,
   mergedNames,
   mergedNamesByTag,
+  namesAddedByMerge,
   retiredAfterMerge,
 } from '../otherNames'
 import { merged, tag } from './fixtures'
@@ -129,5 +130,30 @@ describe('retiredAfterMerge', () => {
   it('does not retire a name the target still has, as a synonym or a merged name', () => {
     const source = { retired_names: ['WB', 'gig', 'work'] }
     expect(retiredAfterMerge(target, source, ['wb'], ['Gig'])).toEqual(['old'])
+  })
+})
+
+describe('namesAddedByMerge', () => {
+  const food = { name: 'Food', synonyms: ['lunch', 'Eats'] }
+
+  it("adds the source's name and synonyms the target lacks, in order", () => {
+    expect(namesAddedByMerge({ name: 'Groceries', synonyms: ['Market'] }, food)).toEqual([
+      'Groceries',
+      'Market',
+    ])
+  })
+
+  it("leaves out the target's name and synonyms, ignoring case", () => {
+    const lunch = { name: 'Lunch', synonyms: ['Midday', 'FOOD', 'eats'] }
+    expect(namesAddedByMerge(lunch, food)).toEqual(['Midday'])
+  })
+
+  it('keeps the first spelling of a repeated name', () => {
+    const snack = { name: 'Snack', synonyms: ['snack', 'Bite', 'BITE'] }
+    expect(namesAddedByMerge(snack, food)).toEqual(['Snack', 'Bite'])
+  })
+
+  it('adds nothing when the target has every name already', () => {
+    expect(namesAddedByMerge({ name: 'LUNCH', synonyms: ['eats'] }, food)).toEqual([])
   })
 })
