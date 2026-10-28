@@ -26,6 +26,7 @@ import {
   carriedNames,
   foldCase,
   mergedNames,
+  namesAddedByMerge,
   retiredAfterMerge,
 } from '@/tags/otherNames'
 import {
@@ -607,13 +608,7 @@ export class TagsRepository {
 
       await redirectTagReferences(tx, sourceId, targetId, { bump: true, now })
 
-      const taken = new Set(namesOf(target).map(foldCase))
-      const added: string[] = []
-      for (const name of namesOf(source)) {
-        if (taken.has(foldCase(name))) continue
-        taken.add(foldCase(name))
-        added.push(name)
-      }
+      const added = namesAddedByMerge(source, target)
       const synonyms = [...target.synonyms, ...added]
       // A name the source retired stays retired on the target, unless the
       // target still has it: as a name, or through a tag merged into it.

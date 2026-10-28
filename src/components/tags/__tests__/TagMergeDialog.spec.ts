@@ -93,6 +93,18 @@ describe('TagMergeDialog', () => {
     ])
   })
 
+  /** The texts of the elements matching `selector` in the merge warning, whitespace collapsed. */
+  const inWarning = (selector: string) =>
+    [...document.querySelectorAll(`[role=status] ${selector}`)].map((el) =>
+      el.textContent?.replace(/\s+/g, ' ').trim(),
+    )
+
+  /** The sentences of the merge warning, one per line (the names' pills are not one). */
+  const warning = () => inWarning('p')
+
+  /** The names the warning shows as moving, one per pill. */
+  const movingNames = () => inWarning('ul[aria-label="Names that move"] > li')
+
   it('warns with the use count before merging', async () => {
     const mia = await tagsRepo.create({ kind: 'tag', name: 'mia' })
     await tagsRepo.create({ kind: 'tag', name: 'family' })
@@ -100,9 +112,77 @@ describe('TagMergeDialog', () => {
     await spend(db, await addAccount(db, [mia.id]), food.id, [mia.id])
     await open(mia)
     await choose('merge-target', 'family')
-    expect(pageText()).toContain('“mia” will be deleted. Its 2 uses move to family.')
-    expect(pageText()).toContain('Its names become other names of family')
+    expect(warning()).toEqual([
+      'mia will be deleted.',
+      'Its 2 uses move to family.',
+      'These names become other names of family:',
+      'family keeps its colour, icon and description.',
+    ])
+    expect(movingNames()).toEqual(['mia'])
     expect(await tagsRepo.findById(mia.id)).not.toBeNull()
+  })
+
+  it('names the source by its name and the target by its path, as chips in their looks', async () => {
+    const lunch = await tagsRepo.create({
+      kind: 'category',
+      name: 'Lunch',
+      colour: '#aa0000',
+      icon: 'car',
+    })
+    await tagsRepo.create({ kind: 'category', name: 'Sandwich', parent_id: lunch.id })
+    const fun = await tagsRepo.create({
+      kind: 'category',
+      name: 'Fun',
+      colour: '#0000aa',
+      icon: 'shop',
+    })
+    await tagsRepo.create({ kind: 'category', name: 'Games', parent_id: fun.id })
+    await open(lunch)
+    await choose('merge-target', 'Fun › Games')
+
+    expect(inWarning('[data-tag=source]')).toEqual(['Lunch'])
+    // The target inherits its look from Fun.
+    const targets = inWarning('[data-tag=target]')
+    expect(targets.length).toBeGreaterThan(1)
+    expect(new Set(targets)).toEqual(new Set(['Fun › Games']))
+    const icon = (chip: string) =>
+      document.querySelector<HTMLElement>(`[role=status] [data-tag=${chip}] [aria-hidden=true]`)!
+    expect(icon('source').className).toContain('pi-car')
+    expect(icon('source').style.color).toBe('rgb(170, 0, 0)')
+    expect(icon('target').className).toContain('pi-shop')
+    expect(icon('target').style.color).toBe('rgb(0, 0, 170)')
+    expect(warning()).toContain('Its sub-categories move under Fun › Games.')
+  })
+
+  /** A category called `name` with `synonyms`, under Meals: siblings cannot share names. */
+  async function meal(name: string, synonyms: string[] = []) {
+    const meals = await tagsRepo.create({ kind: 'category', name: 'Meals' })
+    return tagsRepo.create({ kind: 'category', name, synonyms, parent_id: meals.id })
+  }
+
+  it('lists as pills only the names the target does not have yet', async () => {
+    const lunch = await meal('Lunch', ['Midday'])
+    await tagsRepo.create({ kind: 'category', name: 'Food', synonyms: ['lunch'] })
+    await spend(db, await addAccount(db), lunch.id)
+    await open(lunch)
+    await choose('merge-target', 'Food')
+    expect(movingNames()).toEqual(['Midday'])
+    expect(warning()).toEqual([
+      'Lunch will be deleted.',
+      'Its 1 use moves to Food (parts of one transaction in both are added together).',
+      'These names become other names of Food:',
+      'Food keeps its colour, icon and description.',
+    ])
+  })
+
+  it('says so when the target has every name already', async () => {
+    const lunch = await meal('Lunch')
+    await tagsRepo.create({ kind: 'category', name: 'Food', synonyms: ['LUNCH'] })
+    await open(lunch)
+    await choose('merge-target', 'Food')
+    expect(warning()).toContain('Its names are already other names of Food.')
+    expect(warning().join(' ')).not.toContain('These names')
+    expect(movingNames()).toEqual([])
   })
 
   it('merges and emits merged', async () => {

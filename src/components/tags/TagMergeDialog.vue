@@ -12,10 +12,13 @@ import { useTagsStore } from '@/stores/tags'
 import { MergeConflictError, TagLoopError } from '@/db/errors'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues } from '@/db/types'
-import type { TagLook } from '@/tags/look'
+import { effectiveLook, type TagLook } from '@/tags/look'
+import { namesAddedByMerge } from '@/tags/otherNames'
 import { pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
 import { KIND_NOUNS } from './tagForm'
 import TagOptionLabel from './TagOptionLabel.vue'
+import TagChip from './TagChip.vue'
+import NamePills from './NamePills.vue'
 import { formatMetres } from '@/format/distance'
 import { answerError, emptyAnswer, typedValue, type Answer } from './mergeForm'
 
@@ -37,6 +40,7 @@ const FIELD_LABELS: Record<TagDetailField, string> = {
 
 const store = useTagsStore()
 const noun = computed(() => KIND_NOUNS[props.source.kind])
+const nouns = computed(() => (noun.value === 'category' ? 'categories' : `${noun.value}s`))
 
 const targetId = ref<ShortId | null>(null)
 const uses = ref<number | null>(null)
@@ -75,6 +79,18 @@ const target = computed(() =>
 )
 const targetLabel = computed(() =>
   target.value ? pathLabel(tagPath(target.value, store.byId)) : '',
+)
+/** The two tags as the warning shows them: the source by its name, the target by its path. */
+const sourceChip = computed(() => ({
+  label: props.source.name,
+  ...effectiveLook(props.source, store.byId),
+}))
+const targetChip = computed(() =>
+  target.value ? { label: targetLabel.value, ...effectiveLook(target.value, store.byId) } : null,
+)
+/** The names the merge adds to the target's other names (as `TagsRepository.merge` does). */
+const addedNames = computed(() =>
+  target.value ? namesAddedByMerge(props.source, target.value) : [],
 )
 const childCount = computed(
   () =>
@@ -185,20 +201,37 @@ async function merge() {
         />
       </div>
 
-      <p v-if="target" class="text-sm" role="status">
-        “{{ source.name }}” will be deleted.
-        <template v-if="uses">
-          Its {{ uses }} use{{ uses === 1 ? '' : 's' }} move to {{ targetLabel
-          }}<template v-if="source.kind === 'category'">
+      <!-- Short lines, the tags as chips and the names as pills, as on the Tags page. -->
+      <div v-if="targetChip" class="flex flex-col gap-1 text-sm leading-6" role="status">
+        <p><TagChip v-bind="sourceChip" in-text data-tag="source" /> will be deleted.</p>
+        <p v-if="uses">
+          Its {{ uses }} {{ uses === 1 ? 'use moves' : 'uses move' }} to
+          <TagChip v-bind="targetChip" in-text data-tag="target" /><template
+            v-if="source.kind === 'category'"
+          >
             (parts of one transaction in both are added together)</template
           >.
-        </template>
-        <template v-if="childCount > 0">
-          Its sub-{{ noun }}s move under {{ targetLabel }}.
-        </template>
-        Its names become other names of {{ targetLabel }}, which keeps its colour, icon and
-        description.
-      </p>
+        </p>
+        <p v-if="childCount > 0">
+          Its sub-{{ nouns }} move under <TagChip v-bind="targetChip" in-text data-tag="target" />.
+        </p>
+        <!-- The pills on a line of their own: a wrapped list would strand a full stop after it. -->
+        <div v-if="addedNames.length > 0">
+          <p>
+            These names become other names of
+            <TagChip v-bind="targetChip" in-text data-tag="target" />:
+          </p>
+          <NamePills data-names :names="addedNames" label="Names that move" class="mt-0.5 flex" />
+        </div>
+        <p v-else>
+          Its names are already other names of
+          <TagChip v-bind="targetChip" in-text data-tag="target" />.
+        </p>
+        <p>
+          <TagChip v-bind="targetChip" in-text data-tag="target" /> keeps its colour, icon and
+          description.
+        </p>
+      </div>
 
       <fieldset
         v-for="c in conflicts"
