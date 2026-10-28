@@ -3,13 +3,15 @@ import { onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type * as Leaflet from 'leaflet'
 import type { ShortId } from '@/db/shortId'
 import { accountIconClass, iconColourOn } from '@/components/accounts/accountForm'
-import { circleStyle, type MapLocation } from '@/tags/locationsMap'
+import { circleStyle, idsByName, inseparableAtMaxZoom, type MapLocation } from '@/tags/locationsMap'
 import { createOsmMap, loadLeaflet, loadMarkerClusters, type LeafletModule } from './osm'
 
 /**
  * An OpenStreetMap map of many locations: each one's circle, and its icon at
  * the centre (clustered while they crowd). A tap on an icon asks to edit the
- * location. Built for a thousand locations: the circles share one canvas, the
+ * location; a tap on a cluster zooms in to split it, or, when its locations
+ * are too close together for any zoom to split, asks to pick one of them from
+ * a list. Built for a thousand locations: the circles share one canvas, the
  * icons sit in Leaflet.markercluster, and a change redraws them in bulk.
  * Leaflet and the plugin load only when the map is shown.
  */
@@ -17,12 +19,18 @@ const props = defineProps<{
   /** What to show, largest circle first (`mapLocations`). */
   locations: MapLocation[]
 }>()
-const emit = defineEmits<{ edit: [id: ShortId] }>()
+const emit = defineEmits<{
+  edit: [id: ShortId]
+  /** Locations that share a spot, by name. */
+  pick: [ids: ShortId[]]
+}>()
 
 const container = useTemplateRef<HTMLDivElement>('container')
 const failed = ref(false)
 
 const ICON_SIZE = 28
+/** In pixels: how close icons cluster (the plugin's default), and when zooming cannot split them. */
+const CLUSTER_RADIUS = 80
 const WORLD: Leaflet.LatLngExpression = [20, 0]
 
 let L: LeafletModule | null = null
@@ -32,6 +40,8 @@ let icons: Leaflet.MarkerClusterGroup | null = null
 let renderer: Leaflet.Canvas | null = null
 let hasView = false
 let shownBefore = 0
+/** What each icon on the map stands for; a cluster knows its icons only. */
+let locationOf = new WeakMap<Leaflet.Marker, MapLocation>()
 
 /** The location's badge, like `AccountBadge`: its icon on a disc of its colour. */
 function badgeIcon(location: MapLocation): Leaflet.DivIcon {
@@ -70,7 +80,30 @@ function iconMarker(location: MapLocation, at: Leaflet.LatLng): Leaflet.Marker {
   // The cluster group puts a marker's element in the page only while it is
   // not clustered, and may make a new one each time.
   marker.on('add', () => marker.getElement()?.setAttribute('aria-label', `Edit ${name}`))
+  locationOf.set(marker, location)
   return marker
+}
+
+/**
+ * A tap or Enter on a cluster: zoom in to split it, or ask to pick one of its
+ * locations when no zoom would — they would still be one cluster at the
+ * highest zoom, or the map is there already.
+ */
+function onCluster(event: Leaflet.LeafletEvent) {
+  const shown = map
+  if (!shown) return
+  const byKey = event.type === 'clusterkeypress'
+  if (byKey && (event as Leaflet.LeafletKeyboardEvent).originalEvent.key !== 'Enter') return
+  const cluster = event.propagatedFrom as Leaflet.MarkerCluster
+  const locations = cluster.getAllChildMarkers().flatMap((m) => locationOf.get(m) ?? [])
+  const maxZoom = shown.getMaxZoom()
+  const points = locations.map((l) => shown.project([l.latitude, l.longitude], maxZoom))
+  if (shown.getZoom() >= maxZoom || inseparableAtMaxZoom(points, CLUSTER_RADIUS)) {
+    emit('pick', idsByName(locations.map((l) => l.tag)))
+    return
+  }
+  cluster.zoomToBounds({ padding: [24, 24] })
+  if (byKey) shown.getContainer().focus() // the cluster's icon is gone: keep the focus on the map
 }
 
 /**
@@ -83,6 +116,7 @@ function draw() {
   const circleLayers: Leaflet.Circle[] = []
   const iconLayers: Leaflet.Marker[] = []
   let bounds: Leaflet.LatLngBounds | null = null
+  locationOf = new WeakMap()
   for (const location of props.locations) {
     const at = L.latLng(location.latitude, location.longitude)
     circleLayers.push(
@@ -121,7 +155,15 @@ onMounted(async () => {
   map = createOsmMap(L, container.value)
   renderer = L.canvas({ padding: 0.5 })
   circles = L.layerGroup()
-  icons = markerClusterGroup({ chunkedLoading: true, disableClusteringAtZoom: 18 })
+  // Clustered at every zoom, so icons on one spot never hide each other; a
+  // tap on a cluster is handled here instead of the plugin's zoom or spiderfy.
+  icons = markerClusterGroup({
+    chunkedLoading: true,
+    maxClusterRadius: CLUSTER_RADIUS,
+    spiderfyOnMaxZoom: false,
+    zoomToBoundsOnClick: false,
+  })
+  icons.on('clusterclick clusterkeypress', onCluster)
   draw() // sets the view before the layers go on the map
   circles.addTo(map)
   icons.addTo(map)
@@ -141,7 +183,7 @@ onBeforeUnmount(() => {
       ref="container"
       class="locations-map h-[70dvh] min-h-96 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
       role="region"
-      aria-label="Map of the locations: select an icon to edit that location"
+      aria-label="Map of the locations: select an icon to edit that location, or a cluster to zoom in or list it"
     />
     <small v-if="failed" class="text-red-600">
       The map could not load. Switch to Slim or Detailed for the list.

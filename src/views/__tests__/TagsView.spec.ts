@@ -40,19 +40,33 @@ vi.mock('@/db/init', () => ({
 const AT = '2026-10-01T00:00:00.000Z'
 
 // Leaflet does not run in jsdom: the map of all locations is a button per
-// location it was given, which asks to edit it.
+// location it was given, which asks to edit it, and "Pick all", which asks to
+// pick one of them from a list (as a cluster too tight to zoom apart does).
 const LocationsMapStub = defineComponent({
   props: { locations: { type: Array as PropType<MapLocation[]>, required: true } },
-  emits: ['edit'],
+  emits: ['edit', 'pick'],
   setup(props, { emit }) {
-    return () =>
+    return () => [
       h(
         'div',
         { 'data-map': '' },
         props.locations.map((l) =>
           h('button', { type: 'button', onClick: () => emit('edit', l.tag.id) }, l.tag.name),
         ),
-      )
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          onClick: () =>
+            emit(
+              'pick',
+              props.locations.map((l) => l.tag.id),
+            ),
+        },
+        'Pick all',
+      ),
+    ]
   },
 })
 
@@ -488,6 +502,28 @@ describe('TagsView', () => {
       expect(document.querySelector('[role=dialog] .p-dialog-title')!.textContent).toBe(
         'Edit location',
       )
+      expect(input('tag-name').value).toBe('Rewe Mitte')
+    })
+
+    it('lists the locations of a cluster too tight to zoom apart, and edits the one picked', async () => {
+      await locations()
+      await useLayoutStore().setLocationsView('map')
+      await mountView('/tags?kind=location')
+      button('Pick all').click()
+      await settle()
+      const titles = () =>
+        [...document.querySelectorAll('[role=dialog] .p-dialog-title')].map((t) => t.textContent)
+      expect(titles()).toEqual(['2 locations here'])
+      const rows = [...document.querySelectorAll('[role=dialog] li button')]
+      expect(rows.map((b) => b.textContent?.trim())).toEqual(['Berlin', 'Rewe Mitte'])
+      expect(rows.map((b) => b.getAttribute('aria-label'))).toEqual([
+        'Edit Berlin',
+        'Edit Rewe Mitte',
+      ])
+
+      button('Edit Rewe Mitte').click()
+      await settle()
+      expect(titles()).toEqual(['Edit location'])
       expect(input('tag-name').value).toBe('Rewe Mitte')
     })
   })

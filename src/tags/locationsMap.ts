@@ -3,6 +3,7 @@ import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues } from '@/db/types'
 import { DEFAULT_LOCATION_RADIUS_METRES } from '@/db/repositories/TagDetailsRepository'
 import { effectiveLook } from './look'
+import { byName } from './tree'
 
 // What the map of all locations shows, kept out of the component so it can be
 // tested without Leaflet.
@@ -67,4 +68,39 @@ export function circleStyle(colour: string, autoMatch: boolean): PathOptions {
     fillOpacity: 0.1,
     ...(autoMatch ? {} : { dashArray: '6 4' }),
   }
+}
+
+/**
+ * Whether markers at `points` (in pixels, projected at the map's highest zoom)
+ * stay one cluster however far the map zooms in, so zooming cannot tell them
+ * apart: every two of them lie within `radius` (the cluster radius, in pixels)
+ * of each other — which holds when the box around them is no longer than
+ * `radius` corner to corner. One marker or none has nothing to separate.
+ */
+export function inseparableAtMaxZoom(
+  points: readonly { x: number; y: number }[],
+  radius: number,
+): boolean {
+  if (points.length < 2) return true
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const { x, y } of points) {
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+    minY = Math.min(minY, y)
+    maxY = Math.max(maxY, y)
+  }
+  const width = maxX - minX
+  const height = maxY - minY
+  return width * width + height * height <= radius * radius
+}
+
+/**
+ * The ids of `tags` in the order a list of them shows: by name, ignoring case
+ * and accents, then by id, so same-named ones always list alike.
+ */
+export function idsByName(tags: readonly Tag[]): ShortId[] {
+  return [...tags].sort(byName).map((t) => t.id)
 }

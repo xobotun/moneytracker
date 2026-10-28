@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues } from '@/db/types'
-import { circleStyle, mapLocations } from '../locationsMap'
+import { circleStyle, idsByName, inseparableAtMaxZoom, mapLocations } from '../locationsMap'
 import { tag } from './fixtures'
 
 const location = (id: string, over: Partial<Tag> = {}) => tag(id, { kind: 'location', ...over })
@@ -149,5 +149,125 @@ describe('circleStyle', () => {
 
   it('dashes the circle of a location that is not matched automatically', () => {
     expect(circleStyle('#ff0000', false).dashArray).toBe('6 4')
+  })
+})
+
+describe('inseparableAtMaxZoom', () => {
+  const R = 80
+
+  it('holds for markers on one spot, or a few pixels apart', () => {
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: 5, y: 5 },
+          { x: 5, y: 5 },
+          { x: 5, y: 5 },
+        ],
+        R,
+      ),
+    ).toBe(true)
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+        ],
+        R,
+      ),
+    ).toBe(true)
+  })
+
+  it('holds while the box around them is no longer than the radius corner to corner', () => {
+    // 48 by 64 pixels: 80 corner to corner.
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: 10, y: 20 },
+          { x: 58, y: 84 },
+        ],
+        R,
+      ),
+    ).toBe(true)
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: 10, y: 20 },
+          { x: 59, y: 84 },
+        ],
+        R,
+      ),
+    ).toBe(false)
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: 10, y: 20 },
+          { x: 58, y: 85 },
+        ],
+        R,
+      ),
+    ).toBe(false)
+  })
+
+  it('fails as soon as any one of them lies farther out', () => {
+    const near = [
+      { x: 100, y: 100 },
+      { x: 101, y: 99 },
+      { x: 99, y: 102 },
+    ]
+    expect(inseparableAtMaxZoom(near, R)).toBe(true)
+    expect(inseparableAtMaxZoom([...near, { x: 100, y: 181 }], R)).toBe(false)
+    expect(inseparableAtMaxZoom([{ x: 181, y: 100 }, ...near], R)).toBe(false)
+  })
+
+  it('works on either side of the origin', () => {
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: -40, y: -10 },
+          { x: 40, y: -10 },
+        ],
+        R,
+      ),
+    ).toBe(true)
+    expect(
+      inseparableAtMaxZoom(
+        [
+          { x: -41, y: -10 },
+          { x: 40, y: -10 },
+        ],
+        R,
+      ),
+    ).toBe(false)
+  })
+
+  it('holds for one marker or none: there is nothing to separate', () => {
+    expect(inseparableAtMaxZoom([{ x: 3, y: 4 }], R)).toBe(true)
+    expect(inseparableAtMaxZoom([], R)).toBe(true)
+  })
+})
+
+describe('idsByName', () => {
+  it('orders by name, ignoring case and accents, then by id', () => {
+    const tags = [
+      location('b1', { name: 'Rewe' }),
+      location('e1', { name: 'édeka' }),
+      location('a1', { name: 'rewe' }),
+      location('c1', { name: 'Aldi' }),
+    ]
+    expect(idsByName(tags)).toEqual(['c1', 'e1', 'a1', 'b1'])
+  })
+
+  it('lists two same-named locations at one spot always in the same order', () => {
+    const rewe2 = location('b1', { name: 'Rewe' })
+    const rewe1 = location('a1', { name: 'Rewe' })
+    const edeka = location('c1', { name: 'Edeka' })
+    expect(idsByName([rewe2, rewe1, edeka])).toEqual(['c1', 'a1', 'b1'])
+    expect(idsByName([edeka, rewe1, rewe2])).toEqual(['c1', 'a1', 'b1'])
+  })
+
+  it('leaves the list it was given as it was', () => {
+    const tags = [location('b'), location('a')]
+    idsByName(tags)
+    expect(tags.map((t) => t.id)).toEqual(['b', 'a'])
   })
 })

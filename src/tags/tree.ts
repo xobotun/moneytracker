@@ -12,8 +12,8 @@ export interface TagNode {
   children: TagNode[]
 }
 
-/** Siblings by name (ignoring case and accents), then id. */
-function byName(a: Tag, b: Tag): number {
+/** Tags by name (ignoring case and accents), then id: siblings, or any list of tags. */
+export function byName(a: Tag, b: Tag): number {
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || (a.id < b.id ? -1 : 1)
 }
 

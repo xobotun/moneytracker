@@ -11,6 +11,7 @@ import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
+import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
 import TagTreeRow from '@/components/tags/TagTreeRow.vue'
@@ -286,6 +287,31 @@ function openEditById(id: ShortId) {
   if (tag) openEdit(tag)
 }
 
+// Locations too close together on the map to zoom apart: picked from a list,
+// in the order the map gave them (by name).
+const pickVisible = ref(false)
+const pickIds = ref<ShortId[]>([])
+const picked = computed(() =>
+  pickIds.value.flatMap((id) => {
+    const tag = store.byId.get(id)
+    return tag && tag.deleted_at_utc === null ? [tag] : []
+  }),
+)
+
+function openPick(ids: ShortId[]) {
+  pickIds.value = ids
+  const [first, ...more] = picked.value
+  if (!first) return
+  if (more.length === 0)
+    openEdit(first) // the others are gone: nothing to pick from
+  else pickVisible.value = true
+}
+
+function editPicked(tag: Tag) {
+  pickVisible.value = false
+  openEdit(tag)
+}
+
 // The merge dialog opens over the edit dialog; a merge closes both.
 function openMerge(tag: Tag) {
   mergeSource.value = tag
@@ -371,7 +397,7 @@ function onMerged() {
           </Message>
 
           <template v-if="onMap">
-            <LocationsMap :locations="located.shown" @edit="openEditById" />
+            <LocationsMap :locations="located.shown" @edit="openEditById" @pick="openPick" />
             <p v-if="located.unplaced > 0" class="text-sm text-gray-500 dark:text-gray-400">
               {{
                 located.unplaced === 1
@@ -443,6 +469,29 @@ function onMerged() {
     </template>
   </Card>
 
+  <Dialog
+    v-model:visible="pickVisible"
+    modal
+    :header="`${picked.length} locations here`"
+    :draggable="false"
+    class="w-[32rem] max-w-[calc(100vw-2rem)]"
+  >
+    <ul class="flex flex-col" aria-label="Locations here">
+      <li v-for="tag in picked" :key="tag.id">
+        <Button
+          type="button"
+          severity="secondary"
+          text
+          class="w-full justify-start!"
+          :aria-label="`Edit ${tag.name}`"
+          @click="editPicked(tag)"
+        >
+          <AccountBadge v-bind="effectiveLook(tag, store.byId)" small />
+          <span class="min-w-0 truncate">{{ tag.name }}</span>
+        </Button>
+      </li>
+    </ul>
+  </Dialog>
   <TagEditDialog
     v-model:visible="editVisible"
     :kind="kind"
