@@ -176,6 +176,23 @@ describe('TagMergeDialog', () => {
     ])
   })
 
+  it('lists the names of tags merged into the source earlier too', async () => {
+    const work = await tagsRepo.create({ kind: 'tag', name: 'work' })
+    await tagsRepo.create({ kind: 'tag', name: 'career' })
+    // Merged on another device: sync copies no names along a merge chain, so
+    // work has no synonym "job" and only the chain finds it.
+    const at = '2026-10-01T00:00:00.000Z'
+    await db.run(
+      `INSERT INTO tags (id, kind, name, merged_into_id, moved_at_utc, created_at_utc,
+         updated_at_utc, deleted_at_utc)
+       VALUES ('job000000001', 'tag', 'job', ?, ?, ?, ?, ?)`,
+      [work.id, at, at, at, at],
+    )
+    await open(work)
+    await choose('merge-target', 'career')
+    expect(movingNames()).toEqual(['work', 'job'])
+  })
+
   it('says so when the target has every name already', async () => {
     const lunch = await meal('Lunch')
     await tagsRepo.create({ kind: 'category', name: 'Food', synonyms: ['LUNCH'] })

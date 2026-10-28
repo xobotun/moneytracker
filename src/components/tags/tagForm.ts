@@ -44,6 +44,15 @@ export const KIND_NOUNS: Record<TagKind, string> = {
   tag: 'tag',
 }
 
+/** The plural word for a kind, as sentences use it ("Its sub-categories move…"). */
+export const KIND_PLURALS: Record<TagKind, string> = {
+  category: 'categories',
+  merchant: 'merchants',
+  location: 'locations',
+  journey: 'journeys',
+  tag: 'tags',
+}
+
 /**
  * A new tag under `parentId`: a top-level one starts with a random preset
  * colour and its kind's icon (decisions §2.1), a child inherits both.

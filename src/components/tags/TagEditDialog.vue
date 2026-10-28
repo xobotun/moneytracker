@@ -27,6 +27,7 @@ import { carriedNames, foldCase, mergedNames } from '@/tags/otherNames'
 import { subtreeIds, tagOptions } from '@/tags/tree'
 import {
   KIND_NOUNS,
+  KIND_PLURALS,
   createInputFromDraft,
   detailDraft,
   draftFromTag,
@@ -57,6 +58,7 @@ const emit = defineEmits<{ merge: [tag: Tag] }>()
 
 const store = useTagsStore()
 const noun = computed(() => KIND_NOUNS[props.kind])
+const nouns = computed(() => KIND_PLURALS[props.kind])
 
 const draft = ref<TagDraft>(newTagDraft(props.kind, null))
 // The names the tags merged into this one carry, as the dialog opened (see otherNames.ts).
@@ -398,7 +400,7 @@ function merge() {
         <small id="tag-other-names-hint" class="text-gray-500 dark:text-gray-400">
           Optional. Each finds the {{ noun }} too; type one and press Enter.
           <template v-if="mergedShown.length > 0">
-            {{ mergedShown.join(', ') }} came from {{ noun }}s merged into this one; removing one
+            {{ mergedShown.join(', ') }} came from {{ nouns }} merged into this one; removing one
             stops it finding this {{ noun }}.
           </template>
         </small>
@@ -702,7 +704,7 @@ function merge() {
                 uses === 1 ? '' : 's'
               }}: they keep it, hidden, and get it back if you restore it.
             </template>
-            <template v-if="childCount > 0">Its sub-{{ noun }}s move up one level.</template>
+            <template v-if="childCount > 0">Its sub-{{ nouns }} move up one level.</template>
           </p>
           <div class="flex justify-end gap-2">
             <Button

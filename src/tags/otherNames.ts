@@ -73,6 +73,27 @@ export function namesAddedByMerge(
 }
 
 /**
+ * The names that find `target` once `source` is merged into it and do not
+ * yet, as the merge warning lists them: the source's name and synonyms, then
+ * its merged names (the lookup follows the merge chain on to the target),
+ * each once, without the names the target has — its name, synonyms and
+ * merged names (ignoring case; the first spelling stays). A merged name the
+ * target retired stays retired after the merge (`retiredAfterMerge`), so it
+ * is left out too; the source's own names are added as synonyms and so are
+ * found even when the target retired them.
+ */
+export function namesFindingTargetAfterMerge(
+  source: Tag,
+  target: Tag,
+  tags: readonly Tag[],
+): string[] {
+  const has = [target.name, ...target.synonyms, ...mergedNames(target, tags)]
+  const own = distinct([source.name, ...source.synonyms], has)
+  const earlier = distinct(mergedNames(source, tags), [...has, ...target.retired_names, ...own])
+  return [...own, ...earlier]
+}
+
+/**
  * The retired names a merge target keeps: its own and the source's, except
  * the names it still has after the merge — its name, its `synonyms` then and
  * its `merged` names (what tags merged into it carry and it did not retire).

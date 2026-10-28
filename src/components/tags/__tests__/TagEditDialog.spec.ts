@@ -456,6 +456,15 @@ describe('TagEditDialog', () => {
     expect(await tagsRepo.findById(mia.id)).toBeNull()
   })
 
+  it('names the sub-categories that move up in the plural', async () => {
+    const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
+    await tagsRepo.create({ kind: 'category', name: 'Groceries', parent_id: food.id })
+    await open('category', food)
+    button('Delete Food').click()
+    await settle()
+    expect(text()).toContain('Its sub-categories move up one level.')
+  })
+
   it('offers a merge instead of deleting a category in use', async () => {
     const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
     await spend(db, await addAccount(db), food.id)

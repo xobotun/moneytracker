@@ -7,6 +7,7 @@ import {
   mergedNames,
   mergedNamesByTag,
   namesAddedByMerge,
+  namesFindingTargetAfterMerge,
   retiredAfterMerge,
 } from '../otherNames'
 import { merged, tag } from './fixtures'
@@ -155,5 +156,50 @@ describe('namesAddedByMerge', () => {
 
   it('adds nothing when the target has every name already', () => {
     expect(namesAddedByMerge({ name: 'LUNCH', synonyms: ['eats'] }, food)).toEqual([])
+  })
+})
+
+describe('namesFindingTargetAfterMerge', () => {
+  const work = tag('work', { synonyms: ['occupation'] })
+  const job = merged('job', 'work', { synonyms: ['gig'] })
+  const side = merged('side job', 'job')
+
+  it("lists the source's own names, then the names merged into it, along the chain", () => {
+    const career = tag('career')
+    expect(namesFindingTargetAfterMerge(work, career, [job, side, work, career])).toEqual([
+      'work',
+      'occupation',
+      'job',
+      'gig',
+      'side job',
+    ])
+  })
+
+  it('leaves out the names the target has, merged ones included, ignoring case', () => {
+    const career = tag('career', { synonyms: ['GIG'] })
+    const oldJob = merged('old job', 'career', { name: 'JOB' })
+    const oldWork = merged('old work', 'career', { name: 'Work' })
+    expect(
+      namesFindingTargetAfterMerge(work, career, [job, side, work, career, oldJob, oldWork]),
+    ).toEqual(['occupation', 'side job'])
+  })
+
+  it('leaves out a merged name the target retired, but not an own name it retired', () => {
+    const career = tag('career', { retired_names: ['Job', 'occupation'] })
+    expect(namesFindingTargetAfterMerge(work, career, [job, side, work, career])).toEqual([
+      'work',
+      'occupation',
+      'gig',
+      'side job',
+    ])
+  })
+
+  it("leaves out the source's retired names", () => {
+    const retiring = tag('work', { retired_names: ['gig'] })
+    const career = tag('career')
+    expect(namesFindingTargetAfterMerge(retiring, career, [job, retiring, career])).toEqual([
+      'work',
+      'job',
+    ])
   })
 })

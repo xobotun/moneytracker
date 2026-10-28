@@ -18,7 +18,7 @@ import TagTreeRow from '@/components/tags/TagTreeRow.vue'
 import TagEditDialog from '@/components/tags/TagEditDialog.vue'
 import TagMergeDialog from '@/components/tags/TagMergeDialog.vue'
 import LocationsMap from '@/components/tags/LocationsMap.vue'
-import { KIND_NOUNS } from '@/components/tags/tagForm'
+import { KIND_NOUNS, KIND_PLURALS } from '@/components/tags/tagForm'
 import { useTagsStore } from '@/stores/tags'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
@@ -81,6 +81,7 @@ function openTab(next: string | number) {
   void router.replace({ query: { ...route.query, kind: String(next) } })
 }
 const noun = computed(() => KIND_NOUNS[kind.value])
+const nouns = computed(() => KIND_PLURALS[kind.value])
 
 // --- The tree ---
 
@@ -392,7 +393,7 @@ function onMerged() {
           </div>
 
           <Message v-if="hasDuplicates" severity="warn" :closable="false">
-            Some {{ noun }}s share a name with another one at the same level, usually because they
+            Some {{ nouns }} share a name with another one at the same level, usually because they
             were created on two devices. Merge them by hand: Edit → Merge into…
           </Message>
 
@@ -437,9 +438,9 @@ function onMerged() {
         <template v-if="store.loaded && deletedTags.length > 0">
           <label class="flex items-center gap-2 self-start text-sm">
             <ToggleSwitch v-model="showDeleted" input-id="tags-show-deleted" />
-            Show deleted {{ noun }}s ({{ deletedTags.length }})
+            Show deleted {{ nouns }} ({{ deletedTags.length }})
           </label>
-          <ul v-if="showDeleted" class="flex flex-col" :aria-label="`Deleted ${noun}s`">
+          <ul v-if="showDeleted" class="flex flex-col" :aria-label="`Deleted ${nouns}`">
             <li v-for="tag in deletedTags" :key="tag.id" class="flex items-center gap-2 py-1">
               <span class="w-8 shrink-0" aria-hidden="true" />
               <AccountBadge v-bind="effectiveLook(tag, store.byId)" small class="opacity-60" />

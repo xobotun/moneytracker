@@ -13,9 +13,9 @@ import { MergeConflictError, TagLoopError } from '@/db/errors'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues } from '@/db/types'
 import { effectiveLook, type TagLook } from '@/tags/look'
-import { namesAddedByMerge } from '@/tags/otherNames'
+import { namesFindingTargetAfterMerge } from '@/tags/otherNames'
 import { pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
-import { KIND_NOUNS } from './tagForm'
+import { KIND_NOUNS, KIND_PLURALS } from './tagForm'
 import TagOptionLabel from './TagOptionLabel.vue'
 import TagChip from './TagChip.vue'
 import NamePills from './NamePills.vue'
@@ -40,7 +40,7 @@ const FIELD_LABELS: Record<TagDetailField, string> = {
 
 const store = useTagsStore()
 const noun = computed(() => KIND_NOUNS[props.source.kind])
-const nouns = computed(() => (noun.value === 'category' ? 'categories' : `${noun.value}s`))
+const nouns = computed(() => KIND_PLURALS[props.source.kind])
 
 const targetId = ref<ShortId | null>(null)
 const uses = ref<number | null>(null)
@@ -88,9 +88,13 @@ const sourceChip = computed(() => ({
 const targetChip = computed(() =>
   target.value ? { label: targetLabel.value, ...effectiveLook(target.value, store.byId) } : null,
 )
-/** The names the merge adds to the target's other names (as `TagsRepository.merge` does). */
+/**
+ * The names that find the target after the merge and do not yet: the
+ * source's own (`TagsRepository.merge` adds them to its synonyms), then those
+ * of tags merged into the source earlier (found through the merge chain).
+ */
 const addedNames = computed(() =>
-  target.value ? namesAddedByMerge(props.source, target.value) : [],
+  target.value ? namesFindingTargetAfterMerge(props.source, target.value, store.tags) : [],
 )
 const childCount = computed(
   () =>
