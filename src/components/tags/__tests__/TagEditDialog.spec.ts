@@ -490,6 +490,37 @@ describe('TagEditDialog', () => {
     })
   })
 
+  describe('other names typed without Enter', () => {
+    const chips = () =>
+      [...document.querySelectorAll('.p-autocomplete-chip-item')].map((c) => c.textContent?.trim())
+
+    it('are kept when Save is pressed', async () => {
+      const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe', synonyms: ['Billa'] })
+      await open('merchant', rewe)
+      await type('tag-other-names', 'REWE Markt')
+      await save()
+      expect((await tagsRepo.findById(rewe.id))!.synonyms).toEqual(['Billa', 'REWE Markt'])
+    })
+
+    it('are kept on a new tag too', async () => {
+      await open('merchant', null)
+      await type('tag-name', 'Edeka')
+      await type('tag-other-names', 'EDEKA Center')
+      await save('Add merchant')
+      expect((await tagsRepo.findByName('merchant', 'Edeka'))!.synonyms).toEqual(['EDEKA Center'])
+    })
+
+    it('become a chip when the field loses focus', async () => {
+      const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      await open('merchant', rewe)
+      await type('tag-other-names', ' REWE Markt ')
+      input('tag-other-names').dispatchEvent(new Event('blur'))
+      await settle()
+      expect(chips()).toEqual(['REWE Markt'])
+      expect(input('tag-other-names').value).toBe('')
+    })
+  })
+
   it('removes a merged name so it stops finding the tag', async () => {
     const job = await tagsRepo.create({ kind: 'tag', name: 'job' })
     const work = await tagsRepo.create({ kind: 'tag', name: 'work' })

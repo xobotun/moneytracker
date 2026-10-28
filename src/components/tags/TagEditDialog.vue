@@ -5,7 +5,6 @@ import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
-import AutoComplete from 'primevue/autocomplete'
 import DatePicker from 'primevue/datepicker'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
@@ -14,6 +13,7 @@ import IconBadge from '@/components/icons/IconBadge.vue'
 import ColourPicker from '@/components/accounts/ColourPicker.vue'
 import IconPicker from '@/components/accounts/IconPicker.vue'
 import CurrencyInput from '@/components/CurrencyInput.vue'
+import ChipsInput from '@/components/ChipsInput.vue'
 import { DERIVED_CLASS } from '@/components/derived'
 import { useTagsStore } from '@/stores/tags'
 import { CategoryInUseError, DuplicateTagNameError, TagLoopError } from '@/db/errors'
@@ -237,6 +237,8 @@ const iconSource = computed(() => lookSource(inherited.value.iconFrom))
 
 // --- Other names ---
 
+const otherNamesField = ref<InstanceType<typeof ChipsInput> | null>(null)
+
 // The listed names that came from merges: removing one retires it.
 const mergedShown = computed(() => {
   const keys = new Set(carried.value.map(foldCase))
@@ -334,6 +336,8 @@ function saveError(e: unknown): string {
 
 async function save() {
   if (loading.value || loadFailed.value) return
+  // A name typed without Enter (Save blurs the field, which keeps it too).
+  otherNamesField.value?.commit()
   submitted.value = true
   if (Object.keys(errors.value).length > 0) return
   saving.value = true
@@ -486,11 +490,10 @@ async function setArchived(archived: boolean) {
 
       <div class="flex flex-col gap-1">
         <label for="tag-other-names" class="text-sm font-medium">Other names</label>
-        <AutoComplete
+        <ChipsInput
+          ref="otherNamesField"
           v-model="draft.otherNames"
           input-id="tag-other-names"
-          multiple
-          :typeahead="false"
           fluid
           :pt="{ input: { 'aria-describedby': 'tag-other-names-hint' } }"
         />
