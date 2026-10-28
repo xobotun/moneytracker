@@ -48,6 +48,8 @@ export function typedValue(field: TagDetailField, a: Answer): TagDetailValues[Ta
         : null
     case 'radius_metres':
       return a.radius
+    case 'auto_match':
+      return null // a flag has no third value: the dialog offers only the two sides
     case 'merchant_id':
     case 'default_category_id':
       return a.link

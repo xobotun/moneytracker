@@ -95,6 +95,7 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'longitude', sqlType: 'REAL', nullable: true },
     { name: 'merchant_id', sqlType: 'TEXT', nullable: true },
     { name: 'radius_metres', sqlType: 'INTEGER', nullable: false },
+    { name: 'auto_match', sqlType: 'INTEGER', nullable: false },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },

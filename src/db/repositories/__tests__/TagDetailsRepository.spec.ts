@@ -60,6 +60,7 @@ describe('TagDetailsRepository', () => {
       longitude: 13.4132,
       merchant_id: rewe.id,
       radius_metres: 10,
+      auto_match: true,
     })
     expect(await repo.getMerchant(rewe.id)).toEqual({
       tag_id: rewe.id,
@@ -85,6 +86,7 @@ describe('TagDetailsRepository', () => {
       longitude: null,
       merchant_id: null,
       radius_metres: 10,
+      auto_match: true,
     })
     expect(await db.exec('SELECT tag_id FROM location_details')).toHaveLength(1)
   })
@@ -494,5 +496,22 @@ describe('TagDetailsRepository', () => {
     // Inside the circle is no distance at all.
     const [inside] = await repo.nearestLocations(north(150), BASE.lon, 150, 10)
     expect(inside!.metres).toBe(0)
+  })
+
+  it('stores whether a location matches transactions automatically, on by default', async () => {
+    const market = await tags.create({ kind: 'location', name: 'Market' })
+    const at = { address: null, latitude: north(20), longitude: BASE.lon, merchant_id: null }
+    await repo.setLocation(market.id, at)
+    expect((await repo.getLocation(market.id))!.auto_match).toBe(true)
+    expect((await repo.values(market.id, 'location')).auto_match).toBe(true)
+    await repo.setLocation(market.id, { ...at, auto_match: false })
+    expect((await repo.getLocation(market.id))!.auto_match).toBe(false)
+    expect((await repo.values(market.id, 'location')).auto_match).toBe(false)
+
+    // Still found nearby, flagged, so the form can offer it but not fill it in.
+    const [found] = await repo.nearestLocations(BASE.lat, BASE.lon, 150, 10)
+    expect(found).toMatchObject({ autoMatch: false })
+    const food = await tags.create({ kind: 'category', name: 'Food' })
+    expect((await repo.values(food.id, 'category')).auto_match).toBeNull()
   })
 })

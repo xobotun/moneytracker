@@ -274,6 +274,7 @@ describe('TagEditDialog', () => {
       longitude: 13.404954,
       merchant_id: rewe.id,
       radius_metres: 10,
+      auto_match: true,
     })
   })
 
@@ -302,6 +303,16 @@ describe('TagEditDialog', () => {
     expect(button('Pick on the map').dataset.fallback).toBe(
       JSON.stringify({ latitude: 52.52, longitude: 13.405 }),
     )
+  })
+
+  it('turns automatic matching off for a location', async () => {
+    const market = await tagsRepo.create({ kind: 'location', name: 'Market' })
+    await open('location', market)
+    expect(input('tag-auto-match').checked).toBe(true)
+    input('tag-auto-match').click()
+    await settle()
+    await save()
+    expect((await detailsRepo.getLocation(market.id))!.auto_match).toBe(false)
   })
 
   it("edits a location's radius; empty is the default", async () => {

@@ -41,6 +41,7 @@ export const migration: Migration = {
       longitude       REAL,                                              -- WGS84 degrees
       merchant_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a merchant tag (repository-checked); NULL = none
       radius_metres   INTEGER NOT NULL DEFAULT 10 CHECK (radius_metres > 0), -- whole metres around the position that count as this place
+      auto_match      INTEGER NOT NULL DEFAULT 1 CHECK (auto_match IN (0, 1)), -- boolean: a transaction paid here gets this location by itself
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live

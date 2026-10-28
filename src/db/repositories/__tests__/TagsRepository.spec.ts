@@ -1018,6 +1018,7 @@ describe('TagsRepository', () => {
       position: null,
       merchant_id: null,
       radius_metres: null,
+      auto_match: null,
       default_category_id: null,
       start_date: null,
       end_date: null,
@@ -1084,6 +1085,7 @@ describe('TagsRepository', () => {
         longitude: 13.4,
         merchant_id: rewe.id,
         radius_metres: 10,
+        auto_match: true,
       })
     })
 
@@ -1112,6 +1114,18 @@ describe('TagsRepository', () => {
       ])
       await repo.merge(a.id, b.id, { radius_metres: 80 })
       expect((await details.getLocation(b.id))!.radius_metres).toBe(80)
+    })
+
+    it('asks which matching flag to keep when they differ', async () => {
+      const { a, b } = await twoLocations()
+      const at = { address: null, latitude: null, longitude: null, merchant_id: null }
+      await details.setLocation(a.id, { ...at, auto_match: false })
+      await details.setLocation(b.id, at)
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'auto_match', source: false, target: true },
+      ])
+      await repo.merge(a.id, b.id, { auto_match: false })
+      expect((await details.getLocation(b.id))!.auto_match).toBe(false)
     })
 
     it('treats equal values as no conflict', async () => {

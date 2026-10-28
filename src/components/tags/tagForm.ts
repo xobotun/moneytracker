@@ -21,6 +21,7 @@ export interface TagDraft {
   latitude: number | null
   longitude: number | null
   radius_metres: number | null // a location's; empty = the default
+  auto_match: boolean | null // a location's; null for other kinds
   merchant_id: ShortId | null
   default_category_id: ShortId | null
   start_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
@@ -64,6 +65,7 @@ export function newTagDraft(
     latitude: null,
     longitude: null,
     radius_metres: kind === 'location' ? DEFAULT_LOCATION_RADIUS_METRES : null,
+    auto_match: kind === 'location' ? true : null,
     merchant_id: null,
     default_category_id: null,
     start_date: null,
@@ -77,6 +79,7 @@ type DetailDraft = Pick<
   | 'latitude'
   | 'longitude'
   | 'radius_metres'
+  | 'auto_match'
   | 'merchant_id'
   | 'default_category_id'
   | 'start_date'
@@ -90,6 +93,7 @@ export function detailDraft(details: TagDetailValues): DetailDraft {
     latitude: details.position?.latitude ?? null,
     longitude: details.position?.longitude ?? null,
     radius_metres: details.radius_metres,
+    auto_match: details.auto_match,
     merchant_id: details.merchant_id,
     default_category_id: details.default_category_id,
     start_date: details.start_date,
@@ -156,6 +160,7 @@ function detailsFromDraft(draft: TagDraft): TagDetailValues {
     position: latitude !== null && longitude !== null ? { latitude, longitude } : null,
     merchant_id: draft.merchant_id,
     radius_metres: draft.radius_metres,
+    auto_match: draft.auto_match,
     default_category_id: draft.default_category_id,
     start_date: draft.start_date,
     end_date: draft.end_date,

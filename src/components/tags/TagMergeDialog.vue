@@ -25,6 +25,7 @@ const FIELD_LABELS: Record<TagDetailField, string> = {
   address: 'Address',
   position: 'Position',
   radius_metres: 'Radius',
+  auto_match: 'Automatic matching',
   merchant_id: 'Merchant',
   default_category_id: 'Default category',
   start_date: 'Start date',
@@ -100,6 +101,7 @@ function shown(field: TagDetailField, value: TagDetailValues[TagDetailField]): s
   if (value === null) return 'none'
   if (typeof value === 'object') return `${value.latitude}, ${value.longitude}`
   if (typeof value === 'number') return `${value} m`
+  if (typeof value === 'boolean') return value ? 'on' : 'off'
   if (field === 'merchant_id' || field === 'default_category_id') {
     const tag = store.byId.get(value as ShortId)
     if (!tag) return 'an unknown tag'
@@ -223,7 +225,8 @@ async function merge() {
             <span class="text-gray-500">({{ target?.name }})</span>
           </label>
         </div>
-        <div class="flex items-center gap-2">
+        <!-- A flag has no third value. -->
+        <div v-if="c.field !== 'auto_match'" class="flex items-center gap-2">
           <RadioButton
             v-model="answers[c.field]!.choice"
             :input-id="`merge-${c.field}-other`"

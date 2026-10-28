@@ -7,6 +7,7 @@ import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import AutoComplete from 'primevue/autocomplete'
 import DatePicker from 'primevue/datepicker'
+import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
@@ -518,6 +519,18 @@ function merge() {
           <small v-else id="tag-radius-hint" class="text-gray-500 dark:text-gray-400">
             How far around the position still counts as this place; 10 m when empty.
           </small>
+        </div>
+        <div class="flex items-start gap-2">
+          <Checkbox v-model="draft.auto_match" input-id="tag-auto-match" binary class="mt-0.5" />
+          <div class="flex flex-col">
+            <label for="tag-auto-match" class="text-sm font-medium">
+              Match transactions here automatically
+            </label>
+            <small class="text-gray-500 dark:text-gray-400">
+              Turn off for a place that moves or closes, like a weekly market: it is still offered
+              nearby, but never filled in by itself.
+            </small>
+          </div>
         </div>
         <div class="flex flex-col gap-1">
           <label for="tag-merchant" class="text-sm font-medium">Merchant</label>

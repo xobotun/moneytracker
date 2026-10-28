@@ -17,6 +17,8 @@ import {
 } from '../errors'
 import { isCalendarDate } from '@/money/dates'
 import {
+  booleanFromColumn,
+  booleanToColumn,
   instantToColumn,
   optionalTextToColumn,
   shortIdFromColumn,
@@ -31,6 +33,7 @@ type LocationDetailsRow = {
   longitude: number | null
   merchant_id: string | null
   radius_metres: number
+  auto_match: number
 }
 
 type MerchantDetailsRow = {
@@ -82,7 +85,7 @@ export async function assertKind(
 
 async function readLocation(ex: SqlExecutor, id: ShortId): Promise<LocationDetails | null> {
   const rows = await ex.exec<LocationDetailsRow>(
-    `SELECT tag_id, address, latitude, longitude, merchant_id, radius_metres FROM location_details
+    `SELECT tag_id, address, latitude, longitude, merchant_id, radius_metres, auto_match FROM location_details
      WHERE tag_id = ? AND deleted_at_utc IS NULL`,
     [id],
   )
@@ -95,6 +98,7 @@ async function readLocation(ex: SqlExecutor, id: ShortId): Promise<LocationDetai
     longitude: row.longitude,
     merchant_id: shortIdFromNullableColumn(row.merchant_id),
     radius_metres: row.radius_metres,
+    auto_match: booleanFromColumn(row.auto_match),
   }
 }
 
@@ -129,7 +133,7 @@ async function readJourney(ex: SqlExecutor, id: ShortId): Promise<JourneyDetails
 
 /** The detail fields each kind of tag has; the other kinds have none. */
 export const DETAIL_FIELDS_BY_KIND: Record<TagKind, readonly TagDetailField[]> = {
-  location: ['address', 'position', 'merchant_id', 'radius_metres'],
+  location: ['address', 'position', 'merchant_id', 'radius_metres', 'auto_match'],
   merchant: ['default_category_id'],
   journey: ['start_date', 'end_date'],
   category: [],
@@ -143,6 +147,7 @@ export function noDetails(): TagDetailValues {
     position: null,
     merchant_id: null,
     radius_metres: null,
+    auto_match: null,
     default_category_id: null,
     start_date: null,
     end_date: null,
@@ -167,6 +172,7 @@ export async function readDetailValues(
       values.merchant_id = d.merchant_id
     }
     values.radius_metres = d?.radius_metres ?? DEFAULT_LOCATION_RADIUS_METRES
+    values.auto_match = d?.auto_match ?? true
   } else if (kind === 'merchant') {
     values.default_category_id = (await readMerchant(ex, id))?.default_category_id ?? null
   } else if (kind === 'journey') {
@@ -263,12 +269,13 @@ export async function writeDetailValues(
     assertLocationRadius(radius)
     await ex.run(
       `INSERT INTO location_details (tag_id, address, latitude, longitude, merchant_id,
-                                     radius_metres, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                     radius_metres, auto_match, created_at_utc, updated_at_utc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(tag_id) DO UPDATE SET
          address = excluded.address, latitude = excluded.latitude,
          longitude = excluded.longitude, merchant_id = excluded.merchant_id,
          radius_metres = excluded.radius_metres,
+         auto_match = excluded.auto_match,
          updated_at_utc = excluded.updated_at_utc, deleted_at_utc = NULL`,
       [
         id,
@@ -277,6 +284,7 @@ export async function writeDetailValues(
         v.position?.longitude ?? null,
         v.merchant_id,
         radius,
+        booleanToColumn(v.auto_match ?? true),
         now,
         now,
       ],
@@ -338,11 +346,15 @@ export class TagDetailsRepository {
   /**
    * Stores the details of a location tag: both coordinates or neither,
    * `merchant_id` a merchant, live unless the location already has it, and
-   * the radius in whole metres (10 when left out).
+   * the radius in whole metres (10 when left out); it matches transactions
+   * automatically unless `auto_match` is false.
    */
   async setLocation(
     id: ShortId,
-    d: Omit<LocationDetails, 'tag_id' | 'radius_metres'> & { radius_metres?: number },
+    d: Omit<LocationDetails, 'tag_id' | 'radius_metres' | 'auto_match'> & {
+      radius_metres?: number
+      auto_match?: boolean
+    },
   ): Promise<void> {
     if ((d.latitude === null) !== (d.longitude === null)) {
       throw new InvalidTagDetailsError('A location needs both coordinates or neither')
@@ -357,6 +369,7 @@ export class TagDetailsRepository {
       position,
       merchant_id: d.merchant_id,
       radius_metres: d.radius_metres ?? DEFAULT_LOCATION_RADIUS_METRES,
+      auto_match: d.auto_match ?? true,
     })
   }
 
@@ -467,7 +480,8 @@ export class TagDetailsRepository {
    * Live locations with coordinates within `radiusMetres` of the point,
    * nearest first, at most `limit`. A distance counts to the edge of the
    * location's circle (its own radius), 0 inside it, so a big place matches
-   * from anywhere in it. Distances are computed here over all of them: the
+   * from anywhere in it. `autoMatch` false: the form offers it among the
+   * nearby ones but never fills it in by itself (a weekly market). Distances are computed here over all of them: the
    * set of known locations is small.
    */
   async nearestLocations(
@@ -475,11 +489,12 @@ export class TagDetailsRepository {
     lon: number,
     radiusMetres: number,
     limit: number,
-  ): Promise<{ tag: Tag; metres: number }[]> {
+  ): Promise<{ tag: Tag; metres: number; autoMatch: boolean }[]> {
     const rows = await this.db.exec<
-      TagRow & { latitude: number; longitude: number; radius_metres: number }
+      TagRow & { latitude: number; longitude: number; radius_metres: number; auto_match: number }
     >(
-      `SELECT t.*, d.latitude AS latitude, d.longitude AS longitude, d.radius_metres AS radius_metres
+      `SELECT t.*, d.latitude AS latitude, d.longitude AS longitude, d.radius_metres AS radius_metres,
+              d.auto_match AS auto_match
        FROM tags t JOIN location_details d ON d.tag_id = t.id
        WHERE t.kind = 'location' AND t.deleted_at_utc IS NULL AND d.deleted_at_utc IS NULL
          AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL`,
@@ -491,6 +506,7 @@ export class TagDetailsRepository {
           0,
           haversineMetres(lat, lon, row.latitude, row.longitude) - row.radius_metres,
         ),
+        autoMatch: booleanFromColumn(row.auto_match),
       }))
       .filter((found) => found.metres <= radiusMetres)
       .sort((a, b) => a.metres - b.metres)
