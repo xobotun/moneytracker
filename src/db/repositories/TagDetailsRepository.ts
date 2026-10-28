@@ -324,19 +324,53 @@ export class TagDetailsRepository {
   }
 
   /**
-   * The tag each merchant and location links to, by its id: a merchant's
-   * default category, a location's merchant. Only links that are set, from
-   * live details rows; the linked tag may be deleted since.
+   * The details of every tag that has a live details row, by tag id, as the
+   * Tags page lists them (fields of other kinds empty; a tag without a row
+   * has none here). One query per kind; a linked tag may be deleted since.
    */
-  async detailLinks(): Promise<Map<ShortId, ShortId>> {
-    const rows = await this.db.exec<{ tag_id: string; link: string }>(
-      `SELECT tag_id, default_category_id AS link FROM merchant_details
-       WHERE deleted_at_utc IS NULL AND default_category_id IS NOT NULL
-       UNION ALL
-       SELECT tag_id, merchant_id AS link FROM location_details
-       WHERE deleted_at_utc IS NULL AND merchant_id IS NOT NULL`,
-    )
-    return new Map(rows.map((row) => [shortIdFromColumn(row.tag_id), shortIdFromColumn(row.link)]))
+  async detailsByTag(): Promise<Map<ShortId, TagDetailValues>> {
+    const live = 'WHERE deleted_at_utc IS NULL'
+    const [locations, merchants, journeys] = await Promise.all([
+      this.db.exec<LocationDetailsRow>(
+        `SELECT tag_id, address, latitude, longitude, merchant_id, radius_metres, auto_match
+         FROM location_details ${live}`,
+      ),
+      this.db.exec<MerchantDetailsRow>(
+        `SELECT tag_id, default_category_id FROM merchant_details ${live}`,
+      ),
+      this.db.exec<JourneyDetailsRow>(
+        `SELECT tag_id, start_date, end_date FROM journey_details ${live}`,
+      ),
+    ])
+    const byTag = new Map<ShortId, TagDetailValues>()
+    for (const row of locations) {
+      byTag.set(shortIdFromColumn(row.tag_id), {
+        ...noDetails(),
+        address: row.address,
+        // One coordinate alone is no position.
+        position:
+          row.latitude !== null && row.longitude !== null
+            ? { latitude: row.latitude, longitude: row.longitude }
+            : null,
+        merchant_id: shortIdFromNullableColumn(row.merchant_id),
+        radius_metres: row.radius_metres,
+        auto_match: booleanFromColumn(row.auto_match),
+      })
+    }
+    for (const row of merchants) {
+      byTag.set(shortIdFromColumn(row.tag_id), {
+        ...noDetails(),
+        default_category_id: shortIdFromNullableColumn(row.default_category_id),
+      })
+    }
+    for (const row of journeys) {
+      byTag.set(shortIdFromColumn(row.tag_id), {
+        ...noDetails(),
+        start_date: row.start_date,
+        end_date: row.end_date,
+      })
+    }
+    return byTag
   }
 
   getLocation(id: ShortId): Promise<LocationDetails | null> {

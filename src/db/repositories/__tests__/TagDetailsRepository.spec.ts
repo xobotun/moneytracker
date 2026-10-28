@@ -10,7 +10,8 @@ import {
   TagNotFoundError,
 } from '../../errors'
 import { TagsRepository } from '../TagsRepository'
-import { TagDetailsRepository } from '../TagDetailsRepository'
+import { TagDetailsRepository, noDetails } from '../TagDetailsRepository'
+import type { TagDetailValues } from '../../types'
 import { newId } from '../../uuid'
 import { asShortId, type ShortId } from '../../shortId'
 
@@ -419,7 +420,7 @@ describe('TagDetailsRepository', () => {
     expect(await repo.journeyDates(lisbon.id)).toEqual(derived('2026-07-01', '2026-07-02'))
   })
 
-  it('detailLinks maps each merchant to its default category and each location to its merchant', async () => {
+  it("detailsByTag reads every live details row, each kind's fields", async () => {
     const food = await tags.create({ kind: 'category', name: 'Food' })
     const rewe = await tags.create({ kind: 'merchant', name: 'Rewe' })
     const edeka = await tags.create({ kind: 'merchant', name: 'Edeka' })
@@ -439,6 +440,8 @@ describe('TagDetailsRepository', () => {
       longitude: null,
       merchant_id: null,
     })
+    const rome = await tags.create({ kind: 'journey', name: 'Rome' })
+    await repo.setJourney(rome.id, { start_date: '2026-05-01', end_date: null })
     // A deleted details row links nothing.
     const gone = await tags.create({ kind: 'location', name: 'Gone' })
     await repo.setLocation(gone.id, {
@@ -452,10 +455,15 @@ describe('TagDetailsRepository', () => {
       gone.id,
     ])
 
-    expect(await repo.detailLinks()).toEqual(
-      new Map([
-        [rewe.id, food.id],
-        [mitte.id, rewe.id],
+    const none = noDetails()
+    const place = { radius_metres: 10, auto_match: true }
+    expect(await repo.detailsByTag()).toEqual(
+      new Map<ShortId, TagDetailValues>([
+        [mitte.id, { ...none, ...place, merchant_id: rewe.id }],
+        [home.id, { ...none, ...place, address: 'Weg 1' }],
+        [rewe.id, { ...none, default_category_id: food.id }],
+        [edeka.id, none],
+        [rome.id, { ...none, start_date: '2026-05-01' }],
       ]),
     )
   })

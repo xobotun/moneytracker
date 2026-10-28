@@ -22,21 +22,30 @@ export const useTagsStore = defineStore('tags', () => {
   const loaded = ref(false)
   /** The live tags that share a kind, a parent and a name with another one (see `duplicates()`). */
   const duplicateIds = ref<ReadonlySet<ShortId>>(new Set())
+  /** The details of every tag that has any, by tag id (for lists; dialogs read their own). */
+  const detailsById = ref<ReadonlyMap<ShortId, TagDetailValues>>(new Map())
   /** Each merchant's default category and each location's merchant, by tag id. */
-  const detailLinks = ref<ReadonlyMap<ShortId, ShortId>>(new Map())
+  const detailLinks = computed(() => {
+    const links = new Map<ShortId, ShortId>()
+    for (const [id, values] of detailsById.value) {
+      const link = values.default_category_id ?? values.merchant_id
+      if (link !== null) links.set(id, link)
+    }
+    return links
+  })
 
   const byId = computed(() => new Map<ShortId, Tag>(tags.value.map((t) => [t.id, t])))
 
   async function load(): Promise<void> {
     const repo = getTagsRepository()
-    const [all, groups, links] = await Promise.all([
+    const [all, groups, byTag] = await Promise.all([
       repo.listAll(),
       repo.duplicates(),
-      getTagDetailsRepository().detailLinks(),
+      getTagDetailsRepository().detailsByTag(),
     ])
     tags.value = all
     duplicateIds.value = new Set(groups.flat())
-    detailLinks.value = links
+    detailsById.value = byTag
     loaded.value = true
   }
 
@@ -133,6 +142,7 @@ export const useTagsStore = defineStore('tags', () => {
     tags,
     loaded,
     duplicateIds,
+    detailsById,
     detailLinks,
     byId,
     load,

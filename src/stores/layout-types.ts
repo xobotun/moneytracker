@@ -9,9 +9,12 @@ import { settingsKey } from '@/db/SettingsKey'
 
 export const NAV_POSITIONS = ['auto', 'top', 'bottom', 'left', 'right'] as const
 export const COLLAPSE_MODES = ['always-collapsed', 'opens-on-hover', 'always-expanded'] as const
+/** How the Tags page lists tags: one slim line each, or every detail over a few lines. */
+export const TAG_ROW_STYLES = ['slim', 'detailed'] as const
 
 export type NavPosition = (typeof NAV_POSITIONS)[number]
 export type CollapseMode = (typeof COLLAPSE_MODES)[number]
+export type TagRowStyle = (typeof TAG_ROW_STYLES)[number]
 export type ThemePreset = 'Aura' | 'Material' | 'Lara' | 'Nora'
 
 // --- Typed settings keys ---
@@ -21,6 +24,7 @@ export const LayoutKeys = {
   collapseMode: settingsKey<CollapseMode>('layout.collapseMode'),
   isDark: settingsKey<boolean>('layout.isDark'),
   themePreset: settingsKey<ThemePreset>('layout.themePreset'),
+  tagRows: settingsKey<TagRowStyle>('layout.tagRows'),
 }
 
 // --- Theme presets map (used by bootstrap + settings UI) ---
@@ -42,6 +46,10 @@ export function isNavPosition(value: unknown): value is NavPosition {
 
 export function isCollapseMode(value: unknown): value is CollapseMode {
   return (COLLAPSE_MODES as readonly unknown[]).includes(value)
+}
+
+export function isTagRowStyle(value: unknown): value is TagRowStyle {
+  return (TAG_ROW_STYLES as readonly unknown[]).includes(value)
 }
 
 export function isThemePreset(value: unknown): value is ThemePreset {

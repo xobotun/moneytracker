@@ -105,6 +105,19 @@ describe('useLayoutStore', () => {
     })
   })
 
+  describe('tagRows', () => {
+    it('defaults to detailed rows, loads the saved style and persists a new one', async () => {
+      const store = useLayoutStore()
+      expect(store.tagRows).toBe('detailed')
+      mockStore.set('layout.tagRows', 'slim')
+      await store.hydrate()
+      expect(store.tagRows).toBe('slim')
+      await store.setTagRows('detailed')
+      expect(store.tagRows).toBe('detailed')
+      expect(mockStore.get('layout.tagRows')).toBe('detailed')
+    })
+  })
+
   describe('setCollapseMode', () => {
     it('persists and updates collapseMode', async () => {
       const store = useLayoutStore()
@@ -118,6 +131,7 @@ describe('useLayoutStore', () => {
     it.each([
       ['layout.navPosition', 'diagonal', 'navPosition', 'auto'],
       ['layout.collapseMode', 42, 'collapseMode', 'opens-on-hover'],
+      ['layout.tagRows', 'chunky', 'tagRows', 'detailed'],
       ['layout.isDark', 'yes', 'isDark', false],
       ['layout.themePreset', 'RemovedTheme', 'themePreset', 'Aura'],
     ] as const)('%s = %j', async (storageKey, stored, field, expected) => {

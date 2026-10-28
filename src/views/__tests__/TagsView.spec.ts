@@ -8,6 +8,11 @@ import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { TagsRepository } from '@/db/repositories/TagsRepository'
 import { TagDetailsRepository } from '@/db/repositories/TagDetailsRepository'
+import { SettingsRepository } from '@/db/repositories/SettingsRepository'
+import { LayoutKeys } from '@/stores/layout-types'
+import { useLayoutStore } from '@/stores/layout'
+import { formatDay } from '@/format/date'
+import { DERIVED_CLASS } from '@/components/derived'
 import {
   button,
   choose,
@@ -23,9 +28,11 @@ import TagsView from '../TagsView.vue'
 // module-level repository registry is replaced.
 let tagsRepo: TagsRepository
 let detailsRepo: TagDetailsRepository
+let settingsRepo: SettingsRepository
 vi.mock('@/db/init', () => ({
   getTagsRepository: () => tagsRepo,
   getTagDetailsRepository: () => detailsRepo,
+  getSettingsRepository: () => settingsRepo,
 }))
 
 const AT = '2026-10-01T00:00:00.000Z'
@@ -50,6 +57,7 @@ describe('TagsView', () => {
     await runMigrations(db, ALL_MIGRATIONS)
     tagsRepo = new TagsRepository(db)
     detailsRepo = new TagDetailsRepository(db)
+    settingsRepo = new SettingsRepository(db)
     router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/tags', component: TagsView }],
@@ -223,6 +231,93 @@ describe('TagsView', () => {
         .trim()
     expect(second('mia')).toBe('Mia K. · Our daughter')
     expect(second('plain')).toBeUndefined()
+  })
+
+  describe('row style', () => {
+    async function rewe() {
+      const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
+      const merchant = await tagsRepo.create({
+        kind: 'merchant',
+        name: 'Rewe',
+        synonyms: ['REWE Markt'],
+        description: 'The supermarket',
+      })
+      await detailsRepo.setMerchant(merchant.id, { default_category_id: food.id })
+    }
+
+    const rowOf = (name: string) =>
+      [...document.querySelectorAll('li')].find(
+        (li) => li.querySelector('.font-medium')?.textContent?.trim() === name,
+      )!
+
+    it('slim rows keep to one line, showing more on wider screens', async () => {
+      await rewe()
+      await useLayoutStore().setTagRows('slim')
+      await mountView('/tags?kind=merchant')
+      const row = rowOf('Rewe')
+      expect(row.querySelector('[data-more]')).toBeNull()
+      expect(row.querySelector('[data-facts]')).toBeNull()
+      // The link from sm up, the other names and description from md up.
+      expect(row.querySelector('[data-link]')!.className).toContain('hidden sm:flex')
+      const inline = row.querySelector('.md\\:block')!
+      expect(inline.textContent?.trim()).toBe('REWE Markt · The supermarket')
+    })
+
+    it('switches with the selector and keeps the choice on this device', async () => {
+      await rewe()
+      await mountView('/tags?kind=merchant')
+      expect(rowOf('Rewe').querySelector('[data-more]')).not.toBeNull()
+      button('Slim').click()
+      await settle()
+      expect(rowOf('Rewe').querySelector('[data-more]')).toBeNull()
+      expect(await settingsRepo.get(LayoutKeys.tagRows)).toBe('slim')
+    })
+
+    it("detailed rows list a location's place, radius and matching", async () => {
+      const market = await tagsRepo.create({ kind: 'location', name: 'Market' })
+      await detailsRepo.setLocation(market.id, {
+        address: 'Weg 1',
+        latitude: 52.5,
+        longitude: 13.4,
+        merchant_id: null,
+        radius_metres: 30,
+        auto_match: false,
+      })
+      const spot = await tagsRepo.create({ kind: 'location', name: 'Spot' })
+      await detailsRepo.setLocation(spot.id, {
+        address: null,
+        latitude: 52.52,
+        longitude: 13.405,
+        merchant_id: null,
+      })
+      await mountView('/tags?kind=location')
+      const facts = (name: string) =>
+        rowOf(name).querySelector('[data-facts]')?.textContent?.replace(/\s+/g, ' ').trim()
+      expect(facts('Market')).toBe('Weg 1 · within 30 m · not matched automatically')
+      expect(facts('Spot')).toBe('52.52, 13.405 · within 10 m')
+    })
+
+    it("detailed rows list a journey's dates, derived ones fainter", async () => {
+      const summer = await tagsRepo.create({ kind: 'journey', name: 'Summer' })
+      const lisbon = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Lisbon',
+        parent_id: summer.id,
+      })
+      await detailsRepo.setJourney(lisbon.id, { start_date: '2026-07-01', end_date: '2026-07-05' })
+      await mountView('/tags?kind=journey')
+      await settle()
+      const parts = (name: string) => [
+        ...rowOf(name).querySelectorAll<HTMLElement>('[data-facts] > span:not([aria-hidden])'),
+      ]
+      const from = `from ${formatDay('2026-07-01')}`
+      const to = `to ${formatDay('2026-07-05')}`
+      expect(parts('Lisbon').map((p) => p.textContent?.trim())).toEqual([from, to])
+      expect(parts('Lisbon').every((p) => !p.className.includes(DERIVED_CLASS))).toBe(true)
+      // Summer's dates come from Lisbon's: derived, fainter.
+      expect(parts('Summer').map((p) => p.textContent?.trim())).toEqual([from, to])
+      expect(parts('Summer').every((p) => p.className.includes(DERIVED_CLASS))).toBe(true)
+    })
   })
 
   it('marks duplicates and explains them', async () => {

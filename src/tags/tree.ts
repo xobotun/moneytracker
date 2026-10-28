@@ -81,6 +81,15 @@ export interface RowLink {
   deleted: boolean
 }
 
+/** One detail a detailed row lists (an address, a radius, a date). */
+export interface RowFact {
+  text: string
+  /** Worked out by the app, not typed: shown fainter (CLAUDE.md UI rules). */
+  derived: boolean
+  /** Says where a derived value comes from. */
+  title?: string
+}
+
 /** The rows of the tree in order, depth first; the children of a closed tag are left out. */
 export function flattenTree(
   nodes: readonly TagNode[],

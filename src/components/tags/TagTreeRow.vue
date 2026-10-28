@@ -5,12 +5,15 @@ import PrimeTag from 'primevue/tag'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
 import { accountIconClass } from '@/components/accounts/accountForm'
 import type { TagLook } from '@/tags/look'
-import type { RowLink, TreeRow } from '@/tags/tree'
+import type { RowFact, RowLink, TreeRow } from '@/tags/tree'
+import { DERIVED_CLASS } from '@/components/derived'
 
 /**
- * One tag on the Tags page, indented by depth: its badge, its name and what
- * it links to, then (when it has any) its other names and its description on
- * a second, fainter line; its buttons.
+ * One tag on the Tags page, indented by depth, with its badge and buttons.
+ * Detailed: its name and what it links to, then its other names and
+ * description, then its details (`facts`), each line only when it has any,
+ * wrapped rather than cut. Slim: one line, adding the link from `sm` and the
+ * other names and description from `md`, cut to fit.
  */
 const props = defineProps<{
   row: TreeRow
@@ -19,6 +22,9 @@ const props = defineProps<{
   otherNames: readonly string[]
   /** Shown as plain text after the name: no link, the row stays one target. */
   link: RowLink | null
+  /** A location's address and radius, a journey's dates: shown on detailed rows. */
+  facts: readonly RowFact[]
+  detailed: boolean
   duplicate: boolean
   noun: string
 }>()
@@ -55,13 +61,16 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
     <span v-else class="w-8 shrink-0" aria-hidden="true" />
     <AccountBadge :icon="look.icon" :colour="look.colour" small />
     <div class="flex min-w-0 flex-1 flex-col">
-      <div class="flex min-w-0 items-center gap-2">
-        <span class="truncate font-medium">{{ row.tag.name }}</span>
+      <div class="flex min-w-0 items-center gap-x-2" :class="detailed ? 'flex-wrap' : undefined">
+        <span class="font-medium" :class="detailed ? 'break-words' : 'truncate'">
+          {{ row.tag.name }}
+        </span>
         <!-- A chip, not a link: the row stays one target. -->
         <span
           v-if="link"
           data-link
-          class="flex min-w-0 shrink-[2] items-center gap-1 rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200"
+          class="min-w-0 shrink-[2] items-center gap-1 rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700 dark:bg-white/10 dark:text-gray-200"
+          :class="detailed ? 'flex max-w-full' : 'hidden sm:flex'"
           :title="`${capitalise(link.role)}: ${link.label}${link.deleted ? ' (deleted)' : ''}`"
         >
           <span class="sr-only">{{ `${link.role}: ` }}</span>
@@ -76,15 +85,31 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
           </span>
           <span v-if="link.deleted" class="shrink-0">{{ ' (deleted)' }}</span>
         </span>
+        <span
+          v-if="!detailed && more"
+          class="hidden min-w-0 truncate text-sm text-gray-500 md:block dark:text-gray-400"
+          :title="more"
+        >
+          {{ more }}
+        </span>
       </div>
-      <p
-        v-if="more"
-        data-more
-        class="truncate text-sm text-gray-500 dark:text-gray-400"
-        :title="more"
-      >
-        {{ more }}
-      </p>
+      <template v-if="detailed">
+        <p v-if="more" data-more class="text-sm break-words text-gray-500 dark:text-gray-400">
+          {{ more }}
+        </p>
+        <p
+          v-if="facts.length > 0"
+          data-facts
+          class="text-sm break-words text-gray-500 dark:text-gray-400"
+        >
+          <template v-for="(fact, i) in facts" :key="i">
+            <span v-if="i > 0" aria-hidden="true">{{ ' · ' }}</span>
+            <span :class="fact.derived ? DERIVED_CLASS : undefined" :title="fact.title">
+              {{ fact.text }}
+            </span>
+          </template>
+        </p>
+      </template>
     </div>
     <PrimeTag v-if="duplicate" severity="warn" value="Duplicate" />
     <Button

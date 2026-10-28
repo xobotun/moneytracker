@@ -9,6 +9,7 @@ import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
+import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import AccountBadge from '@/components/accounts/AccountBadge.vue'
@@ -28,8 +29,13 @@ import {
   pathLabel,
   tagMatches,
   tagPath,
+  type RowFact,
   type RowLink,
 } from '@/tags/tree'
+import { useLayoutStore, type TagRowStyle } from '@/stores/layout'
+import { formatDay } from '@/format/date'
+import { formatMetres } from '@/format/distance'
+import { DEFAULT_LOCATION_RADIUS_METRES } from '@/db/repositories/TagDetailsRepository'
 
 const KINDS: readonly TagKind[] = ['category', 'merchant', 'location', 'journey', 'tag']
 const TAB_LABELS: Record<TagKind, string> = {
@@ -102,6 +108,83 @@ function linkOf(tag: Tag): RowLink | null {
     deleted: linked.deleted_at_utc !== null,
   }
 }
+// --- Row style: slim one-line rows, or every detail (per device, see the layout store) ---
+
+const layout = useLayoutStore()
+const detailed = computed(() => layout.tagRows === 'detailed')
+const ROW_STYLES: { value: TagRowStyle; label: string; icon: string }[] = [
+  { value: 'slim', label: 'Slim', icon: 'pi pi-bars' },
+  { value: 'detailed', label: 'Detailed', icon: 'pi pi-align-left' },
+]
+async function setRowStyle(style: TagRowStyle | null) {
+  if (style === null) return // one of the two is always chosen
+  actionError.value = null
+  try {
+    await layout.setTagRows(style)
+  } catch (e) {
+    actionError.value = `Could not keep the row style on this device. ${(e as Error).message}`
+  }
+}
+
+// A journey's dates, derived from its transactions until typed. Read for
+// detailed rows on the Journeys tab only: one query per journey.
+const journeyDates = ref(new Map<ShortId, Awaited<ReturnType<typeof store.journeyDates>>>())
+watch(
+  () => [kind.value, detailed.value, store.tags] as const,
+  async ([k, wanted]) => {
+    if (k !== 'journey' || !wanted) return
+    const journeys = store.tags.filter((t) => t.kind === 'journey' && t.deleted_at_utc === null)
+    try {
+      const dates = await Promise.all(journeys.map((t) => store.journeyDates(t.id)))
+      journeyDates.value = new Map(journeys.map((t, i) => [t.id, dates[i]!]))
+    } catch (e) {
+      actionError.value = `Could not work out the journeys' dates. ${(e as Error).message}`
+    }
+  },
+  { immediate: true },
+)
+
+/** What a detailed row lists under the names: a location's place, a journey's dates. */
+function factsOf(tag: Tag): RowFact[] {
+  if (tag.kind === 'location') {
+    const d = store.detailsById.get(tag.id)
+    if (!d) return []
+    const facts: RowFact[] = []
+    if (d.address) facts.push({ text: d.address, derived: false })
+    else if (d.position) {
+      facts.push({ text: `${d.position.latitude}, ${d.position.longitude}`, derived: false })
+    }
+    if (d.position) {
+      const radius = d.radius_metres ?? DEFAULT_LOCATION_RADIUS_METRES
+      facts.push({ text: `within ${formatMetres(radius)}`, derived: false })
+    }
+    if (d.auto_match === false) facts.push({ text: 'not matched automatically', derived: false })
+    return facts
+  }
+  if (tag.kind === 'journey') {
+    const dates = journeyDates.value.get(tag.id)
+    if (!dates) return []
+    const source = 'From its transactions and the journeys under it'
+    const facts: RowFact[] = []
+    if (dates.start) {
+      facts.push({
+        text: `from ${formatDay(dates.start)}`,
+        derived: !dates.startTyped,
+        title: dates.startTyped ? undefined : source,
+      })
+    }
+    if (dates.end) {
+      facts.push({
+        text: `to ${formatDay(dates.end)}`,
+        derived: !dates.endTyped,
+        title: dates.endTyped ? undefined : source,
+      })
+    }
+    return facts
+  }
+  return []
+}
+
 const tree = computed(() => buildTree(store.tags, kind.value))
 const filtering = computed(() => query.value.trim() !== '')
 const shownTree = computed(() =>
@@ -212,16 +295,32 @@ function onMerged() {
         </div>
 
         <template v-else>
-          <IconField>
-            <InputIcon class="pi pi-search" />
-            <InputText
-              v-model="query"
-              type="search"
-              :placeholder="`Find a ${noun}`"
-              :aria-label="`Find a ${noun} by any of its names`"
-              fluid
-            />
-          </IconField>
+          <div class="flex gap-2">
+            <IconField class="min-w-0 flex-1">
+              <InputIcon class="pi pi-search" />
+              <InputText
+                v-model="query"
+                type="search"
+                :placeholder="`Find a ${noun}`"
+                :aria-label="`Find a ${noun} by any of its names`"
+                fluid
+              />
+            </IconField>
+            <SelectButton
+              :model-value="layout.tagRows"
+              :options="ROW_STYLES"
+              option-value="value"
+              option-label="label"
+              :allow-empty="false"
+              aria-label="Rows: slim or detailed (kept on this device)"
+              @update:model-value="setRowStyle"
+            >
+              <template #option="{ option }">
+                <span :class="option.icon" aria-hidden="true" />
+                <span class="sr-only sm:not-sr-only">{{ option.label }}</span>
+              </template>
+            </SelectButton>
+          </div>
 
           <Message v-if="hasDuplicates" severity="warn" :closable="false">
             Some {{ noun }}s share a name with another one at the same level, usually because they
@@ -235,6 +334,8 @@ function onMerged() {
                 :look="effectiveLook(row.tag, store.byId)"
                 :other-names="otherNames(row.tag)"
                 :link="linkOf(row.tag)"
+                :facts="detailed ? factsOf(row.tag) : []"
+                :detailed="detailed"
                 :duplicate="store.duplicateIds.has(row.tag.id)"
                 :noun="noun"
                 @toggle="toggle(row.tag.id)"

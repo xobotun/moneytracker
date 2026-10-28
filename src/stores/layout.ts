@@ -7,13 +7,20 @@ import {
   isBoolean,
   isCollapseMode,
   isNavPosition,
+  isTagRowStyle,
   isThemePreset,
   type NavPosition,
   type CollapseMode,
+  type TagRowStyle,
   type ThemePreset,
 } from './layout-types'
 
-export { type NavPosition, type CollapseMode, type ThemePreset } from './layout-types'
+export {
+  type NavPosition,
+  type CollapseMode,
+  type TagRowStyle,
+  type ThemePreset,
+} from './layout-types'
 
 /**
  * Load a persisted value into a ref. Keeps the default when the key doesn't
@@ -69,6 +76,7 @@ export const useLayoutStore = defineStore('layout', () => {
   const collapseMode = ref<CollapseMode>('opens-on-hover')
   const isDark = ref(false)
   const themePreset = ref<ThemePreset>('Aura')
+  const tagRows = ref<TagRowStyle>('detailed')
   const isTemporarilyToggled = ref(false)
 
   const navItems = ref([
@@ -85,6 +93,7 @@ export const useLayoutStore = defineStore('layout', () => {
       hydrateRef(LayoutKeys.collapseMode, collapseMode, isCollapseMode),
       hydrateRef(LayoutKeys.isDark, isDark, isBoolean),
       hydrateRef(LayoutKeys.themePreset, themePreset, isThemePreset),
+      hydrateRef(LayoutKeys.tagRows, tagRows, isTagRowStyle),
     ])
   }
 
@@ -104,6 +113,10 @@ export const useLayoutStore = defineStore('layout', () => {
     await persistOptimistic(LayoutKeys.themePreset, themePreset, value)
   }
 
+  async function setTagRows(value: TagRowStyle): Promise<void> {
+    await persistOptimistic(LayoutKeys.tagRows, tagRows, value)
+  }
+
   function effectivePosition(windowWidth: number): Exclude<NavPosition, 'auto'> {
     if (navPosition.value !== 'auto') {
       return navPosition.value
@@ -120,6 +133,7 @@ export const useLayoutStore = defineStore('layout', () => {
     collapseMode,
     isDark,
     themePreset,
+    tagRows,
     isTemporarilyToggled,
     navItems,
     hydrate,
@@ -127,6 +141,7 @@ export const useLayoutStore = defineStore('layout', () => {
     setCollapseMode,
     setDarkMode,
     setThemePreset,
+    setTagRows,
     effectivePosition,
     isVertical,
   }

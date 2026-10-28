@@ -14,6 +14,7 @@ import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues } from '@/db/types'
 import { pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
 import { KIND_NOUNS } from './tagForm'
+import { formatMetres } from '@/format/distance'
 import { answerError, emptyAnswer, typedValue, type Answer } from './mergeForm'
 
 /** Merges `source` into a tag the user picks (decisions §2.5). */
@@ -100,7 +101,7 @@ async function readConflicts() {
 function shown(field: TagDetailField, value: TagDetailValues[TagDetailField]): string {
   if (value === null) return 'none'
   if (typeof value === 'object') return `${value.latitude}, ${value.longitude}`
-  if (typeof value === 'number') return `${value} m`
+  if (typeof value === 'number') return formatMetres(value)
   if (typeof value === 'boolean') return value ? 'on' : 'off'
   if (field === 'merchant_id' || field === 'default_category_id') {
     const tag = store.byId.get(value as ShortId)
