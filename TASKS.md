@@ -358,6 +358,16 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 
 ## To Do
 
+### Tags and accounts — next (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
+
+- **Archive a tag** (ideas, must-have 1): stays on its transactions and in reports, leaves every picker and the tree; "Show archived" lists them faint; Archive / Unarchive in the edit dialog. Synced `tags.archived_at_utc`
+- **Archive an account** (must-have 2, named Archive, not Close): moves to a collapsed "Archived" section at the bottom, out of the page and group totals (the section shows its own); archiving one that still holds money asks first. Synced `accounts.archived_at_utc`
+- **The most specific place wins** (must-have 5): `nearestLocations` ranks the circles that contain the position by radius, smallest first, equal radii by the nearer centre; the circles that don't contain it follow, by distance to their edge
+- **Journeys** (must-have 7, reworked, and 8):
+    - a journey currency (`journey_details.currency`), inherited down the tree like the look
+    - the Journeys tab sorts by date, newest first, undated ones on top; all journeys' dates in one query
+    - the current journey (today within its dates; the deepest such) shown at the top of the tab, with "Next journey": the standard new-journey dialog as its sibling, starting today; saving sets the current one's end to today and, when it has no parent, first makes one named after the months it spans ("Jul–Oct 2026", "Dec 2025–Jan 2026") with the current journey's colour, icon and currency, and moves it under it — all in one transaction; cancelling changes nothing
+
 ### Domain model gaps
 
 Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema:
@@ -388,6 +398,8 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Merchant, location and journey fields (merchant hidden on income and transfers by default); #tag picker with autocomplete (a synonym finds the tag, the main name is shown)
     - Date/time + timezone picker; date-override field
     - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position. A location with `auto_match` off is offered nearby but never filled in; distances count from the location's circle edge (`nearestLocations`)
+    - On a journey (the device is enrolled in one): expenses and income (not transfers) are offered in the journey's currency (`journey_details.currency`, inherited down the tree)
+    - The time zone comes from the phone (the OS knows it); no zone per location or country
     - "On a journey" switch (per device): start a new journey or join an ongoing / recent one
     - Typed vs. derived values (the UI rule in CLAUDE.md)
     - Cash / non-cash toggle (once schema supports it)
@@ -513,6 +525,12 @@ Known sync defects, postponed (review 2026-10-18):
 - Mapping rules from raw entries to transactions, accounts, and tags
 - Matching imported lines to merchants honours `merchant_details.auto_match`: a merchant with it off is not matched by itself
 - Dedup against existing transactions (a statement line that matches a hand-entered transaction fills that transaction's `description__auto` instead of adding a second one)
+
+### Later (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
+
+- **Check a balance against the bank, and correct it** (ideas, must-have 4): type what the bank shows, record a correction for the difference; also gives opening balances without counting them as income (needs a category kind that reports leave out)
+- **Probable duplicates** (must-have 6): same names after folding case, accents and punctuation at any level, nearby locations with similar names. Wait for real data
+- **Forgiving search** (must-have 9): ignore accents and punctuation; also match addresses and descriptions
 
 ### Polish & operational gaps
 

@@ -1,5 +1,7 @@
 # Tags and Accounts: feature ideas
 
+**Decisions on the must-haves (Pavel, 2026-10-28):** 1 and 2 — build, both named "Archive". 3 — no: a rare case people settle among themselves. 4 — later (TASKS To Do). 5 — build: the smallest containing radius first, then the nearer centre. 6 — later, after real data. 7 — reworked: no currency or zone per location (the zone comes from the phone); instead a journey currency, a "current journey" on the Journeys tab and a "Next journey" button (see TASKS). 8 — build. 9 — later. 10 — no: not the app's scope. Nice-to-haves: to be decided.
+
 Brainstorm, 2026-10-28, from the code on branch `tags-page` (47db731), TASKS.md, REQUIREMENTS.md, the decision and design docs, and the screenshots in `.playwright-mcp/`. Read-only; nothing was built or tried in the browser.
 
 **Effort:** S = up to a day, M = a few days, L = a week or more.
