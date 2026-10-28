@@ -12,6 +12,7 @@ import {
   TagNotFoundError,
 } from '../errors'
 import {
+  DEFAULT_LOCATION_RADIUS_METRES,
   DETAIL_FIELDS_BY_KIND,
   assertDetailLinks,
   assertJourneyDates,
@@ -160,7 +161,7 @@ function sameDetail(a: TagDetailValues[TagDetailField], b: TagDetailValues[TagDe
   return a === b
 }
 
-/** The fields of `kind` from `values`, the others empty; empty text is none. */
+/** The fields of `kind` from `values`, the others empty; empty text is none, and an empty radius the default. */
 function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues {
   const next = noDetails()
   for (const field of DETAIL_FIELDS_BY_KIND[kind]) {
@@ -169,6 +170,7 @@ function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues 
   next.address = optionalTextToColumn(next.address)
   next.start_date = optionalTextToColumn(next.start_date)
   next.end_date = optionalTextToColumn(next.end_date)
+  if (kind === 'location') next.radius_metres ??= DEFAULT_LOCATION_RADIUS_METRES
   return next
 }
 

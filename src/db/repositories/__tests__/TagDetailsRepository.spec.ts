@@ -59,6 +59,7 @@ describe('TagDetailsRepository', () => {
       latitude: 52.5219,
       longitude: 13.4132,
       merchant_id: rewe.id,
+      radius_metres: 10,
     })
     expect(await repo.getMerchant(rewe.id)).toEqual({
       tag_id: rewe.id,
@@ -83,6 +84,7 @@ describe('TagDetailsRepository', () => {
       latitude: null,
       longitude: null,
       merchant_id: null,
+      radius_metres: 10,
     })
     expect(await db.exec('SELECT tag_id FROM location_details')).toHaveLength(1)
   })
@@ -204,6 +206,7 @@ describe('TagDetailsRepository', () => {
   })
 
   it('finds nearest locations within the radius, nearest first, live only', async () => {
+    // Distances count to the edge of each location's circle (10 m by default).
     async function place(name: string, metresNorth: number | null) {
       const tag = await tags.create({ kind: 'location', name })
       await repo.setLocation(tag.id, {
@@ -224,8 +227,8 @@ describe('TagDetailsRepository', () => {
     const found = await repo.nearestLocations(BASE.lat, BASE.lon, 150, 10)
 
     expect(found.map((f) => f.tag.id)).toEqual([near.id, middle.id])
-    expect(found[0]!.metres).toBeCloseTo(50, 0)
-    expect(found[1]!.metres).toBeCloseTo(140, 0)
+    expect(found[0]!.metres).toBeCloseTo(40, 0)
+    expect(found[1]!.metres).toBeCloseTo(130, 0)
     expect(found[0]!.tag.name).toBe('Near')
     expect((await repo.nearestLocations(BASE.lat, BASE.lon, 150, 1)).map((f) => f.tag.id)).toEqual([
       near.id,
@@ -453,5 +456,43 @@ describe('TagDetailsRepository', () => {
         [mitte.id, rewe.id],
       ]),
     )
+  })
+
+  it("stores a location's radius, 10 m by default", async () => {
+    const shop = await tags.create({ kind: 'location', name: 'Shop' })
+    const at = { address: null, latitude: 52.5, longitude: 13.4, merchant_id: null }
+    await repo.setLocation(shop.id, at)
+    expect((await repo.getLocation(shop.id))!.radius_metres).toBe(10)
+    expect((await repo.values(shop.id, 'location')).radius_metres).toBe(10)
+    await repo.setLocation(shop.id, { ...at, radius_metres: 80 })
+    expect((await repo.getLocation(shop.id))!.radius_metres).toBe(80)
+
+    for (const bad of [0, -5, 2.5]) {
+      await expect(repo.setLocation(shop.id, { ...at, radius_metres: bad })).rejects.toThrow(
+        InvalidTagDetailsError,
+      )
+    }
+    // A location without a details row has the default too; other kinds have none.
+    const other = await tags.create({ kind: 'location', name: 'Other' })
+    expect((await repo.values(other.id, 'location')).radius_metres).toBe(10)
+    const food = await tags.create({ kind: 'category', name: 'Food' })
+    expect((await repo.values(food.id, 'category')).radius_metres).toBeNull()
+  })
+
+  it('measures from the edge of a big location', async () => {
+    const mall = await tags.create({ kind: 'location', name: 'Mall' })
+    await repo.setLocation(mall.id, {
+      address: null,
+      latitude: north(180),
+      longitude: BASE.lon,
+      merchant_id: null,
+      radius_metres: 100,
+    })
+    const [found] = await repo.nearestLocations(BASE.lat, BASE.lon, 150, 10)
+    expect(found!.tag.id).toBe(mall.id)
+    expect(found!.metres).toBeCloseTo(80, 0)
+    // Inside the circle is no distance at all.
+    const [inside] = await repo.nearestLocations(north(150), BASE.lon, 150, 10)
+    expect(inside!.metres).toBe(0)
   })
 })

@@ -15,6 +15,11 @@ import {
 const PARENT = asShortId('parent000001')
 
 describe('newTagDraft', () => {
+  it('starts a location at the default radius; other kinds have none', () => {
+    expect(newTagDraft('location', null).radius_metres).toBe(10)
+    expect(newTagDraft('merchant', null).radius_metres).toBeNull()
+  })
+
   it("gives a top-level tag a preset colour and its kind's icon", () => {
     const draft = newTagDraft('merchant', null, () => 0)
     expect(draft).toMatchObject({
@@ -81,6 +86,15 @@ describe('validateDraft', () => {
     expect(validateDraft({ ...valid, latitude: -90, longitude: 180 })).toEqual({})
   })
 
+  it('refuses a radius that is no whole number of metres, at least 1', () => {
+    const radius = 'The radius is a whole number of metres, at least 1.'
+    expect(validateDraft({ ...valid, radius_metres: 0 })).toEqual({ radius })
+    expect(validateDraft({ ...valid, radius_metres: 2.5 })).toEqual({ radius })
+    expect(validateDraft({ ...valid, radius_metres: 1 })).toEqual({})
+    // Empty is the default.
+    expect(validateDraft({ ...valid, radius_metres: null })).toEqual({})
+  })
+
   it('refuses an end before the start, when both are typed', () => {
     expect(validateDraft({ ...valid, start_date: '2026-05-09', end_date: '2026-05-01' })).toEqual({
       dates: 'The journey cannot end before it starts.',
@@ -107,7 +121,7 @@ describe('saveInputFromDraft', () => {
       otherNames: ['Billa'],
       colour: null,
       icon: null,
-      details: { ...noDetails(), position: { latitude: 52.5, longitude: 13.4 } },
+      details: { ...noDetails(), position: { latitude: 52.5, longitude: 13.4 }, radius_metres: 10 },
     })
   })
 })

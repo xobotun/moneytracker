@@ -455,6 +455,23 @@ function merge() {
           </div>
         </fieldset>
         <div class="flex flex-col gap-1">
+          <label for="tag-radius" class="text-sm font-medium">Radius</label>
+          <InputNumber
+            v-model="draft.radius_metres"
+            input-id="tag-radius"
+            suffix=" m"
+            placeholder="10 m"
+            :use-grouping="false"
+            :invalid="!!shownErrors.radius"
+            aria-describedby="tag-radius-hint"
+            fluid
+          />
+          <small v-if="shownErrors.radius" class="text-red-600">{{ shownErrors.radius }}</small>
+          <small v-else id="tag-radius-hint" class="text-gray-500 dark:text-gray-400">
+            How far around the position still counts as this place; 10 m when empty.
+          </small>
+        </div>
+        <div class="flex flex-col gap-1">
           <label for="tag-merchant" class="text-sm font-medium">Merchant</label>
           <Select
             v-model="draft.merchant_id"

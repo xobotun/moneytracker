@@ -27,6 +27,15 @@ describe('answerError', () => {
     expect(answerError('address', { ...emptyAnswer(), choice: 'source' })).toBeUndefined()
   })
 
+  it('refuses another radius that is no whole number of metres', () => {
+    const other = { ...emptyAnswer(), choice: 'other' as const }
+    expect(answerError('radius_metres', { ...other, radius: 0.5 })).toBe(
+      'The radius is a whole number of metres, at least 1.',
+    )
+    expect(answerError('radius_metres', { ...other, radius: 25 })).toBeUndefined()
+    expect(typedValue('radius_metres', { ...other, radius: 25 })).toBe(25)
+  })
+
   it('refuses a lone or out-of-range coordinate for another position', () => {
     const other = { ...emptyAnswer(), choice: 'other' as const }
     expect(answerError('position', other)).toBeUndefined() // none: clears it

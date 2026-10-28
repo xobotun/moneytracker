@@ -52,6 +52,7 @@ export interface LocationDetails {
   latitude: number | null // WGS84 degrees
   longitude: number | null // WGS84 degrees
   merchant_id: ShortId | null // a `merchant` tag; null = none
+  radius_metres: number // whole metres around the position that count as this place (10 by default)
 }
 
 /** Side data of a `merchant` tag. */
@@ -72,6 +73,7 @@ export interface TagDetailValues {
   address: string | null
   position: { latitude: number; longitude: number } | null // the two coordinates as one value
   merchant_id: ShortId | null
+  radius_metres: number | null // a location's radius (its default when unset); null for other kinds
   default_category_id: ShortId | null
   start_date: string | null
   end_date: string | null

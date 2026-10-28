@@ -250,7 +250,20 @@ describe('TagEditDialog', () => {
       latitude: 52.520008,
       longitude: 13.404954,
       merchant_id: rewe.id,
+      radius_metres: 10,
     })
+  })
+
+  it("edits a location's radius; empty is the default", async () => {
+    const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
+    await open('location', shop)
+    expect(input('tag-radius').value).toBe('10 m')
+    // InputNumber takes a typed value when it loses focus.
+    input('tag-radius').value = '80'
+    input('tag-radius').dispatchEvent(new Event('blur'))
+    await settle()
+    await save()
+    expect((await detailsRepo.getLocation(shop.id))!.radius_metres).toBe(80)
   })
 
   it('shows why the device gave no position', async () => {

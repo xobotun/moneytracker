@@ -24,6 +24,7 @@ const emit = defineEmits<{ merged: [] }>()
 const FIELD_LABELS: Record<TagDetailField, string> = {
   address: 'Address',
   position: 'Position',
+  radius_metres: 'Radius',
   merchant_id: 'Merchant',
   default_category_id: 'Default category',
   start_date: 'Start date',
@@ -98,6 +99,7 @@ async function readConflicts() {
 function shown(field: TagDetailField, value: TagDetailValues[TagDetailField]): string {
   if (value === null) return 'none'
   if (typeof value === 'object') return `${value.latitude}, ${value.longitude}`
+  if (typeof value === 'number') return `${value} m`
   if (field === 'merchant_id' || field === 'default_category_id') {
     const tag = store.byId.get(value as ShortId)
     if (!tag) return 'an unknown tag'
@@ -255,6 +257,15 @@ async function merge() {
               fluid
             />
           </div>
+          <InputNumber
+            v-else-if="c.field === 'radius_metres'"
+            v-model="answers[c.field]!.radius"
+            placeholder="10"
+            suffix=" m"
+            aria-label="Another radius, in metres"
+            :use-grouping="false"
+            fluid
+          />
           <Select
             v-else-if="c.field === 'merchant_id' || c.field === 'default_category_id'"
             v-model="answers[c.field]!.link"
@@ -274,7 +285,7 @@ async function merge() {
             fluid
           />
           <small
-            v-if="c.field === 'position' && answerError(c.field, answers[c.field]!)"
+            v-if="answers[c.field]!.choice === 'other' && answerError(c.field, answers[c.field]!)"
             class="text-red-600"
           >
             {{ answerError(c.field, answers[c.field]!) }}

@@ -1,6 +1,7 @@
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues, TagKind } from '@/db/types'
 import type { TagCreateInput, TagSaveInput } from '@/db/repositories/TagsRepository'
+import { DEFAULT_LOCATION_RADIUS_METRES } from '@/db/repositories/TagDetailsRepository'
 import { newTagLook } from '@/tags/look'
 import { cleanOtherNames } from '@/tags/otherNames'
 
@@ -19,6 +20,7 @@ export interface TagDraft {
   address: string
   latitude: number | null
   longitude: number | null
+  radius_metres: number | null // a location's; empty = the default
   merchant_id: ShortId | null
   default_category_id: ShortId | null
   start_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
@@ -28,6 +30,7 @@ export interface TagDraft {
 export interface TagDraftErrors {
   name?: string
   position?: string
+  radius?: string
   dates?: string
 }
 
@@ -60,6 +63,7 @@ export function newTagDraft(
     address: '',
     latitude: null,
     longitude: null,
+    radius_metres: kind === 'location' ? DEFAULT_LOCATION_RADIUS_METRES : null,
     merchant_id: null,
     default_category_id: null,
     start_date: null,
@@ -72,6 +76,7 @@ type DetailDraft = Pick<
   | 'address'
   | 'latitude'
   | 'longitude'
+  | 'radius_metres'
   | 'merchant_id'
   | 'default_category_id'
   | 'start_date'
@@ -84,6 +89,7 @@ export function detailDraft(details: TagDetailValues): DetailDraft {
     address: details.address ?? '',
     latitude: details.position?.latitude ?? null,
     longitude: details.position?.longitude ?? null,
+    radius_metres: details.radius_metres,
     merchant_id: details.merchant_id,
     default_category_id: details.default_category_id,
     start_date: details.start_date,
@@ -108,6 +114,12 @@ export function draftFromTag(
   }
 }
 
+/** What is wrong with a typed radius: a whole number of metres, at least 1 (empty is the default). */
+export function radiusError(radius: number | null): string | undefined {
+  if (radius === null || (Number.isInteger(radius) && radius >= 1)) return undefined
+  return 'The radius is a whole number of metres, at least 1.'
+}
+
 /** What is wrong with a typed position: both coordinates or neither, each in range. */
 export function positionError(
   latitude: number | null,
@@ -129,6 +141,8 @@ export function validateDraft(draft: TagDraft): TagDraftErrors {
   if (draft.name.trim() === '') errors.name = 'Give the tag a name.'
   const position = positionError(draft.latitude, draft.longitude)
   if (position) errors.position = position
+  const radius = radiusError(draft.radius_metres)
+  if (radius) errors.radius = radius
   if (draft.start_date !== null && draft.end_date !== null && draft.start_date > draft.end_date) {
     errors.dates = 'The journey cannot end before it starts.'
   }
@@ -141,6 +155,7 @@ function detailsFromDraft(draft: TagDraft): TagDetailValues {
     address: draft.address.trim() || null,
     position: latitude !== null && longitude !== null ? { latitude, longitude } : null,
     merchant_id: draft.merchant_id,
+    radius_metres: draft.radius_metres,
     default_category_id: draft.default_category_id,
     start_date: draft.start_date,
     end_date: draft.end_date,

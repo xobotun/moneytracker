@@ -1017,6 +1017,7 @@ describe('TagsRepository', () => {
       address: null,
       position: null,
       merchant_id: null,
+      radius_metres: null,
       default_category_id: null,
       start_date: null,
       end_date: null,
@@ -1082,6 +1083,7 @@ describe('TagsRepository', () => {
         latitude: 52.5,
         longitude: 13.4,
         merchant_id: rewe.id,
+        radius_metres: 10,
       })
     })
 
@@ -1098,6 +1100,18 @@ describe('TagsRepository', () => {
       expect(await db.exec('SELECT * FROM location_details WHERE tag_id = ?', [b.id])).toEqual(
         before,
       )
+    })
+
+    it('asks about a differing radius like any other detail', async () => {
+      const { a, b } = await twoLocations()
+      const at = { address: null, latitude: null, longitude: null, merchant_id: null }
+      await details.setLocation(a.id, { ...at, radius_metres: 80 })
+      await details.setLocation(b.id, at)
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'radius_metres', source: 80, target: 10 },
+      ])
+      await repo.merge(a.id, b.id, { radius_metres: 80 })
+      expect((await details.getLocation(b.id))!.radius_metres).toBe(80)
     })
 
     it('treats equal values as no conflict', async () => {

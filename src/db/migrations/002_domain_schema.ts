@@ -40,6 +40,7 @@ export const migration: Migration = {
       latitude        REAL,                                              -- WGS84 degrees
       longitude       REAL,                                              -- WGS84 degrees
       merchant_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a merchant tag (repository-checked); NULL = none
+      radius_metres   INTEGER NOT NULL DEFAULT 10 CHECK (radius_metres > 0), -- whole metres around the position that count as this place
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live
