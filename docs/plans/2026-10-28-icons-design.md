@@ -1,6 +1,6 @@
 # Icons: Design
 
-**Status:** Decided with Pavel, 2026-10-28. Not built yet.
+**Status:** Decided with Pavel, 2026-10-28. Step 1 built (see "As built (step 1)" at the end); step 2 not yet.
 **Applies to:** everything with an icon — tags, accounts, account groups.
 
 ---
@@ -67,3 +67,16 @@ One badge component draws every kind everywhere: rows, chips, picker options, di
 
 1. The data model (icon JSON in tags, accounts and groups; the `images` table, synced), the icon packs registry, the badge, and every place that draws an icon switched to it.
 2. The picker dialog with its four tabs, image import (downscaling, SVG cleaning), the emoji library.
+
+---
+
+## As built (step 1)
+
+2026-10-28. The data model, the packs registry, the badge, and every place that draws an icon.
+
+- **Value:** `src/icons/types.ts` — `Icon` is `set` / `emoji` / `image`, plus `unknown`: anything that is not exactly one of the three (another kind, a field more or less) keeps its column text and is written back unchanged. Known kinds are written with a fixed key order; saves compare icons as stored text (`sameIcon`), so an untouched save still writes nothing. A `set` icon of a pack this build lacks stays a `set` icon and draws the default. Column mappers `iconToColumn` / `iconFromColumn` (+ nullable).
+- **Images:** the `images` table is in migration 002, first in `SYNC_TABLES`; its timestamps are in `EQUALITY_IGNORED_COLUMNS` like those of `applied_rates`, so the same picture put on two devices is one row and no conflict. Id: `nameBasedId('images', <SHA-256 hex of the stored text>)` (the base64 for WebP); the media type is not part of the key. `ImagesRepository.put` is `INSERT … ON CONFLICT DO NOTHING` (not `OR IGNORE`, which would swallow a CHECK failure). `useImagesStore` reads by id and keeps the data URL; a miss is retried on the next `load`.
+- **Packs:** `src/icons/sets.ts` (PrimeIcons as `pi`), with `QUICK_ICONS` and `iconLabel`.
+- **Default icon** (drawn for an unknown kind or pack icon and while an image loads or is missing): the kind's (`KIND_ICONS`, carried as `TagLook.fallback`), `wallet` for accounts, `folder` for groups (their new-group icon).
+- **Drawing:** `src/icons/face.ts` decides what a badge shows; `IconBadge.vue` (was `AccountBadge.vue`) and `badgeElement.ts` (the map pins, built with DOM APIs) render it. An emoji's tint is per theme: light (OKLCH L 0.92) in the light theme, dark (L 0.36) in the dark one. A picture sits on white in both themes; an upload is inset 15 %, a word (`source` set) fills the circle. Inline (chips, picker options) a pack icon is a bare icon as wide as the tiny badge, so labels line up.
+- The quick picks and the "all icons" popover still pick PrimeIcons only; the "all icons" tile shows a picked emoji or picture.

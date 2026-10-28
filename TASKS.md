@@ -348,6 +348,13 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - Automatic matching flags, on by default: `location_details.auto_match` (off: never filled in by itself, still offered nearby; `nearestLocations` returns it flagged) and `merchant_details.auto_match` (off: imported lines naming the merchant are not matched by themselves, once import exists). A checkbox in the dialog, "not matched automatically" on a detailed row; a merge asks which flag to keep
 - Map view on the Locations tab (a third option, Map, beside Slim and Detailed; layout setting `layout.locationsView`, per device): every placed location the filter lets through, as a circle of its radius in its colour (dashed when not matched automatically) with its icon at the centre; a tap or Enter on an icon opens its edit dialog; a tap on a cluster zooms in, or, when no zoom could split it, lists its locations to pick one; a count of those without a position. Fits all on first show, then keeps the view across edits and filtering. Built for 1,000 locations: circles on one canvas, icons in Leaflet.markercluster, bulk redraws (`LocationsMap.vue`, `src/tags/locationsMap.ts`); both maps share `osm.ts` (lazy Leaflet, OSM tiles, dark tiles)
 
+### Icons
+
+- Design: [docs/plans/2026-10-28-icons-design.md](docs/plans/2026-10-28-icons-design.md) (step 1 built, see "As built")
+- An icon is a typed JSON value in the `icon` columns of tags, accounts and groups: a pack icon, an emoji or an image; one from a newer app is kept verbatim and draws as the default icon (`src/icons/`)
+- Synced `images` table (UUIDv5 of the content, rows never change), `ImagesRepository`, `useImagesStore` (data URLs on demand)
+- One badge for every kind (`IconBadge.vue`; `badgeElement.ts` for the map pins): rows, chips, picker options, dialogs, the Accounts page, the map and its pick list
+
 ## To Do
 
 ### Domain model gaps
