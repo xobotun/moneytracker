@@ -84,11 +84,16 @@ async function save() {
   busy.value = true
   error.value = null
   try {
+    // Cleaned like an upload, which changes nothing in a word's SVG; the
+    // generator's own text is stored, so no browser's serialiser can make the
+    // same word a second row.
     const { cleanSvg } = await cleaner()
-    const { content } = cleanSvg(svg.value)
+    if (cleanSvg(svg.value).content !== svg.value) {
+      console.warn('Cleaning changed a word’s SVG; storing it as generated.')
+    }
     const id = await getImagesRepository().put({
       mediaType: 'image/svg+xml',
-      content,
+      content: svg.value,
       width: WORD_SIZE,
       height: WORD_SIZE,
       source: wordSource(word),
