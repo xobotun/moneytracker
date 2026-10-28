@@ -205,6 +205,25 @@ describe('TagsView', () => {
     expect(linkOn('Rewe Mitte')).toBe('merchant: Rewe (deleted)')
   })
 
+  it('shows other names and the description on a second line, on every tab', async () => {
+    await tagsRepo.create({
+      kind: 'tag',
+      name: 'mia',
+      synonyms: ['Mia K.'],
+      description: 'Our daughter',
+    })
+    await tagsRepo.create({ kind: 'tag', name: 'plain' })
+    await mountView('/tags?kind=tag')
+    const second = (name: string) =>
+      [...document.querySelectorAll('li')]
+        .find((li) => li.querySelector('.font-medium')?.textContent?.trim() === name)
+        ?.querySelector('[data-more]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim()
+    expect(second('mia')).toBe('Mia K. · Our daughter')
+    expect(second('plain')).toBeUndefined()
+  })
+
   it('marks duplicates and explains them', async () => {
     for (const id of ['reweA0000001', 'reweB0000001']) {
       await db.run(
