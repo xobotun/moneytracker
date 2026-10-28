@@ -30,6 +30,8 @@ const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
 const error = ref<string | null>(null)
+// While the icon dialog is open on top, Escape closes only it (every open dialog hears the key).
+const iconDialogOpen = ref(false)
 
 // Start from a fresh draft each time the dialog opens.
 watch(
@@ -99,6 +101,7 @@ async function remove() {
     v-model:visible="visible"
     modal
     :header="grouping ? 'Edit group' : 'New group'"
+    :close-on-escape="!iconDialogOpen"
     :draggable="false"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
@@ -130,7 +133,12 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <IconPicker v-model="draft.icon" :fallback="GROUPING_ICON" />
+        <IconPicker
+          v-model="draft.icon"
+          v-model:open="iconDialogOpen"
+          :colour="draft.colour"
+          :fallback="GROUPING_ICON"
+        />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">

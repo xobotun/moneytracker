@@ -102,6 +102,8 @@ const shownErrors = computed<AccountDraftErrors>(() => (submitted.value ? errors
 // While the suggestions are open, Escape closes only them, not the dialog
 // (both listen for it; the dialog reads this flag when the key is pressed).
 const currencyListOpen = ref(false)
+// Likewise while the icon dialog is open on top of this one.
+const iconDialogOpen = ref(false)
 
 async function save() {
   submitted.value = true
@@ -167,7 +169,7 @@ async function remove() {
     modal
     :header="account ? 'Edit account' : 'New account'"
     :draggable="false"
-    :close-on-escape="!currencyListOpen"
+    :close-on-escape="!currencyListOpen && !iconDialogOpen"
     class="w-[32rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
@@ -252,7 +254,12 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <IconPicker v-model="draft.icon" :fallback="ACCOUNT_ICON" />
+        <IconPicker
+          v-model="draft.icon"
+          v-model:open="iconDialogOpen"
+          :colour="draft.colour"
+          :fallback="ACCOUNT_ICON"
+        />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">

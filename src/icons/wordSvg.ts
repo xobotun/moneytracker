@@ -68,7 +68,7 @@ const HEX = /^#[0-9a-f]{6}$/
 /** '#ABC' or '#aabbcc' → '#aabbcc'; anything else is null. */
 export function normaliseHex(colour: string): string | null {
   const c = colour.trim().toLowerCase()
-  if (/^#[0-9a-f]{3}$/.test(c)) return `#${[...c.slice(1)].map((d) => d + d).join('')}`
+  if (/^#[0-9a-f]{3}$/.test(c)) return `#${c.slice(1).replace(/./g, '$&$&')}`
   return HEX.test(c) ? c : null
 }
 

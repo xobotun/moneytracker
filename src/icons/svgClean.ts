@@ -73,7 +73,8 @@ function tidy(root: Element): void {
   while (walker.nextNode()) comments.push(walker.currentNode)
   for (const comment of comments) comment.parentNode?.removeChild(comment)
   for (const element of [root, ...root.querySelectorAll('*')]) {
-    for (const attribute of [...element.attributes]) {
+    // A copy: removing an attribute changes the live list.
+    for (const attribute of Array.from(element.attributes)) {
       if (attribute.namespaceURI === XMLNS_NS || attribute.name === 'xmlns') {
         element.removeAttributeNode(attribute)
       }

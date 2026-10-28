@@ -4,6 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import Aura from '@primevue/themes/aura'
+import Dialog from 'primevue/dialog'
 import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
@@ -75,6 +76,15 @@ describe('AccountsView', () => {
           addEventListener: () => {},
           removeEventListener: () => {},
         }) as unknown as MediaQueryList,
+    )
+    // The icon dialog's tab list watches its size; jsdom has no ResizeObserver.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
     )
   })
 
@@ -334,7 +344,7 @@ describe('AccountsView', () => {
     search.value = 'eur'
     search.dispatchEvent(new Event('input'))
     await settle()
-    const results = [...document.querySelectorAll('[role=dialog][aria-label="All icons"] button')]
+    const results = [...document.querySelectorAll('[role=group][aria-label="PrimeIcons"] button')]
     expect(results.map((b) => b.getAttribute('aria-label'))).toEqual(['euro'])
     ;(results[0] as HTMLButtonElement).click()
     await settle()
@@ -344,6 +354,27 @@ describe('AccountsView', () => {
     buttonByText('Save').click()
     await settle()
     expect((await accountsRepo.list())[0]!.icon).toEqual(primeIcon('euro'))
+  })
+
+  it('keeps the account dialog open on Escape while the icon dialog is on top', async () => {
+    await seed('Cash')
+    const w = await mountView()
+    await w.find('button[aria-label="Edit Cash"]').trigger('click')
+    await settle()
+    // Every open dialog hears Escape; only the top one may act on it.
+    const accountDialog = () =>
+      w.findAllComponents(Dialog).find((d) => d.props('header') === 'Edit account')!
+    expect(accountDialog().props('closeOnEscape')).toBe(true)
+
+    document.querySelector<HTMLButtonElement>('button[aria-label="All icons"]')!.click()
+    await settle()
+    expect(document.body.textContent).toContain('Choose an icon')
+    expect(accountDialog().props('closeOnEscape')).toBe(false)
+
+    document.querySelector<HTMLButtonElement>('button[aria-label="euro"]')!.click()
+    await settle()
+    expect(document.body.textContent).not.toContain('Choose an icon')
+    expect(accountDialog().props('closeOnEscape')).toBe(true)
   })
 
   it('shows the symbol and name of each currency in the suggestions', async () => {

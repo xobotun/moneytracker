@@ -73,6 +73,8 @@ const submitted = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const confirmingDelete = ref(false)
+// The icon dialog opens on top of this one: Escape then closes only it.
+const iconDialogOpen = ref(false)
 // Live transactions and accounts using the tag; read when Delete is pressed.
 const uses = ref(0)
 const locating = ref(false)
@@ -351,7 +353,7 @@ function merge() {
     modal
     :header="`${tag ? 'Edit' : 'New'} ${noun}`"
     :draggable="false"
-    :close-on-escape="closeOnEscape"
+    :close-on-escape="closeOnEscape && !iconDialogOpen"
     class="w-[34rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
@@ -450,7 +452,12 @@ function merge() {
           :class="draft.icon === null ? DERIVED_CLASS : undefined"
           :title="draft.icon === null ? `Inherited: ${iconSource}` : undefined"
         >
-          <IconPicker v-model="shownIcon" :fallback="KIND_ICONS[kind]" />
+          <IconPicker
+            v-model="shownIcon"
+            v-model:open="iconDialogOpen"
+            :colour="shownColour"
+            :fallback="KIND_ICONS[kind]"
+          />
         </div>
         <div class="flex min-h-8 items-center gap-2 text-sm">
           <span v-if="draft.icon === null" :class="DERIVED_CLASS">Inherited: {{ iconSource }}</span>

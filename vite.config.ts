@@ -37,6 +37,11 @@ export default defineConfig({
     spaFallback404(),
     VitePWA({
       registerType: 'prompt',
+      workbox: {
+        // Workbox's default plus JSON: the emoji picker's data
+        // (src/icons/emojiPicker.ts) must be there offline.
+        globPatterns: ['**/*.{js,wasm,css,html,json}'],
+      },
       manifest: {
         name: 'Money Tracker',
         short_name: 'MoneyTracker',
