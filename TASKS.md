@@ -363,17 +363,20 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - Tags page: archived tags leave the tree, except as the faint parent of active ones, marked "Archived"; "Show archived <kind> (N)" per tab lists them all, faint and marked; the filter and the map follow it ("Every merchant is archived." when nothing else is left). Edit dialog: Archive (or Unarchive) in the footer, no confirmation, closes the dialog; an archived tag's dialog says "Archived on <date>: no longer offered in pickers."
 - **An account**: out of its group's block, the page and group totals and reorder mode; listed in a collapsed "Archived accounts (N)" section at the bottom with each balance and the section's own total. It keeps its group and place, so unarchiving puts it back. Account dialog: Archive / Unarchive next to Delete; one that still holds money asks first, inline ("It still holds €12.50. Archive it anyway?", from the cached balance). Store: `active`, `archived`, `archive`, `unarchive`
 
+### Places, journeys, renames and link dropdowns (ideas: must-haves 5, 7 reworked, 8; nice-to-haves 4, 6)
+
+- **The most specific place wins**: `nearestLocations` ranks the circles that contain the position by radius, smallest first (equal radii: the nearer centre), then the others by distance to their edge; ties by name, then id, as plain text
+- **Journey currency**: synced `journey_details.currency` (NULL = inherited down the tree like the look, `src/tags/journeys.ts`; free-form code, stored upper-cased). Dialog field (inherited faint, with Reset); "in GEL" on detailed rows; a merge asks about it
+- **Journey dates in one query**: `allJourneyDates` (one recursive CTE, same rules as `journeyDates`), held by the tags store. The Journeys tab sorts siblings by start, newest first, undated ones on top
+- **Current journey**: the deepest live, active journey whose dates hold today (then the later start, the later end, the name), shown at the top of the Journeys tab with "Continue journey": the new-journey dialog next to it, starting today, with a note of what saving does. `TagsRepository.continueJourney` (one transaction): a top-level current journey first goes under a new parent named after its months ("Jul–Oct 2026", " (2)" when taken) with its look and currency; its end becomes today; the new journey goes beside it
+- **Rename keeps the old name**: "Keep “Tinkoff” as another name", ticked unless `looksLikeTypoFix` (Damerau–Levenshtein ≤ 2 ignoring case, both names ≥ 3 characters)
+- **Link dropdowns** (instead of matching a merchant's names as text): "Merchant" on the Locations tab (Any / No merchant / each), "Category" on the Merchants tab (Any / No default category / each, sub-categories included); list and map, combined with the text filter, reset per tab (`linkFilter`)
+- `ChipsInput.vue`: text left typed in a chips field becomes a chip on blur and on save (the tag dialog's other names)
+
 ## To Do
 
 ### Tags and accounts — next (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
 
-- **The most specific place wins** (must-have 5): `nearestLocations` ranks the circles that contain the position by radius, smallest first, equal radii by the nearer centre; the circles that don't contain it follow, by distance to their edge
-- **Journeys** (must-have 7, reworked, and 8):
-    - a journey currency (`journey_details.currency`), inherited down the tree like the look
-    - the Journeys tab sorts by date, newest first, undated ones on top; all journeys' dates in one query
-    - the current journey (today within its dates; the deepest such) shown at the top of the tab, with "Continue journey": the standard new-journey dialog as its sibling, starting today; saving sets the current one's end to today and, when it has no parent, first makes one named after the months it spans ("Jul–Oct 2026", "Dec 2025–Jan 2026") with the current journey's colour, icon and currency, and moves it under it — all in one transaction; cancelling changes nothing
-- **Rename keeps the old name** (nice-to-have 4): renaming offers "Keep '<old>' as another name", on by default, off when the change looks like a typo fix (one or two letters)
-- **A merchant's stores through the Locations filter** (nice-to-have 6): a merchant's name or other name typed in the Locations filter also finds the locations linked to it (list and map)
 - **Hide amounts** (nice-to-have 8): a device setting; one component draws every read-only money amount, blurred while the setting is on until tapped (until leaving the page)
 - **"Show by currency" on the Accounts page** (nice-to-have 9): a temporary toggle (eye icon, not kept when leaving the page) that groups accounts by currency, cash and bank counted separately but side by side, each row keeping its group's name
 
@@ -574,3 +577,4 @@ Known sync defects, postponed (review 2026-10-18):
 - Settings persistence for items still living only in `useLayoutStore` defaults (e.g., `isTemporarilyToggled` resets on refresh — intentional, document if it stays that way)
 - Tags page: an edit dialog keeps the other names it read when it opened, so a save after a sync merged more names into the tag (another tab, or auto-sync once it exists) retires those as removed. Re-read the carried names on save, or freeze edits while a sync runs (see External sync)
 - Tags page: the tabs have no tab panels, so each tab's `aria-controls` points nowhere
+- Current journey: a journey with no typed end counts as ended on its last transaction's date (its derived end), so one under way whose last purchase was yesterday is not current this morning. Decide whether an untyped end should count as open while the start is typed
