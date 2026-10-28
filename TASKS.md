@@ -217,6 +217,11 @@ exercised end-to-end.
   shows with the ungrouped ones
 - `useAccountsStore` (Pinia, write-through: persist, then re-read): accounts,
   groups and the `sections` the page renders
+- Account tags as tag chips (icon in colour, a nested one by its path,
+  archived faint; the by-currency group chip is outlined). The dialog's tags
+  field is `ChipsInput` with suggestions (live, active plain tags by name or
+  other name; a picked tag is saved as that very tag); chips of existing tags
+  show their icon, a new name stays plain
 
 ### Base currency setting
 
