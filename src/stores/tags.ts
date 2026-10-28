@@ -122,6 +122,17 @@ export const useTagsStore = defineStore('tags', () => {
     await load()
   }
 
+  /** Stops offering the tag in pickers; it stays on what uses it (see `TagsRepository.archive`). */
+  async function archive(id: ShortId): Promise<void> {
+    await getTagsRepository().archive(id)
+    await load()
+  }
+
+  async function unarchive(id: ShortId): Promise<void> {
+    await getTagsRepository().unarchive(id)
+    await load()
+  }
+
   function usageCount(id: ShortId): Promise<number> {
     return getTagsRepository().usageCount(id)
   }
@@ -153,6 +164,8 @@ export const useTagsStore = defineStore('tags', () => {
     merge,
     remove,
     restore,
+    archive,
+    unarchive,
     usageCount,
     detailConflicts,
     details,

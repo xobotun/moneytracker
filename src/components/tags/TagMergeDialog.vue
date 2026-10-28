@@ -14,7 +14,7 @@ import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues } from '@/db/types'
 import { effectiveLook, type TagLook } from '@/tags/look'
 import { namesFindingTargetAfterMerge } from '@/tags/otherNames'
-import { pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
+import { pathLabel, subtreeIds, tagOptions, tagPath, unofferedState } from '@/tags/tree'
 import { KIND_NOUNS, KIND_PLURALS } from './tagForm'
 import TagOptionLabel from './TagOptionLabel.vue'
 import TagChip from './TagChip.vue'
@@ -129,7 +129,8 @@ function shown(field: TagDetailField, value: TagDetailValues[TagDetailField]): s
     const tag = store.byId.get(value as ShortId)
     if (!tag) return 'an unknown tag'
     const label = pathLabel(tagPath(tag, store.byId))
-    return tag.deleted_at_utc === null ? label : `${label} (deleted)`
+    const state = unofferedState(tag)
+    return state === null ? label : `${label} (${state})`
   }
   return value
 }

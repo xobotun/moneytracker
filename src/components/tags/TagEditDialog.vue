@@ -22,10 +22,12 @@ import TagOptionLabel from './TagOptionLabel.vue'
 import type { LatLon } from './mapView'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
-import { KIND_ICONS, effectiveLook, inheritedLook, type TagLook } from '@/tags/look'
+import { KIND_ICONS, inheritedLook, type TagLook } from '@/tags/look'
 import type { Icon } from '@/icons/types'
 import { carriedNames, foldCase, mergedNames } from '@/tags/otherNames'
-import { subtreeIds, tagOptions } from '@/tags/tree'
+import { heldOption, subtreeIds, tagOptions } from '@/tags/tree'
+import { formatDay } from '@/format/date'
+import { todayLocal } from '@/money/dates'
 import {
   KIND_NOUNS,
   KIND_PLURALS,
@@ -174,32 +176,32 @@ const shownErrors = computed<TagDraftErrors>(() => (submitted.value ? errors.val
 
 // --- Parent and links: live tags by path ---
 
-const parentOptions = computed(() => [
-  { id: null, label: 'None (top level)' },
-  ...tagOptions(
-    store.tags,
-    props.kind,
-    props.tag ? subtreeIds(props.tag.id, store.tags) : undefined,
-  ),
-])
+// The parent it has now stays listed when it is archived (an archived tag's
+// children keep it), labelled so.
+const parentOptions = computed(() => {
+  const held = heldOption(draft.value.parent_id, store.byId)
+  return [
+    { id: null, label: 'None (top level)' },
+    ...tagOptions(
+      store.tags,
+      props.kind,
+      props.tag ? subtreeIds(props.tag.id, store.tags) : undefined,
+    ),
+    ...(held ? [held] : []),
+  ]
+})
 
 /**
- * Live tags of `kind` with their look, plus the one linked now when it is
- * deleted (saving keeps that link). 'None' has no look.
+ * Active tags of `kind` with their look, plus the one linked now when it is
+ * deleted or archived (saving keeps that link). 'None' has no look.
  */
 function linkOptions(kind: TagKind, linked: ShortId | null) {
+  const held = heldOption(linked, store.byId)
   const options: ({ id: ShortId | null; label: string } & Partial<TagLook>)[] = [
     { id: null, label: 'None' },
     ...tagOptions(store.tags, kind),
+    ...(held ? [held] : []),
   ]
-  const tag = linked === null ? undefined : store.byId.get(linked)
-  if (tag && tag.deleted_at_utc !== null) {
-    options.push({
-      id: tag.id,
-      label: `${tag.name} (deleted)`,
-      ...effectiveLook(tag, store.byId),
-    })
-  }
   return options
 }
 const merchantOptions = computed(() => linkOptions('merchant', draft.value.merchant_id))
@@ -345,6 +347,29 @@ async function remove() {
 function merge() {
   if (props.tag) emit('merge', props.tag)
 }
+
+// --- Archive: out of the pickers, still on what uses it ---
+
+/** When the tag was archived, as the store holds it now; null for an active or new one. */
+const archivedOn = computed(() => {
+  const at = props.tag ? (store.byId.get(props.tag.id) ?? props.tag).archived_at_utc : null
+  return at ? formatDay(todayLocal(at)) : null
+})
+
+async function setArchived(archived: boolean) {
+  if (!props.tag) return
+  saving.value = true
+  error.value = null
+  try {
+    if (archived) await store.archive(props.tag.id)
+    else await store.unarchive(props.tag.id)
+    visible.value = false
+  } catch (e) {
+    error.value = `Could not ${archived ? 'archive' : 'unarchive'} the ${noun.value}. ${(e as Error).message}`
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -357,6 +382,9 @@ function merge() {
     class="w-[34rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
+      <Message v-if="archivedOn" severity="secondary" :closable="false" data-archived-note>
+        Archived on {{ archivedOn }}: no longer offered in pickers.
+      </Message>
       <div class="flex items-start gap-3">
         <IconBadge
           :icon="shownIcon"
@@ -763,6 +791,30 @@ function merge() {
           :pt="{ label: { class: 'hidden sm:inline' } }"
           :disabled="saving || loading"
           @click="merge"
+        />
+        <Button
+          v-if="tag && archivedOn"
+          type="button"
+          label="Unarchive"
+          icon="pi pi-replay"
+          severity="secondary"
+          text
+          :aria-label="`Unarchive ${tag.name}`"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :disabled="saving || loading"
+          @click="setArchived(false)"
+        />
+        <Button
+          v-else-if="tag"
+          type="button"
+          label="Archive"
+          icon="pi pi-inbox"
+          severity="secondary"
+          text
+          :aria-label="`Archive ${tag.name}`"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :disabled="saving || loading"
+          @click="setArchived(true)"
         />
         <span class="flex-1" />
         <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />

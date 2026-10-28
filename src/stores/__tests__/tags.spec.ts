@@ -46,6 +46,14 @@ describe('useTagsStore', () => {
     await db.close()
   })
 
+  it('reuses an archived plain tag typed by name rather than creating another', async () => {
+    const store = useTagsStore()
+    const [daily] = await store.resolvePlainTags(['daily'])
+    await tagsRepo.archive(daily!)
+    expect(await store.resolvePlainTags(['Daily'])).toEqual([daily])
+    expect(await tagsRepo.listAll()).toHaveLength(1)
+  })
+
   it('creates a missing plain tag once and reuses it', async () => {
     const store = useTagsStore()
     const [first] = await store.resolvePlainTags(['daily'])
@@ -146,6 +154,24 @@ describe('useTagsStore', () => {
       expect(store.byId.get(food.id)?.deleted_at_utc).not.toBeNull()
       await store.restore(food.id)
       expect(store.byId.get(food.id)?.deleted_at_utc).toBeNull()
+    })
+
+    it('archive and unarchive', async () => {
+      const store = useTagsStore()
+      const rewe = await store.create({ kind: 'merchant', name: 'Rewe' })
+      await store.archive(rewe.id)
+      expect(store.byId.get(rewe.id)?.archived_at_utc).not.toBeNull()
+      expect((await tagsRepo.findById(rewe.id))!.archived_at_utc).not.toBeNull()
+      await store.unarchive(rewe.id)
+      expect(store.byId.get(rewe.id)?.archived_at_utc).toBeNull()
+    })
+
+    it('a failed archive rethrows and leaves the tags as they were', async () => {
+      const store = useTagsStore()
+      const rewe = await store.create({ kind: 'merchant', name: 'Rewe' })
+      await tagsRepo.softDelete(rewe.id) // behind the store's back
+      await expect(store.archive(rewe.id)).rejects.toThrow(/deleted/)
+      expect(store.byId.get(rewe.id)).toMatchObject({ archived_at_utc: null, deleted_at_utc: null })
     })
 
     it('load reads what merchants and locations link to, and a save updates it', async () => {

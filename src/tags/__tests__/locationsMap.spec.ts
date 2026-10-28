@@ -47,6 +47,7 @@ describe('mapLocations', () => {
         icon: primeIcon('building'),
         fallback: primeIcon('map-marker'),
         autoMatch: true,
+        archived: false,
       },
       // The store inherits its parent's look.
       {
@@ -58,6 +59,7 @@ describe('mapLocations', () => {
         icon: primeIcon('building'),
         fallback: primeIcon('map-marker'),
         autoMatch: false,
+        archived: false,
       },
     ])
   })
@@ -102,6 +104,22 @@ describe('mapLocations', () => {
     const { shown, unplaced } = mapLocations([live, gone, merchant, location('none')], details, all)
     expect(shown.map((l) => l.tag.id)).toEqual(['live'])
     expect(unplaced).toBe(1)
+  })
+
+  it('marks archived locations, leaving them to the filter', () => {
+    const open = location('open')
+    const closed = location('closed', { archived_at_utc: new Date('2026-10-27T00:00:00.000Z') })
+    const details = new Map<ShortId, TagDetailValues>([
+      [open.id, placed(1, 2)],
+      [closed.id, placed(1, 2)],
+    ])
+    const everything = mapLocations([open, closed], details, all).shown
+    expect(everything.map((l) => [l.tag.id, l.archived])).toEqual([
+      ['open', false],
+      ['closed', true],
+    ])
+    const active = mapLocations([open, closed], details, (t) => t.archived_at_utc === null)
+    expect(active.shown.map((l) => l.tag.id)).toEqual(['open'])
   })
 
   it('takes the default radius when none is set, and matching as on unless switched off', () => {
@@ -152,6 +170,13 @@ describe('circleStyle', () => {
 
   it('dashes the circle of a location that is not matched automatically', () => {
     expect(circleStyle('#ff0000', false).dashArray).toBe('6 4')
+  })
+
+  it('draws an archived location fainter', () => {
+    const active = circleStyle('#ff0000', true)
+    const archived = circleStyle('#ff0000', true, true)
+    expect(archived.opacity).toBeLessThan(active.opacity!)
+    expect(archived.fillOpacity).toBeLessThan(active.fillOpacity!)
   })
 })
 

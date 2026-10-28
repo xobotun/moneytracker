@@ -559,6 +559,132 @@ describe('TagsView', () => {
     expect(pageText()).not.toContain('Show deleted')
   })
 
+  describe('archived tags', () => {
+    /** Summer (archived) > Lisbon, Summer > Porto (archived), Winter (archived), Autumn. */
+    async function journeys() {
+      const summer = await tagsRepo.create({ kind: 'journey', name: 'Summer' })
+      await tagsRepo.create({ kind: 'journey', name: 'Lisbon', parent_id: summer.id })
+      const porto = await tagsRepo.create({ kind: 'journey', name: 'Porto', parent_id: summer.id })
+      const winter = await tagsRepo.create({ kind: 'journey', name: 'Winter' })
+      await tagsRepo.create({ kind: 'journey', name: 'Autumn' })
+      for (const t of [summer, porto, winter]) await tagsRepo.archive(t.id)
+    }
+
+    const archivedRows = () =>
+      [...document.querySelectorAll('li')]
+        .filter((li) => li.querySelector('[data-archived]'))
+        .map((li) => li.querySelector('.font-medium')!.textContent!.trim())
+    const marked = (name: string) => rowOf(name).querySelector('.p-tag')?.textContent?.trim()
+
+    it('leave the tree, but an archived parent of active ones stays, faint and marked', async () => {
+      await journeys()
+      await mountView('/tags?kind=journey')
+      expect(treeRows()).toEqual(['Autumn', 'Summer', '  Lisbon'])
+      expect(archivedRows()).toEqual(['Summer'])
+      expect(rowOf('Summer').querySelector('[data-archived]')!.className).toContain('opacity-60')
+      expect(marked('Summer')).toBe('Archived')
+      expect(marked('Lisbon')).toBeUndefined()
+    })
+
+    it('show with the toggle of their tab, and the filter applies to them', async () => {
+      await journeys()
+      await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      await mountView('/tags?kind=journey')
+      expect(pageText()).toContain('Show archived journeys (3)')
+      input('tags-show-archived').click()
+      await settle()
+      expect(treeRows()).toEqual(['Autumn', 'Summer', '  Lisbon', '  Porto', 'Winter'])
+      expect(archivedRows()).toEqual(['Summer', 'Porto', 'Winter'])
+
+      const filter = document.querySelector<HTMLInputElement>('input[type=search]')!
+      filter.value = 'win'
+      filter.dispatchEvent(new Event('input'))
+      await settle()
+      expect(treeRows()).toEqual(['Winter'])
+
+      // The toggle is the tab's own: another tab has none to show.
+      await router.replace({ query: { kind: 'merchant' } })
+      await settle()
+      expect(pageText()).not.toContain('Show archived')
+      await router.replace({ query: { kind: 'journey' } })
+      await settle()
+      expect(input('tags-show-archived').checked).toBe(true)
+    })
+
+    it('hide an archived parent whose active children the filter leaves out', async () => {
+      await journeys()
+      await mountView('/tags?kind=journey')
+      const filter = document.querySelector<HTMLInputElement>('input[type=search]')!
+      filter.value = 'summer'
+      filter.dispatchEvent(new Event('input'))
+      await settle()
+      expect(pageText()).toContain('Nothing matches “summer”.')
+      filter.value = 'lis'
+      filter.dispatchEvent(new Event('input'))
+      await settle()
+      expect(treeRows()).toEqual(['Summer', '  Lisbon'])
+    })
+
+    it('says so when every tag of the tab is archived', async () => {
+      const old = await tagsRepo.create({ kind: 'merchant', name: "Kaiser's" })
+      await tagsRepo.archive(old.id)
+      await mountView('/tags?kind=merchant')
+      expect(pageText()).toContain('Every merchant is archived.')
+      expect(pageText()).not.toContain('Add your first merchant')
+      input('tags-show-archived').click()
+      await settle()
+      expect(treeRows()).toEqual(["Kaiser's"])
+    })
+
+    it('leave the map unless shown, then are drawn faint', async () => {
+      const berlin = await tagsRepo.create({ kind: 'location', name: 'Berlin' })
+      const closed = await tagsRepo.create({ kind: 'location', name: "Kaiser's" })
+      await tagsRepo.create({ kind: 'location', name: 'Unplaced closed' })
+      for (const t of [berlin, closed]) {
+        await detailsRepo.setLocation(t.id, {
+          address: null,
+          latitude: 52.52,
+          longitude: 13.405,
+          merchant_id: null,
+        })
+      }
+      await tagsRepo.archive(closed.id)
+      await tagsRepo.archive((await tagsRepo.findByName('location', 'Unplaced closed'))!.id)
+      await useLayoutStore().setLocationsView('map')
+      await mountView('/tags?kind=location')
+      const onMap = () =>
+        [...document.querySelectorAll('[data-map] button')].map((b) => b.textContent!.trim())
+      expect(onMap()).toEqual(['Berlin'])
+      expect(pageText()).not.toContain('no position')
+      input('tags-show-archived').click()
+      await settle()
+      expect(onMap()).toEqual(['Berlin', "Kaiser's"])
+      expect(pageText()).toContain('1 location has no position')
+    })
+
+    it('archives from the edit dialog, and unarchives from the shown list', async () => {
+      await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      await tagsRepo.create({ kind: 'merchant', name: 'Edeka' })
+      await mountView('/tags?kind=merchant')
+      button('Edit Rewe').click()
+      await settle()
+      button('Archive Rewe').click()
+      await settle()
+      expect(document.querySelector('[role=dialog]')).toBeNull()
+      expect(treeRows()).toEqual(['Edeka'])
+
+      input('tags-show-archived').click()
+      await settle()
+      button('Edit Rewe').click()
+      await settle()
+      button('Unarchive Rewe').click()
+      await settle()
+      expect(treeRows()).toEqual(['Edeka', 'Rewe'])
+      expect(archivedRows()).toEqual([])
+      expect(pageText()).not.toContain('Show archived')
+    })
+  })
+
   it('shows an empty state per kind', async () => {
     await mountView('/tags?kind=journey')
     expect(pageText()).toContain('Trips and stays')

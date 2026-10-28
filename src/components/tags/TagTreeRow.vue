@@ -14,7 +14,7 @@ import { DERIVED_CLASS } from '@/components/derived'
  * pills, then its description with its line breaks, then its details
  * (`facts`), each line only when it has any, wrapped rather than cut. Slim:
  * one line, adding the link from `sm` and the pills and description from
- * `md`, cut to fit.
+ * `md`, cut to fit. An archived tag is faint and marked "Archived".
  */
 defineProps<{
   row: TreeRow
@@ -31,6 +31,9 @@ defineProps<{
 }>()
 
 const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+// An archived tag shows faint, its buttons as usual: listed on request, or as
+// the parent of active tags.
+const FAINT = 'opacity-60'
 
 const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
 </script>
@@ -54,8 +57,12 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
       @click="emit('toggle')"
     />
     <span v-else class="w-8 shrink-0" aria-hidden="true" />
-    <IconBadge v-bind="look" small />
-    <div class="flex min-w-0 flex-1 flex-col">
+    <IconBadge v-bind="look" small :class="row.tag.archived_at_utc ? FAINT : undefined" />
+    <div
+      class="flex min-w-0 flex-1 flex-col"
+      :class="row.tag.archived_at_utc ? FAINT : undefined"
+      :data-archived="row.tag.archived_at_utc ? '' : undefined"
+    >
       <div class="flex min-w-0 items-center gap-x-2" :class="detailed ? 'flex-wrap' : undefined">
         <span class="font-medium" :class="detailed ? 'break-words' : 'truncate'">
           {{ row.tag.name }}
@@ -123,6 +130,7 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
         </p>
       </template>
     </div>
+    <PrimeTag v-if="row.tag.archived_at_utc" severity="secondary" value="Archived" />
     <PrimeTag v-if="duplicate" severity="warn" value="Duplicate" />
     <Button
       type="button"

@@ -6,6 +6,7 @@ import {
   buildTree,
   filterTree,
   flattenTree,
+  heldOption,
   pathLabel,
   subtreeIds,
   tagMatches,
@@ -16,6 +17,7 @@ import {
 import { byId, tag } from './fixtures'
 
 const DELETED = new Date('2026-10-27T00:00:00.000Z')
+const ARCHIVED = new Date('2026-10-28T00:00:00.000Z')
 const under = (parent: string) => ({ parent_id: asShortId(parent) })
 
 /** The tree as nested names, for readable assertions. */
@@ -91,6 +93,22 @@ describe('filterTree', () => {
   it('keeps everything for a filter that matches all', () => {
     expect(filterTree(tree, () => true)).toEqual(tree)
   })
+
+  it('keeps an archived tag as the parent of active ones, and drops it otherwise', () => {
+    const archived = { archived_at_utc: ARCHIVED }
+    const withArchived = buildTree(
+      [
+        tag('summer', archived),
+        tag('lisbon', under('summer')),
+        tag('old', { ...archived, ...under('summer') }),
+        tag('winter', archived),
+      ],
+      'category',
+    )
+    expect(shape(filterTree(withArchived, (t) => t.archived_at_utc === null))).toEqual([
+      { summer: ['lisbon'] },
+    ])
+  })
 })
 
 describe('tagMatches', () => {
@@ -163,6 +181,39 @@ describe('tagOptions', () => {
         fallback,
       },
     ])
+  })
+
+  it('leaves out archived tags, but not their active children', () => {
+    const tags = [
+      tag('summer', { name: 'Summer', archived_at_utc: ARCHIVED }),
+      tag('lisbon', { name: 'Lisbon', ...under('summer') }),
+      tag('winter', { name: 'Winter' }),
+    ]
+    expect(tagOptions(tags, 'category').map((o) => o.label)).toEqual(['Summer › Lisbon', 'Winter'])
+  })
+})
+
+describe('heldOption', () => {
+  const tags = [
+    tag('rewe', { name: 'Rewe', colour: '#ef4444' }),
+    tag('kaisers', { name: "Kaiser's", archived_at_utc: ARCHIVED, ...under('rewe') }),
+    tag('gone', { name: 'Gone', deleted_at_utc: DELETED, archived_at_utc: ARCHIVED }),
+  ]
+  const map = byId(...tags)
+
+  it('labels a held tag the pickers do not offer by its name and why', () => {
+    expect(heldOption(asShortId('kaisers'), map)).toMatchObject({
+      id: 'kaisers',
+      label: "Kaiser's (archived)",
+      colour: '#ef4444', // its look, inherited as usual
+    })
+    expect(heldOption(asShortId('gone'), map)).toMatchObject({ label: 'Gone (deleted)' })
+  })
+
+  it('is null for an offered tag, an unknown id or none', () => {
+    expect(heldOption(asShortId('rewe'), map)).toBeNull()
+    expect(heldOption(asShortId('nowhere'), map)).toBeNull()
+    expect(heldOption(null, map)).toBeNull()
   })
 })
 

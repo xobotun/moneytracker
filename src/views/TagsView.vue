@@ -212,13 +212,34 @@ function factsOf(tag: Tag): RowFact[] {
   return []
 }
 
+// --- Archived tags: left out unless "Show archived" is on for the tab ---
+
+const showingArchived = ref(new Set<TagKind>())
+const showArchived = computed({
+  get: () => showingArchived.value.has(kind.value),
+  set: (on: boolean) => {
+    const next = new Set(showingArchived.value)
+    if (on) next.add(kind.value)
+    else next.delete(kind.value)
+    showingArchived.value = next
+  },
+})
+const archivedCount = computed(
+  () =>
+    store.tags.filter(
+      (t) => t.kind === kind.value && t.deleted_at_utc === null && t.archived_at_utc !== null,
+    ).length,
+)
+
+// The live tree, archived tags included; the page shows the tags the filter
+// lets through with their ancestors, so an archived tag with active children
+// stays as their (faint) parent.
 const tree = computed(() => buildTree(store.tags, kind.value))
 const filtering = computed(() => query.value.trim() !== '')
-const shownTree = computed(() =>
-  filtering.value
-    ? filterTree(tree.value, (t) => tagMatches(t, query.value, merged.value.get(t.id) ?? []))
-    : tree.value,
-)
+const shows = (t: Tag) =>
+  (showArchived.value || t.archived_at_utc === null) &&
+  tagMatches(t, query.value, merged.value.get(t.id) ?? [])
+const shownTree = computed(() => filterTree(tree.value, shows))
 // While filtering every branch is open, so each match shows.
 const rows = computed(() =>
   flattenTree(shownTree.value, (id) => filtering.value || !collapsed.value.has(id)),
@@ -227,11 +248,7 @@ const rows = computed(() =>
 // The map: every placed location the filter lets through, and a count of the
 // ones it leaves off for want of a position. Worked out only while shown.
 const located = computed(() =>
-  onMap.value
-    ? mapLocations(store.tags, store.detailsById, (t) =>
-        tagMatches(t, query.value, merged.value.get(t.id) ?? []),
-      )
-    : { shown: [], unplaced: 0 },
+  onMap.value ? mapLocations(store.tags, store.detailsById, shows) : { shown: [], unplaced: 0 },
 )
 
 function toggle(id: ShortId) {
@@ -396,6 +413,11 @@ function onMerged() {
             </SelectButton>
           </div>
 
+          <label v-if="archivedCount > 0" class="flex items-center gap-2 self-start text-sm">
+            <ToggleSwitch v-model="showArchived" input-id="tags-show-archived" />
+            Show archived {{ nouns }} ({{ archivedCount }})
+          </label>
+
           <Message v-if="hasDuplicates" severity="warn" :closable="false">
             Some {{ nouns }} share a name with another one at the same level, usually because they
             were created on two devices. Merge them by hand: Edit → Merge into…
@@ -434,7 +456,10 @@ function onMerged() {
               />
             </li>
           </ul>
-          <p v-else class="text-gray-500 dark:text-gray-400">Nothing matches “{{ query }}”.</p>
+          <p v-else-if="filtering" class="text-gray-500 dark:text-gray-400">
+            Nothing matches “{{ query }}”.
+          </p>
+          <p v-else class="text-gray-500 dark:text-gray-400">Every {{ noun }} is archived.</p>
         </template>
 
         <Message v-if="actionError" severity="error" :closable="false">{{ actionError }}</Message>

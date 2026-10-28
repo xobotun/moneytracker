@@ -6,7 +6,13 @@ import { badgeFace } from '@/icons/face'
 import { badgeElement } from '@/icons/badgeElement'
 import type { UUID } from '@/db/uuid'
 import { useImagesStore } from '@/stores/images'
-import { circleStyle, idsByName, inseparableAtMaxZoom, type MapLocation } from '@/tags/locationsMap'
+import {
+  ARCHIVED_OPACITY,
+  circleStyle,
+  idsByName,
+  inseparableAtMaxZoom,
+  type MapLocation,
+} from '@/tags/locationsMap'
 import { createOsmMap, loadLeaflet, loadMarkerClusters, type LeafletModule } from './osm'
 
 /**
@@ -75,9 +81,14 @@ function plainText(text: string): HTMLElement {
 
 function iconMarker(location: MapLocation, at: Leaflet.LatLng): Leaflet.Marker {
   const { id, name } = location.tag
-  const marker = L!.marker(at, { icon: badgeIcon(location), keyboard: true })
+  const marker = L!.marker(at, {
+    icon: badgeIcon(location),
+    keyboard: true,
+    opacity: location.archived ? ARCHIVED_OPACITY : 1,
+  })
+  const label = location.archived ? `${name} (archived)` : name
   // Shown on hover and on keyboard focus.
-  marker.bindTooltip(() => plainText(name), { direction: 'top', offset: [0, -ICON_SIZE / 2] })
+  marker.bindTooltip(() => plainText(label), { direction: 'top', offset: [0, -ICON_SIZE / 2] })
   marker.on('click', () => emit('edit', id))
   marker.on('keypress', (event: Leaflet.LeafletKeyboardEvent) => {
     if (event.originalEvent.key === 'Enter') emit('edit', id)
@@ -129,7 +140,7 @@ function draw() {
         radius: location.radius,
         renderer,
         interactive: false, // a city's circle must not swallow taps on the stores in it
-        ...circleStyle(location.colour, location.autoMatch),
+        ...circleStyle(location.colour, location.autoMatch, location.archived),
       }),
     )
     iconLayers.push(iconMarker(location, at))

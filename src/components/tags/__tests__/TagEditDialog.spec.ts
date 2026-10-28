@@ -12,6 +12,8 @@ import { TagDetailsRepository } from '@/db/repositories/TagDetailsRepository'
 import type { Tag, TagKind } from '@/db/types'
 import type { ShortId } from '@/db/shortId'
 import { DERIVED_CLASS } from '@/components/derived'
+import { formatDay } from '@/format/date'
+import { todayLocal } from '@/money/dates'
 import { useTagsStore } from '@/stores/tags'
 import TagEditDialog from '../TagEditDialog.vue'
 import { button, choose, input, optionsOf, pageText, settle, stubBrowser, type } from './dom'
@@ -469,6 +471,123 @@ describe('TagEditDialog', () => {
     button('Delete Food').click()
     await settle()
     expect(text()).toContain('Its sub-categories move up one level.')
+  })
+
+  describe('archive', () => {
+    it('archives from the footer and closes, with no confirmation', async () => {
+      const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      const w = await open('merchant', rewe)
+      expect(document.querySelector('[data-archived-note]')).toBeNull()
+      expect(() => button('Unarchive Rewe')).toThrow()
+      const archive = button('Archive Rewe')
+      expect(archive.textContent?.trim()).toBe('Archive')
+      expect(archive.querySelector('.pi-inbox')).not.toBeNull()
+      // The label hides on narrow screens, like the other footer buttons.
+      expect(archive.querySelector('.p-button-label')!.className).toContain('hidden sm:inline')
+      archive.click()
+      await settle()
+      expect((await tagsRepo.findById(rewe.id))!.archived_at_utc).not.toBeNull()
+      expect(w.emitted('update:visible')).toEqual([[false]])
+    })
+
+    it('says when an archived tag was archived, and unarchives it', async () => {
+      const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      await tagsRepo.archive(rewe.id)
+      const archived = (await tagsRepo.findById(rewe.id))!
+      const w = await open('merchant', archived)
+      const day = formatDay(todayLocal(archived.archived_at_utc!))
+      expect(document.querySelector('[data-archived-note]')!.textContent).toContain(
+        `Archived on ${day}: no longer offered in pickers.`,
+      )
+      expect(() => button('Archive Rewe')).toThrow()
+      button('Unarchive Rewe').click()
+      await settle()
+      expect((await tagsRepo.findById(rewe.id))!.archived_at_utc).toBeNull()
+      expect(w.emitted('update:visible')).toEqual([[false]])
+    })
+
+    it('has no archive button for a new tag', async () => {
+      await open('merchant', null)
+      expect(pageText()).not.toContain('Archive')
+    })
+
+    it('does not offer archived tags as a parent or a link', async () => {
+      await tagsRepo.create({ kind: 'category', name: 'Food' })
+      const old = await tagsRepo.create({ kind: 'category', name: 'Baby food' })
+      await tagsRepo.archive(old.id)
+      await tagsRepo.create({ kind: 'merchant', name: 'Edeka' })
+      const closed = await tagsRepo.create({ kind: 'merchant', name: "Kaiser's" })
+      await tagsRepo.archive(closed.id)
+
+      await open('category', null)
+      expect((await optionsOf('tag-parent')).map((o) => o.textContent?.trim())).toEqual([
+        'None (top level)',
+        'Food',
+      ])
+      wrapper!.unmount()
+      document.body.innerHTML = ''
+
+      await open('merchant', null)
+      expect((await optionsOf('tag-default-category')).map((o) => o.textContent?.trim())).toEqual([
+        'None',
+        'Food',
+      ])
+      wrapper!.unmount()
+      document.body.innerHTML = ''
+
+      await open('location', null)
+      expect((await optionsOf('tag-merchant')).map((o) => o.textContent?.trim())).toEqual([
+        'None',
+        'Edeka',
+      ])
+    })
+
+    it('keeps a link to an archived tag, labelled so, and saves it', async () => {
+      const closed = await tagsRepo.create({ kind: 'merchant', name: "Kaiser's" })
+      const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
+      await detailsRepo.setLocation(shop.id, {
+        address: null,
+        latitude: null,
+        longitude: null,
+        merchant_id: closed.id,
+      })
+      await tagsRepo.archive(closed.id)
+      await open('location', shop)
+      expect(text()).toContain("Kaiser's (archived)")
+      await type('tag-address', 'Weg 2')
+      await save()
+      expect(await detailsRepo.getLocation(shop.id)).toMatchObject({
+        address: 'Weg 2',
+        merchant_id: closed.id,
+      })
+    })
+
+    it('keeps an archived parent, labelled so, for a child and a new child', async () => {
+      const summer = await tagsRepo.create({ kind: 'journey', name: 'Summer' })
+      const lisbon = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Lisbon',
+        parent_id: summer.id,
+      })
+      await tagsRepo.archive(summer.id)
+
+      await open('journey', lisbon)
+      const parent = input('tag-parent').closest('.p-select')!
+      expect(parent.textContent?.trim()).toBe('Summer (archived)')
+      await type('tag-name', 'Lisboa')
+      await save()
+      expect(await tagsRepo.findById(lisbon.id)).toMatchObject({
+        name: 'Lisboa',
+        parent_id: summer.id,
+      })
+      wrapper!.unmount()
+      document.body.innerHTML = ''
+
+      await open('journey', null, summer.id)
+      await type('tag-name', 'Porto')
+      await save('Add journey')
+      expect((await tagsRepo.findByName('journey', 'Porto'))!.parent_id).toBe(summer.id)
+    })
   })
 
   it('offers a merge instead of deleting a category in use', async () => {

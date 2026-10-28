@@ -152,7 +152,11 @@ export interface TagOption extends TagLook {
   label: string
 }
 
-/** The live tags of `kind` other than `exclude` for a picker, labelled by their path, sorted by it. */
+/**
+ * The live, active tags of `kind` other than `exclude` for a picker, labelled
+ * by their path, sorted by it. Archived tags are not offered; a picker that
+ * already holds one adds it itself (see `heldOption`).
+ */
 export function tagOptions(
   tags: readonly Tag[],
   kind: TagKind,
@@ -160,9 +164,33 @@ export function tagOptions(
 ): TagOption[] {
   const byId = new Map(tags.map((t) => [t.id, t]))
   return tags
-    .filter((t) => t.kind === kind && t.deleted_at_utc === null && !exclude.has(t.id))
+    .filter(
+      (t) =>
+        t.kind === kind &&
+        t.deleted_at_utc === null &&
+        t.archived_at_utc === null &&
+        !exclude.has(t.id),
+    )
     .map((t) => {
       return { id: t.id, label: pathLabel(tagPath(t, byId)), ...effectiveLook(t, byId) }
     })
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+}
+
+/** Why a tag is not offered in pickers: deleted, archived, or null when it is offered. */
+export function unofferedState(tag: Tag): 'deleted' | 'archived' | null {
+  if (tag.deleted_at_utc !== null) return 'deleted'
+  return tag.archived_at_utc !== null ? 'archived' : null
+}
+
+/**
+ * The option for a tag a picker already holds but does not offer, so it
+ * stays shown (and saving keeps it): "Rewe (deleted)", "Rewe (archived)".
+ * Null for no tag, an unknown id, or a tag `tagOptions` offers anyway.
+ */
+export function heldOption(id: ShortId | null, byId: ReadonlyMap<ShortId, Tag>): TagOption | null {
+  const tag = id === null ? undefined : byId.get(id)
+  const state = tag ? unofferedState(tag) : null
+  if (!tag || state === null) return null
+  return { id: tag.id, label: `${tag.name} (${state})`, ...effectiveLook(tag, byId) }
 }

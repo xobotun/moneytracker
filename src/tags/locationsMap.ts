@@ -21,12 +21,15 @@ export interface MapLocation {
   /** Drawn when `icon` cannot be. */
   fallback: SetIcon
   autoMatch: boolean
+  /** Shown only on request, and drawn faint. */
+  archived: boolean
 }
 
 /**
  * The live locations that pass `matches` and have a position, largest circle
  * first (so the map draws the small ones on top), and how many of them have
- * no position. One pass over the tags; each look is read from a map built once.
+ * no position. One pass over the tags; each look is read from a map built
+ * once. Whether archived ones show is up to `matches`.
  */
 export function mapLocations(
   tags: readonly Tag[],
@@ -53,23 +56,28 @@ export function mapLocations(
       icon,
       fallback,
       autoMatch: details.auto_match !== false,
+      archived: tag.archived_at_utc !== null,
     })
   }
   shown.sort((a, b) => b.radius - a.radius)
   return { shown, unplaced }
 }
 
+/** How faint an archived location is drawn: the opacity of its icon. */
+export const ARCHIVED_OPACITY = 0.5
+
 /**
  * How a location's circle is drawn: its tag's colour, the fill nearly clear so
- * the map shows through nested places, dashed when it is not matched automatically.
+ * the map shows through nested places, dashed when it is not matched
+ * automatically, fainter when archived.
  */
-export function circleStyle(colour: string, autoMatch: boolean): PathOptions {
+export function circleStyle(colour: string, autoMatch: boolean, archived = false): PathOptions {
   return {
     color: colour,
     weight: 1.5,
-    opacity: 0.9,
+    opacity: archived ? 0.9 * ARCHIVED_OPACITY : 0.9,
     fillColor: colour,
-    fillOpacity: 0.1,
+    fillOpacity: archived ? 0.1 * ARCHIVED_OPACITY : 0.1,
     ...(autoMatch ? {} : { dashArray: '6 4' }),
   }
 }
