@@ -356,12 +356,17 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - One badge for every kind (`IconBadge.vue`; `badgeElement.ts` for the map pins): rows, chips, picker options, dialogs, the Accounts page, the map and its pick list
 - The icon dialog (`IconDialog.vue`, opened from the "all icons" tile of `IconPicker`; full screen on a phone) with four tabs, opening on the current icon's: Icons (every installed pack, searchable), Emoji (emoji-picker-element, loaded when the tab opens; its data bundled and precached), Text (a word in a system font, bold or not, its own text and background colours with Resets, previewed at badge sizes; `wordSvg.ts`), Image (a file: SVG cleaned with DOMPurify and kept vector, a warning over 100 KB, refused over 1 MB; raster scaled to fit 256 × 256; `upload.ts`, `svgClean.ts`, `raster.ts`)
 
+### Archive (ideas, must-haves 1 and 2)
+
+- Synced `tags.archived_at_utc` and `accounts.archived_at_utc` (NULL = active; `002` edited in place). `archive` / `unarchive` in `TagsRepository` and `AccountsRepository`: live rows only, stamp `updated_at_utc`, a repeat changes nothing. A sync test covers both backends and a transaction recorded offline with an archived category and account (`cornerCases/archive.spec.ts`)
+- **A tag**: still live — on its transactions and accounts, in reports, found by name (typing it on an account reuses it), its names taken, a parent, a merge source or target (a merged-into tag stays archived). Not offered: `tagOptions` leaves it out (the "Under" picker, merchant and default-category pickers, the merge target), the map leaves it out, `nearestLocations` never matches it (a closed shop). A picker that already holds one shows "<name> (archived)" (`heldOption`, like "(deleted)")
+- Tags page: archived tags leave the tree, except as the faint parent of active ones, marked "Archived"; "Show archived <kind> (N)" per tab lists them all, faint and marked; the filter and the map follow it ("Every merchant is archived." when nothing else is left). Edit dialog: Archive (or Unarchive) in the footer, no confirmation, closes the dialog; an archived tag's dialog says "Archived on <date>: no longer offered in pickers."
+- **An account**: out of its group's block, the page and group totals and reorder mode; listed in a collapsed "Archived accounts (N)" section at the bottom with each balance and the section's own total. It keeps its group and place, so unarchiving puts it back. Account dialog: Archive / Unarchive next to Delete; one that still holds money asks first, inline ("It still holds €12.50. Archive it anyway?", from the cached balance). Store: `active`, `archived`, `archive`, `unarchive`
+
 ## To Do
 
 ### Tags and accounts — next (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
 
-- **Archive a tag** (ideas, must-have 1): stays on its transactions and in reports, leaves every picker and the tree; "Show archived" lists them faint; Archive / Unarchive in the edit dialog. Synced `tags.archived_at_utc`
-- **Archive an account** (must-have 2, named Archive, not Close): moves to a collapsed "Archived" section at the bottom, out of the page and group totals (the section shows its own); archiving one that still holds money asks first. Synced `accounts.archived_at_utc`
 - **The most specific place wins** (must-have 5): `nearestLocations` ranks the circles that contain the position by radius, smallest first, equal radii by the nearer centre; the circles that don't contain it follow, by distance to their edge
 - **Journeys** (must-have 7, reworked, and 8):
     - a journey currency (`journey_details.currency`), inherited down the tree like the look
@@ -395,6 +400,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Dual-currency input (account currency + purchase currency)
     - Amounts show the currency symbol where one exists (`currencySymbol`: $, €, ₽), the code otherwise; lists of accounts keep the code
     - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc, §2.4: a negative part warns; whether the rate warning shows next to the sum warning is decided with this view's design)
+    - Account pickers leave out archived accounts (`useAccountsStore().active`); an edited transaction keeps one it already has, marked "(archived)". Tag pickers already leave out archived tags (`tagOptions`, `heldOption`)
     - Merchant, location and journey fields (merchant hidden on income and transfers by default); #tag picker with autocomplete (a synonym finds the tag, the main name is shown)
     - Date/time + timezone picker; date-override field
     - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position. A location with `auto_match` off is offered nearby but never filled in; distances count from the location's circle edge (`nearestLocations`)
