@@ -82,6 +82,8 @@ export function byJourneyDate(
  * `tree` whose dates (typed or derived) hold today — a start on or before
  * it, and no end or one on or after it. The deepest such one wins (the most
  * specific: Tbilisi inside Georgia), then the one that started later, then
+ * the one that ends later (no end: still open, the latest) — so a journey
+ * continued on the day it started gives way to the one continuing it — then
  * by name and id. Null when there is none.
  */
 export function currentJourney(
@@ -89,20 +91,24 @@ export function currentJourney(
   dates: ReadonlyMap<ShortId, Pick<JourneyDates, 'start' | 'end'>>,
   today: string,
 ): Tag | null {
-  const underWay: { tag: Tag; depth: number; start: string }[] = []
+  const underWay: { tag: Tag; depth: number; start: string; end: string | null }[] = []
   const visit = (nodes: readonly TagNode[], depth: number) => {
     for (const { tag, children } of nodes) {
       const d = dates.get(tag.id)
       const holdsToday = !!d?.start && d.start <= today && (d.end === null || d.end >= today)
-      if (holdsToday && tag.archived_at_utc === null) underWay.push({ tag, depth, start: d.start! })
+      if (holdsToday && tag.archived_at_utc === null) {
+        underWay.push({ tag, depth, start: d.start!, end: d.end })
+      }
       visit(children, depth + 1)
     }
   }
   visit(tree, 0)
+  // Later first; no end counts as the latest.
+  const later = (a: string | null, b: string | null) =>
+    a === b ? 0 : a === null ? -1 : b === null ? 1 : a < b ? 1 : -1
   underWay.sort(
     (a, b) =>
-      b.depth - a.depth ||
-      (a.start === b.start ? byName(a.tag, b.tag) : a.start < b.start ? 1 : -1),
+      b.depth - a.depth || later(a.start, b.start) || later(a.end, b.end) || byName(a.tag, b.tag),
   )
   return underWay[0]?.tag ?? null
 }

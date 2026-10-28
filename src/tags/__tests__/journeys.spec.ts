@@ -147,7 +147,7 @@ describe('currentJourney', () => {
     expect(current(tags, dates)).toBe('tbilisi')
   })
 
-  it('among equally deep ones, the one that started later, then by name and id', () => {
+  it('among equally deep ones, the one that started later, then ends later, then by name and id', () => {
     const tags = [
       journey('trip'),
       journey('old', 'trip'),
@@ -166,6 +166,11 @@ describe('currentJourney', () => {
         }),
       ),
     ).toBe('new')
+    // Continued on the day it started: the one that ends today gives way.
+    expect(current(tags, span({ old: [TODAY, TODAY], new: [TODAY, null] }))).toBe('new')
+    expect(current(tags, span({ old: [TODAY, '2026-11-02'], new: [TODAY, '2026-11-01'] }))).toBe(
+      'old',
+    )
     expect(current(tags, span({ b2: [TODAY, null], b1: [TODAY, null], new: [TODAY, null] }))).toBe(
       'b1',
     )
