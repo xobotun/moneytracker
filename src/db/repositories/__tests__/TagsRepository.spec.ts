@@ -658,6 +658,106 @@ describe('TagsRepository', () => {
     expect(await repo.usageCount(unused.id)).toBe(0)
   })
 
+  describe('archive', () => {
+    it('stamps archived_at_utc and updated_at_utc, and unarchive clears it', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(AT))
+        const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+        expect(rewe.archived_at_utc).toBeNull()
+
+        vi.setSystemTime(new Date('2026-10-02T00:00:00.000Z'))
+        await repo.archive(rewe.id)
+        expect(await repo.findById(rewe.id)).toMatchObject({
+          archived_at_utc: new Date('2026-10-02T00:00:00.000Z'),
+          updated_at_utc: new Date('2026-10-02T00:00:00.000Z'),
+          deleted_at_utc: null,
+        })
+
+        // Archiving again changes nothing, not even the stamps.
+        vi.setSystemTime(new Date('2026-10-03T00:00:00.000Z'))
+        await repo.archive(rewe.id)
+        expect((await repo.findById(rewe.id))!.updated_at_utc).toEqual(
+          new Date('2026-10-02T00:00:00.000Z'),
+        )
+
+        await repo.unarchive(rewe.id)
+        expect(await repo.findById(rewe.id)).toMatchObject({
+          archived_at_utc: null,
+          updated_at_utc: new Date('2026-10-03T00:00:00.000Z'),
+        })
+        vi.setSystemTime(new Date('2026-10-04T00:00:00.000Z'))
+        await repo.unarchive(rewe.id)
+        expect((await repo.findById(rewe.id))!.updated_at_utc).toEqual(
+          new Date('2026-10-03T00:00:00.000Z'),
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('takes live tags only', async () => {
+      const old = await repo.create({ kind: 'merchant', name: 'Old' })
+      await repo.softDelete(old.id)
+      await expect(repo.archive(old.id)).rejects.toThrow(DeletedTagError)
+      await expect(repo.unarchive(old.id)).rejects.toThrow(DeletedTagError)
+      await expect(repo.archive(asShortId('nowhere00000'))).rejects.toThrow(TagNotFoundError)
+    })
+
+    it('leaves the children as they are', async () => {
+      const summer = await repo.create({ kind: 'journey', name: 'Summer' })
+      const lisbon = await repo.create({ kind: 'journey', name: 'Lisbon', parent_id: summer.id })
+      await repo.archive(summer.id)
+      expect(await repo.findById(lisbon.id)).toMatchObject({
+        parent_id: summer.id,
+        archived_at_utc: null,
+      })
+    })
+
+    it('keeps an archived tag live: listed, found by name, its names taken, a parent', async () => {
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe', synonyms: ['REWE Markt'] })
+      await repo.archive(rewe.id)
+
+      expect((await repo.list('merchant')).map((t) => t.id)).toEqual([rewe.id])
+      expect((await repo.findByName('merchant', 'rewe'))!.id).toBe(rewe.id)
+      expect((await repo.findByName('merchant', 'rewe markt', null))!.id).toBe(rewe.id)
+      await expect(repo.create({ kind: 'merchant', name: 'REWE' })).rejects.toThrow(
+        DuplicateTagNameError,
+      )
+      const city = await repo.create({ kind: 'merchant', name: 'Rewe City', parent_id: rewe.id })
+      expect(city.parent_id).toBe(rewe.id)
+    })
+
+    it('stays on what uses it', async () => {
+      const work = await repo.create({ kind: 'tag', name: 'work' })
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      const acc = await wallet([work.id])
+      await spend(acc.id, food.id, { tags: [work.id] })
+      await repo.archive(work.id)
+      await repo.archive(food.id)
+      expect(await repo.usageCount(work.id)).toBe(2)
+      expect(await repo.usageCount(food.id)).toBe(1)
+      // A transaction may still be written with them.
+      await spend(acc.id, food.id, { tags: [work.id] })
+      expect(await repo.usageCount(food.id)).toBe(2)
+    })
+
+    it('merges into and out of an archived tag; the target stays archived', async () => {
+      const rewe = await repo.create({ kind: 'merchant', name: 'Rewe' })
+      const reweMarkt = await repo.create({ kind: 'merchant', name: 'Rewe Markt' })
+      const edeka = await repo.create({ kind: 'merchant', name: 'Edeka' })
+      await repo.archive(rewe.id)
+      await repo.archive(edeka.id)
+
+      await repo.merge(reweMarkt.id, rewe.id)
+      expect(await repo.findById(rewe.id)).toMatchObject({ synonyms: ['Rewe Markt'] })
+      expect((await repo.findById(rewe.id))!.archived_at_utc).not.toBeNull()
+
+      await repo.merge(edeka.id, rewe.id)
+      expect(await repo.findById(edeka.id)).toBeNull()
+    })
+  })
+
   describe('save', () => {
     let details: TagDetailsRepository
     beforeEach(() => {

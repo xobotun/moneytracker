@@ -41,6 +41,7 @@ export interface Tag {
   colour: string | null // null = inherited from the parent (see src/tags/look.ts)
   icon: Icon | null // null = inherited from the parent (see src/tags/look.ts)
   merged_into_id: ShortId | null // the tag this one was merged into (then also deleted); null = not merged
+  archived_at_utc: Date | null // when it was archived: still live (on its transactions, found by name), no longer offered in pickers; null = active
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null
@@ -100,6 +101,7 @@ export interface Account {
   icon: Icon
   grouping_id: ShortId | null // the account's group; null = shown below all groups
   sort_order: number // position within its group; set by create(), update() of grouping_id and arrange()
+  archived_at_utc: Date | null // when it was archived: out of the page and group totals, keeps its group and place; null = active
   created_at_utc: Date
   updated_at_utc: Date
   deleted_at_utc: Date | null

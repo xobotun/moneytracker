@@ -55,6 +55,7 @@ export type TagRow = {
   colour: string | null
   icon: string | null
   merged_into_id: string | null
+  archived_at_utc: string | null
   created_at_utc: string
   updated_at_utc: string
   deleted_at_utc: string | null
@@ -106,6 +107,7 @@ export function rowToTag(row: TagRow): Tag {
     colour: row.colour,
     icon: iconFromNullableColumn(row.icon),
     merged_into_id: shortIdFromNullableColumn(row.merged_into_id),
+    archived_at_utc: instantFromNullableColumn(row.archived_at_utc),
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
     deleted_at_utc: instantFromNullableColumn(row.deleted_at_utc),
@@ -629,6 +631,34 @@ export class TagsRepository {
          WHERE id = ?`,
         [targetId, now, now, sourceId],
       )
+    })
+  }
+
+  /**
+   * Archives the live tag: pickers stop offering it, and the Tags page lists
+   * it only on request. It stays live — on its transactions and accounts, in
+   * reports, found by name, a merge source or target — and its children stay
+   * as they are. Archiving an archived tag changes nothing.
+   */
+  async archive(id: ShortId): Promise<void> {
+    await this.setArchived(id, true)
+  }
+
+  /** Offers the live tag in pickers again. Unarchiving an active tag changes nothing. */
+  async unarchive(id: ShortId): Promise<void> {
+    await this.setArchived(id, false)
+  }
+
+  private async setArchived(id: ShortId, archived: boolean): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      const tag = await liveTagOrThrow(tx, id, 'Tag')
+      if ((tag.archived_at_utc !== null) === archived) return
+      await tx.run('UPDATE tags SET archived_at_utc = ?, updated_at_utc = ? WHERE id = ?', [
+        archived ? now : null,
+        now,
+        id,
+      ])
     })
   }
 

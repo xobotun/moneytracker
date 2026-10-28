@@ -43,6 +43,7 @@ export const migration: Migration = {
       colour          TEXT,                                              -- NULL = inherited from the parent
       icon            TEXT CHECK (icon IS NULL OR json_valid(icon)),     -- JSON object: the icon (src/icons/types.ts); NULL = inherited from the parent
       merged_into_id  TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of the tag this one was merged into (set with deleted_at_utc); NULL = not merged
+      archived_at_utc TEXT,                                              -- ISO 8601 UTC instant: no longer offered in pickers, still live; NULL = active
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT,                                              -- ISO 8601 UTC instant; NULL = live
@@ -106,6 +107,7 @@ export const migration: Migration = {
       icon            TEXT NOT NULL CHECK (json_valid(icon)),            -- JSON object: the icon (src/icons/types.ts)
       grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- short id; NULL = not in a group
       sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position within its group (or among ungrouped accounts), ascending; ties by name
+      archived_at_utc TEXT,                                              -- ISO 8601 UTC instant: out of the totals, keeps its group and place; NULL = active
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live

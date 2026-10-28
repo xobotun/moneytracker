@@ -240,6 +240,16 @@ describe('TagDetailsRepository', () => {
     expect((await repo.nearestLocations(BASE.lat, BASE.lon, 500, 10)).map((f) => f.tag.id)).toEqual(
       [near.id, middle.id, far.id],
     )
+
+    // An archived place (a shop that closed) is never matched, until unarchived.
+    await tags.archive(near.id)
+    expect((await repo.nearestLocations(BASE.lat, BASE.lon, 150, 10)).map((f) => f.tag.id)).toEqual(
+      [middle.id],
+    )
+    await tags.unarchive(near.id)
+    expect((await repo.nearestLocations(BASE.lat, BASE.lon, 150, 10)).map((f) => f.tag.id)).toEqual(
+      [near.id, middle.id],
+    )
   })
 
   /**

@@ -527,8 +527,9 @@ export class TagDetailsRepository {
    * nearest first, at most `limit`. A distance counts to the edge of the
    * location's circle (its own radius), 0 inside it, so a big place matches
    * from anywhere in it. `autoMatch` false: the form offers it among the
-   * nearby ones but never fills it in by itself (a weekly market). Distances are computed here over all of them: the
-   * set of known locations is small.
+   * nearby ones but never fills it in by itself (a weekly market). An
+   * archived location (a shop that closed) is never matched. Distances are
+   * computed here over all of them: the set of known locations is small.
    */
   async nearestLocations(
     lat: number,
@@ -542,8 +543,8 @@ export class TagDetailsRepository {
       `SELECT t.*, d.latitude AS latitude, d.longitude AS longitude, d.radius_metres AS radius_metres,
               d.auto_match AS auto_match
        FROM tags t JOIN location_details d ON d.tag_id = t.id
-       WHERE t.kind = 'location' AND t.deleted_at_utc IS NULL AND d.deleted_at_utc IS NULL
-         AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL`,
+       WHERE t.kind = 'location' AND t.deleted_at_utc IS NULL AND t.archived_at_utc IS NULL
+         AND d.deleted_at_utc IS NULL AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL`,
     )
     return rows
       .map((row) => ({

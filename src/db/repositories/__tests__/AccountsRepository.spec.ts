@@ -291,6 +291,61 @@ describe('AccountsRepository', () => {
     expect(list).toHaveLength(0)
   })
 
+  describe('archive', () => {
+    async function card(grouping_id: ShortId | null = null) {
+      return repo.create({
+        name: 'Card',
+        balance: moneyAmount(1000, 2, 'USD'),
+        tags: [],
+        location_id: null,
+        grouping_id,
+        colour: '#000',
+        icon: primeIcon('credit-card'),
+      })
+    }
+
+    it('stamps archived_at_utc and updated_at_utc, keeping the group and place', async () => {
+      const trip = await groupings.create({ name: 'Trip', colour: '#000', icon: primeIcon('car') })
+      const account = await card(trip.id)
+      expect(account.archived_at_utc).toBeNull()
+
+      await repo.archive(account.id)
+      const archived = (await repo.findById(account.id))!
+      expect(archived.archived_at_utc).not.toBeNull()
+      expect(archived.updated_at_utc).toEqual(archived.archived_at_utc)
+      expect(archived).toMatchObject({ grouping_id: trip.id, sort_order: 0 })
+      expect(archived.balance.value).toBe(1000)
+      // Still listed: the store sets it apart.
+      expect((await repo.list()).map((a) => a.id)).toEqual([account.id])
+
+      await repo.unarchive(account.id)
+      expect(await repo.findById(account.id)).toMatchObject({
+        archived_at_utc: null,
+        grouping_id: trip.id,
+        sort_order: 0,
+      })
+    })
+
+    it('changes nothing when it is already in that state', async () => {
+      const account = await card()
+      await repo.unarchive(account.id)
+      expect((await repo.findById(account.id))!.updated_at_utc).toEqual(account.updated_at_utc)
+
+      await repo.archive(account.id)
+      const once = (await repo.findById(account.id))!
+      await new Promise((r) => setTimeout(r, 5))
+      await repo.archive(account.id)
+      expect(await repo.findById(account.id)).toEqual(once)
+    })
+
+    it('takes live accounts only', async () => {
+      const account = await card()
+      await repo.softDelete(account.id)
+      await expect(repo.archive(account.id)).rejects.toThrow(/deleted/)
+      await expect(repo.archive(asShortId('nowhere00000'))).rejects.toThrow(/not found/)
+    })
+  })
+
   describe('order and groups (grouping_id, sort_order)', () => {
     function createNamed(name: string, grouping_id: ShortId | null = null) {
       return repo.create({

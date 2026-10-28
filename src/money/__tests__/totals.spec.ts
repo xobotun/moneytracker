@@ -21,6 +21,7 @@ function account(balance: MoneyAmount): Account {
     icon: primeIcon('wallet'),
     grouping_id: null,
     sort_order: n,
+    archived_at_utc: null,
     created_at_utc: new Date(),
     updated_at_utc: new Date(),
     deleted_at_utc: null,

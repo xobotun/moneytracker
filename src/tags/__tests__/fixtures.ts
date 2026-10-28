@@ -17,6 +17,7 @@ export function tag(id: string, over: Partial<Tag> = {}): Tag {
     colour: null,
     icon: null,
     merged_into_id: null,
+    archived_at_utc: null,
     created_at_utc: AT,
     updated_at_utc: AT,
     deleted_at_utc: null,

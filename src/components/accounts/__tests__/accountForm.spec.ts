@@ -32,6 +32,7 @@ function account(over: Partial<Account> = {}): Account {
     icon: primeIcon('wallet'),
     grouping_id: null,
     sort_order: 0,
+    archived_at_utc: null,
     created_at_utc: new Date('2026-10-01T00:00:00Z'),
     updated_at_utc: new Date('2026-10-01T00:00:00Z'),
     deleted_at_utc: null,
