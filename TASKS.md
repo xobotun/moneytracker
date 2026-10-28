@@ -371,7 +371,11 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 - **Journeys** (must-have 7, reworked, and 8):
     - a journey currency (`journey_details.currency`), inherited down the tree like the look
     - the Journeys tab sorts by date, newest first, undated ones on top; all journeys' dates in one query
-    - the current journey (today within its dates; the deepest such) shown at the top of the tab, with "Next journey": the standard new-journey dialog as its sibling, starting today; saving sets the current one's end to today and, when it has no parent, first makes one named after the months it spans ("Jul–Oct 2026", "Dec 2025–Jan 2026") with the current journey's colour, icon and currency, and moves it under it — all in one transaction; cancelling changes nothing
+    - the current journey (today within its dates; the deepest such) shown at the top of the tab, with "Continue journey": the standard new-journey dialog as its sibling, starting today; saving sets the current one's end to today and, when it has no parent, first makes one named after the months it spans ("Jul–Oct 2026", "Dec 2025–Jan 2026") with the current journey's colour, icon and currency, and moves it under it — all in one transaction; cancelling changes nothing
+- **Rename keeps the old name** (nice-to-have 4): renaming offers "Keep '<old>' as another name", on by default, off when the change looks like a typo fix (one or two letters)
+- **A merchant's stores through the Locations filter** (nice-to-have 6): a merchant's name or other name typed in the Locations filter also finds the locations linked to it (list and map)
+- **Hide amounts** (nice-to-have 8): a device setting; one component draws every read-only money amount, blurred while the setting is on until tapped (until leaving the page)
+- **"Show by currency" on the Accounts page** (nice-to-have 9): a temporary toggle (eye icon, not kept when leaving the page) that groups accounts by currency, cash and bank counted separately but side by side, each row keeping its group's name
 
 ### Domain model gaps
 
@@ -405,6 +409,9 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Date/time + timezone picker; date-override field
     - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position. A location with `auto_match` off is offered nearby but never filled in; distances count from the location's circle edge (`nearestLocations`)
     - On a journey (the device is enrolled in one): expenses and income (not transfers) are offered in the journey's currency (`journey_details.currency`, inherited down the tree)
+    - Offer to join an ongoing journey (one another device started) once; after that, joining is done on the Journeys page. No automatic new journeys (ideas, nice-to-have 13)
+    - Search for a place or an address on the location map (OSM Nominatim or Photon; online only) (nice-to-have 5)
+    - From a tag or an account row, its transactions — through the transactions UI's own filtering UI (nice-to-have 2)
     - The time zone comes from the phone (the OS knows it); no zone per location or country
     - "On a journey" switch (per device): start a new journey or join an ongoing / recent one
     - Typed vs. derived values (the UI rule in CLAUDE.md)
@@ -537,6 +544,11 @@ Known sync defects, postponed (review 2026-10-18):
 - **Check a balance against the bank, and correct it** (ideas, must-have 4): type what the bank shows, record a correction for the difference; also gives opening balances without counting them as income (needs a category kind that reports leave out)
 - **Probable duplicates** (must-have 6): same names after folding case, accents and punctuation at any level, nearby locations with similar names. Wait for real data
 - **Forgiving search** (must-have 9): ignore accents and punctuation; also match addresses and descriptions
+- **Usage counts and "last used" per tag** (nice-to-have 1): beware false positives — a trip two years ago with another planned does not make its merchants obsolete
+- **Select several tags: merge, move or archive at once** (nice-to-have 3): low priority
+- **Category from the place and from history** (nice-to-have 7): after real data
+- **Small Tags page comforts** (nice-to-have 15): "Add 'Kaufland'" from a filter with no match, collapsed branches kept per device, Collapse all / Expand all, …
+- **Starter categories** (nice-to-have 14): migration 003 with deterministic ids, once Pavel and his wife agree the list
 
 ### Polish & operational gaps
 
