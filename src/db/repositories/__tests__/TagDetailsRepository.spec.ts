@@ -517,6 +517,71 @@ describe('TagDetailsRepository', () => {
     expect(inside!.metres).toBe(0)
   })
 
+  describe('nearestLocations ranks the most specific place first', () => {
+    async function circle(
+      name: string,
+      metresNorth: number,
+      radius: number,
+      parent: ShortId | null = null,
+    ) {
+      const tag = await tags.create({ kind: 'location', name, parent_id: parent })
+      await repo.setLocation(tag.id, {
+        address: null,
+        latitude: north(metresNorth),
+        longitude: BASE.lon,
+        merchant_id: null,
+        radius_metres: radius,
+      })
+      return tag
+    }
+    const ids = async (metresNorth: number, limit = 10) =>
+      (await repo.nearestLocations(north(metresNorth), BASE.lon, 150, limit)).map((f) => f.tag.id)
+
+    it('the store before the city around it', async () => {
+      const berlin = await circle('Berlin', 0, 9000)
+      const rewe = await circle('Rewe Alexanderplatz', 1000, 25)
+      // At the till: inside both circles, both 0 m away.
+      const found = await repo.nearestLocations(north(1010), BASE.lon, 150, 10)
+      expect(found.map((f) => f.tag.id)).toEqual([rewe.id, berlin.id])
+      expect(found.map((f) => f.metres)).toEqual([0, 0])
+      expect(await ids(1010, 1)).toEqual([rewe.id])
+    })
+
+    it('a circle that contains the point before a nearer one that does not', async () => {
+      const berlin = await circle('Berlin', 0, 9000)
+      const rewe = await circle('Rewe Alexanderplatz', 1000, 25)
+      // 5 m outside Rewe's circle: still in Berlin, which comes first.
+      const found = await repo.nearestLocations(north(1030), BASE.lon, 150, 10)
+      expect(found.map((f) => f.tag.id)).toEqual([berlin.id, rewe.id])
+      expect(found[1]!.metres).toBeCloseTo(5, 0)
+    })
+
+    it('equal containing radii by the nearer centre, whatever the names', async () => {
+      const farther = await circle('Alpha', 1030, 50)
+      const nearer = await circle('Zeta', 990, 50)
+      expect(await ids(1000)).toEqual([nearer.id, farther.id])
+    })
+
+    it('the circles outside by distance to their edge', async () => {
+      const big = await circle('Big', 1300, 200) // edge 100 m away
+      const small = await circle('Small', 1060, 10) // edge 50 m away
+      expect(await ids(1000)).toEqual([small.id, big.id])
+    })
+
+    it('exact ties by name, then id, the same on every device', async () => {
+      // Same names under two unplaced parents, where they are allowed.
+      const one = (await tags.create({ kind: 'location', name: 'One' })).id
+      const two = (await tags.create({ kind: 'location', name: 'Two' })).id
+      const b = await circle('b', 1000, 30, one)
+      const upper = await circle('B', 1000, 30, two)
+      const a1 = await circle('a', 1000, 30, one)
+      const a2 = await circle('a', 1000, 30, two)
+      const [first, second] = a1.id < a2.id ? [a1, a2] : [a2, a1]
+      // Plain text order (upper case first), not the device's locale.
+      expect(await ids(1000)).toEqual([upper.id, first.id, second.id, b.id])
+    })
+  })
+
   it('stores whether a location matches transactions automatically, on by default', async () => {
     const market = await tags.create({ kind: 'location', name: 'Market' })
     const at = { address: null, latitude: north(20), longitude: BASE.lon, merchant_id: null }

@@ -523,10 +523,14 @@ export class TagDetailsRepository {
   }
 
   /**
-   * Live locations with coordinates within `radiusMetres` of the point,
-   * nearest first, at most `limit`. A distance counts to the edge of the
-   * location's circle (its own radius), 0 inside it, so a big place matches
-   * from anywhere in it. `autoMatch` false: the form offers it among the
+   * Live locations with coordinates within `radiusMetres` of the point, at
+   * most `limit`, the most specific place first. A distance (`metres`) counts
+   * to the edge of the location's circle (its own radius), 0 inside it, so a
+   * big place matches from anywhere in it. The circles that contain the point
+   * come first, the smallest first (a store before the city around it), equal
+   * radii by the nearer centre; then the others by distance to their edge.
+   * Ties after that go by name, then id, compared as plain text so every
+   * device ranks alike. `autoMatch` false: the form offers it among the
    * nearby ones but never fills it in by itself (a weekly market). An
    * archived location (a shop that closed) is never matched. Distances are
    * computed here over all of them: the set of known locations is small.
@@ -546,17 +550,28 @@ export class TagDetailsRepository {
        WHERE t.kind = 'location' AND t.deleted_at_utc IS NULL AND t.archived_at_utc IS NULL
          AND d.deleted_at_utc IS NULL AND d.latitude IS NOT NULL AND d.longitude IS NOT NULL`,
     )
+    const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
     return rows
-      .map((row) => ({
-        tag: rowToTag(row),
-        metres: Math.max(
-          0,
-          haversineMetres(lat, lon, row.latitude, row.longitude) - row.radius_metres,
-        ),
-        autoMatch: booleanFromColumn(row.auto_match),
-      }))
+      .map((row) => {
+        const centre = haversineMetres(lat, lon, row.latitude, row.longitude)
+        return {
+          tag: rowToTag(row),
+          metres: Math.max(0, centre - row.radius_metres),
+          autoMatch: booleanFromColumn(row.auto_match),
+          inside: centre <= row.radius_metres,
+          centre,
+          radius: row.radius_metres,
+        }
+      })
       .filter((found) => found.metres <= radiusMetres)
-      .sort((a, b) => a.metres - b.metres)
+      .sort(
+        (a, b) =>
+          Number(b.inside) - Number(a.inside) ||
+          (a.inside ? a.radius - b.radius || a.centre - b.centre : a.metres - b.metres) ||
+          text(a.tag.name, b.tag.name) ||
+          text(a.tag.id, b.tag.id),
+      )
       .slice(0, limit)
+      .map(({ tag, metres, autoMatch }) => ({ tag, metres, autoMatch }))
   }
 }
