@@ -36,7 +36,7 @@ So drawing knows three kinds only. **A word is an image:** the Text tab makes an
 - A synced `images` table holds them: `id` (a UUIDv5 of the content's SHA-256, so the same logo added on two devices is one row, and twenty stores share it), the media type, the content, its size, `source` (JSON: the Text tab's settings for a word; NULL for an upload), and the sync columns. Rows never change; a new picture is a new row.
 - **A word** is an SVG the app writes itself (the text escaped), stored like an uploaded SVG and cleaned the same way.
 - **Raster pictures** (PNG, JPEG, WebP, …) are scaled down on the device to fit 256×256, keeping their proportions on a transparent background, and stored as WebP.
-- **SVG stays vector**, made safe three ways: on upload it is cleaned (DOMPurify with the SVG profile: no scripts, event handlers, `foreignObject` or external references); it is only ever drawn as an image (`<img>` / data URL), where browsers run no scripts and load nothing; and an upload over about 100 KB is refused.
+- **SVG stays vector**, made safe three ways: on upload it is cleaned (DOMPurify with the SVG profile: no scripts, event handlers, `foreignObject` or external references); it is only ever drawn as an image (`<img>` / data URL), where browsers run no scripts and load nothing. An SVG over 100 KB (after cleaning) shows a warning — every device syncs it — with a "Use it anyway" button; only one over 1 MB is refused.
 - Images load by id on demand and are cached for the session; a badge whose image is missing (not synced yet) draws the kind's default icon.
 
 ---
@@ -59,7 +59,7 @@ One badge component draws every kind everywhere: rows, chips, picker options, di
   - **Icons** — one per installed pack, searchable (today's list).
   - **Emoji** — a full, searchable emoji picker library, loaded only when the tab opens, with its emoji data bundled with the app (not fetched from a CDN), so it works offline.
   - **Text** — the text, the font, bold, the text colour and the background colour, with a live preview; saving makes the word's image. Opened on an icon that is a word, it starts from that word's settings.
-  - **Image** — choose a file (raster or SVG); a preview of the result; an error for an SVG that is too big or not an SVG.
+  - **Image** — choose a file (raster or SVG); a preview of the result; for an SVG over 100 KB a warning with "Use it anyway"; an error for one over 1 MB or a file that is no image.
 
 ---
 
