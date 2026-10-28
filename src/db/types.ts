@@ -2,6 +2,7 @@ import type { MoneyAmount } from './MoneyAmount'
 import type { LocalMoment } from './LocalMoment'
 import type { UUID } from './uuid'
 import type { ShortId } from './shortId'
+import type { Icon } from '../icons/types'
 
 // Domain entity types — these are what the rest of the app sees.
 //
@@ -38,7 +39,7 @@ export interface Tag {
   synonyms: string[] // extra names that find the tag; transactions show `name`
   retired_names: string[] // names that no longer find the tag through a tag merged into it (src/tags/otherNames.ts)
   colour: string | null // null = inherited from the parent (see src/tags/look.ts)
-  icon: string | null // PrimeIcons name without `pi-`; null = inherited from the parent
+  icon: Icon | null // null = inherited from the parent (see src/tags/look.ts)
   merged_into_id: ShortId | null // the tag this one was merged into (then also deleted); null = not merged
   created_at_utc: Date
   updated_at_utc: Date
@@ -96,7 +97,7 @@ export interface Account {
   tags: ShortId[] // plain tags (kind 'tag')
   location_id: ShortId | null // a `location` tag
   colour: string
-  icon: string
+  icon: Icon
   grouping_id: ShortId | null // the account's group; null = shown below all groups
   sort_order: number // position within its group; set by create(), update() of grouping_id and arrange()
   created_at_utc: Date
@@ -157,7 +158,7 @@ export interface AccountGrouping {
   id: ShortId
   name: string
   colour: string
-  icon: string
+  icon: Icon
   sort_order: number // position among the groups; set by create() and reorder() only
   created_at_utc: Date
   updated_at_utc: Date

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { setActivePinia, createPinia } from 'pinia'
 import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
@@ -54,7 +55,7 @@ describe('useTagsStore', () => {
     expect(all).toHaveLength(1)
     expect(all[0]).toMatchObject({ kind: 'tag', name: 'daily', parent_id: null })
     expect(all[0]!.colour).not.toBeNull()
-    expect(all[0]!.icon).toBe('hashtag')
+    expect(all[0]!.icon).toEqual(primeIcon('hashtag'))
   })
 
   it('finds an existing tag by synonym, ignoring case', async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
@@ -45,7 +46,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'bank',
+      icon: primeIcon('bank'),
     })
     expect(account.id).toMatch(/^[0-9A-Za-z]{12}$/)
     expect(account.name).toBe('Checking')
@@ -70,7 +71,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#FFF',
-      icon: 'dollar',
+      icon: primeIcon('dollar'),
     })
     const found = await repo.findById(account.id)
     expect(found?.balance.value).toBe(1234)
@@ -86,7 +87,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#F7931A',
-      icon: 'bitcoin',
+      icon: primeIcon('bitcoin'),
     })
     const found = await repo.findById(account.id)
     expect(found?.balance.value).toBe(100000000)
@@ -104,7 +105,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#0FF',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
     })
     const found = await repo.findById(account.id)
     expect(found?.tags).toEqual([savings, emergency])
@@ -118,7 +119,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#0F0',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
     }
     const bank = await repo.create(input)
     expect(bank.is_cash).toBe(false)
@@ -138,7 +139,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'x',
+      icon: primeIcon('x'),
     })
     await repo.create({
       name: 'Account B',
@@ -147,7 +148,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'x',
+      icon: primeIcon('x'),
     })
     const list = await repo.list()
     expect(list).toHaveLength(2)
@@ -162,7 +163,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'bank',
+      icon: primeIcon('bank'),
     })
     const before = (await repo.findById(account.id))!
     await new Promise((r) => setTimeout(r, 5))
@@ -182,7 +183,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'bank',
+      icon: primeIcon('bank'),
     })
     await repo.update(account.id, { name: 'Changed' })
     const after = await repo.findById(account.id)
@@ -199,7 +200,7 @@ describe('AccountsRepository', () => {
       location_id: null as ShortId | null,
       grouping_id: null,
       colour: '#000',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
     }
 
     it('takes live plain tags, each once, and a live location', async () => {
@@ -266,7 +267,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'bank',
+      icon: primeIcon('bank'),
     })
     await repo.update(account.id, { balance: moneyAmount(5000, 2, 'EUR') })
     const after = await repo.findById(account.id)
@@ -282,7 +283,7 @@ describe('AccountsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000',
-      icon: 'x',
+      icon: primeIcon('x'),
     })
     await repo.softDelete(account.id)
     expect(await repo.findById(account.id)).toBeNull()
@@ -299,12 +300,12 @@ describe('AccountsRepository', () => {
         location_id: null,
         grouping_id,
         colour: '#000',
-        icon: 'wallet',
+        icon: primeIcon('wallet'),
       })
     }
 
     const createGrouping = (name: string) =>
-      groupings.create({ name, colour: '#000', icon: 'folder' })
+      groupings.create({ name, colour: '#000', icon: primeIcon('folder') })
 
     const namesIn = async (groupingId: ShortId | null) =>
       (await repo.list()).filter((a) => a.grouping_id === groupingId).map((a) => a.name)
@@ -423,7 +424,7 @@ describe('AccountsRepository', () => {
         location_id: asShortId('nonexistent-location-id'),
         grouping_id: null,
         colour: '#000',
-        icon: 'bank',
+        icon: primeIcon('bank'),
       }),
     ).rejects.toThrow(TagNotFoundError)
     expect(await repo.list()).toEqual([])

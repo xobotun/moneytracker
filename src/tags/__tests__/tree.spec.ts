@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { asShortId } from '@/db/shortId'
 import type { Tag } from '@/db/types'
 import {
@@ -141,19 +142,26 @@ describe('subtreeIds', () => {
 describe('tagOptions', () => {
   it('lists live tags of the kind by path with their look, without the excluded ones', () => {
     const tags = [
-      tag('food', { name: 'Food', colour: '#ef4444', icon: 'gift' }),
+      tag('food', { name: 'Food', colour: '#ef4444', icon: primeIcon('gift') }),
       tag('groceries', { name: 'Groceries', ...under('food') }),
       tag('bakery', { name: 'Bakery', ...under('food') }),
       tag('drinks', { name: 'Drinks', colour: '#3b82f6' }),
       tag('gone', { name: 'Gone', deleted_at_utc: DELETED }),
       tag('rewe', { name: 'Rewe', kind: 'merchant' }),
     ]
+    const fallback = primeIcon('tag') // the kind's icon
     expect(tagOptions(tags, 'category', new Set([asShortId('bakery')]))).toEqual([
       // No icon of its own: the kind's.
-      { id: 'drinks', label: 'Drinks', icon: 'tag', colour: '#3b82f6' },
-      { id: 'food', label: 'Food', icon: 'gift', colour: '#ef4444' },
+      { id: 'drinks', label: 'Drinks', icon: primeIcon('tag'), colour: '#3b82f6', fallback },
+      { id: 'food', label: 'Food', icon: primeIcon('gift'), colour: '#ef4444', fallback },
       // Inherited from Food.
-      { id: 'groceries', label: 'Food › Groceries', icon: 'gift', colour: '#ef4444' },
+      {
+        id: 'groceries',
+        label: 'Food › Groceries',
+        icon: primeIcon('gift'),
+        colour: '#ef4444',
+        fallback,
+      },
     ])
   })
 })

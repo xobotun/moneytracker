@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { Database } from '../Database'
 import { ALL_MIGRATIONS, runMigrations } from '../migrations'
 import { AccountsRepository } from '../repositories/AccountsRepository'
@@ -30,7 +31,7 @@ describe('recalculateBalances', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000000',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
     })
   }
 

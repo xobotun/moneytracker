@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import PrimeVue from 'primevue/config'
@@ -128,14 +129,14 @@ describe('TagMergeDialog', () => {
       kind: 'category',
       name: 'Lunch',
       colour: '#aa0000',
-      icon: 'car',
+      icon: primeIcon('car'),
     })
     await tagsRepo.create({ kind: 'category', name: 'Sandwich', parent_id: lunch.id })
     const fun = await tagsRepo.create({
       kind: 'category',
       name: 'Fun',
       colour: '#0000aa',
-      icon: 'shop',
+      icon: primeIcon('shop'),
     })
     await tagsRepo.create({ kind: 'category', name: 'Games', parent_id: fun.id })
     await open(lunch)

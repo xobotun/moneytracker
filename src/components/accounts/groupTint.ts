@@ -82,14 +82,19 @@ function oklchToHex(colour: Oklch): string {
 }
 
 /**
- * Background shades for a group block in the light and dark theme. A grey
- * colour stays grey: the tint never has more chroma than the colour itself.
+ * `colour`'s hue at OKLCH `lightness`, with at most `chroma`: a grey colour
+ * stays grey, the tint never has more chroma than the colour itself. Not a
+ * colour (e.g. `currentColor`): a neutral grey of that lightness.
  */
-export function groupTints(colour: string): { light: string; dark: string } {
+export function tint(colour: string, lightness: number, chroma: number): string {
   const source = hexToOklch(colour) ?? { l: 0.5, c: 0, h: 0 }
-  const c = Math.min(TINT_CHROMA, source.c)
+  return oklchToHex({ l: lightness, c: Math.min(chroma, source.c), h: source.h })
+}
+
+/** Background shades for a group block in the light and dark theme. */
+export function groupTints(colour: string): { light: string; dark: string } {
   return {
-    light: oklchToHex({ l: LIGHT_TINT_LIGHTNESS, c, h: source.h }),
-    dark: oklchToHex({ l: DARK_TINT_LIGHTNESS, c, h: source.h }),
+    light: tint(colour, LIGHT_TINT_LIGHTNESS, TINT_CHROMA),
+    dark: tint(colour, DARK_TINT_LIGHTNESS, TINT_CHROMA),
   }
 }

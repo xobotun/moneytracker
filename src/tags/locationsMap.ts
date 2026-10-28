@@ -1,6 +1,7 @@
 import type { PathOptions } from 'leaflet'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues } from '@/db/types'
+import type { Icon, SetIcon } from '@/icons/types'
 import { DEFAULT_LOCATION_RADIUS_METRES } from '@/db/repositories/TagDetailsRepository'
 import { effectiveLook } from './look'
 import { byName } from './tree'
@@ -16,7 +17,9 @@ export interface MapLocation {
   /** In metres. */
   radius: number
   colour: string
-  icon: string
+  icon: Icon
+  /** Drawn when `icon` cannot be. */
+  fallback: SetIcon
   autoMatch: boolean
 }
 
@@ -40,7 +43,7 @@ export function mapLocations(
       unplaced++
       continue
     }
-    const { colour, icon } = effectiveLook(tag, byId)
+    const { colour, icon, fallback } = effectiveLook(tag, byId)
     shown.push({
       tag,
       latitude: details.position.latitude,
@@ -48,6 +51,7 @@ export function mapLocations(
       radius: details.radius_metres ?? DEFAULT_LOCATION_RADIUS_METRES,
       colour,
       icon,
+      fallback,
       autoMatch: details.auto_match !== false,
     })
   }

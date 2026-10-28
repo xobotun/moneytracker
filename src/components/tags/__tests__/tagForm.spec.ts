@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { asShortId } from '@/db/shortId'
 import { noDetails } from '@/db/repositories/TagDetailsRepository'
 import { COLOUR_PRESETS } from '@/format/colours'
@@ -29,7 +30,7 @@ describe('newTagDraft', () => {
       name: '',
       parent_id: null,
       colour: COLOUR_PRESETS[0],
-      icon: 'shop',
+      icon: primeIcon('shop'),
     })
   })
 
@@ -149,7 +150,7 @@ describe('createInputFromDraft', () => {
       description: null,
       synonyms: ['Roma'],
       colour: COLOUR_PRESETS[0],
-      icon: 'globe',
+      icon: primeIcon('globe'),
       details: { ...noDetails(), start_date: '2026-05-01' },
     })
   })

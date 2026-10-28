@@ -2,7 +2,10 @@
 import { onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import type * as Leaflet from 'leaflet'
 import type { ShortId } from '@/db/shortId'
-import { accountIconClass, iconColourOn } from '@/components/accounts/accountForm'
+import { badgeFace } from '@/icons/face'
+import { badgeElement } from '@/icons/badgeElement'
+import type { UUID } from '@/db/uuid'
+import { useImagesStore } from '@/stores/images'
 import { circleStyle, idsByName, inseparableAtMaxZoom, type MapLocation } from '@/tags/locationsMap'
 import { createOsmMap, loadLeaflet, loadMarkerClusters, type LeafletModule } from './osm'
 
@@ -43,17 +46,19 @@ let shownBefore = 0
 /** What each icon on the map stands for; a cluster knows its icons only. */
 let locationOf = new WeakMap<Leaflet.Marker, MapLocation>()
 
-/** The location's badge, like `AccountBadge`: its icon on a disc of its colour. */
+const images = useImagesStore()
+
+/** The image a location's icon shows, as the store holds it; undefined when it is no image or not read yet. */
+function imageOf(location: MapLocation) {
+  return location.icon.kind === 'image' ? images.view(location.icon.image) : undefined
+}
+
+/** The location's badge, like `IconBadge`: its icon on a disc of its colour. */
 function badgeIcon(location: MapLocation): Leaflet.DivIcon {
-  // Built as elements, not HTML text: the colour is user data.
-  const disc = document.createElement('span')
-  disc.className = 'locations-map-disc'
-  disc.style.backgroundColor = location.colour
-  disc.style.color = iconColourOn(location.colour)
-  const glyph = document.createElement('span')
-  glyph.className = accountIconClass(location.icon)
-  glyph.setAttribute('aria-hidden', 'true')
-  disc.append(glyph)
+  const face = badgeFace(location.icon, location.colour, location.fallback, imageOf(location))
+  // Built as elements, not HTML text: the emoji, colour and picture are user data.
+  const disc = badgeElement(face)
+  disc.classList.add('locations-map-disc')
   return L!.divIcon({
     html: disc,
     className: 'locations-map-icon',
@@ -140,6 +145,13 @@ function draw() {
   else if (!hasView) map.setView(WORLD, 2)
   hasView = true
   shownBefore = props.locations.length
+
+  // A picture not read yet shows the default icon until it is; then draw again.
+  const unread: UUID[] = []
+  for (const { icon } of props.locations) {
+    if (icon.kind === 'image' && images.view(icon.image) === undefined) unread.push(icon.image)
+  }
+  if (unread.length > 0) void images.loadMany(unread).then(draw)
 }
 
 onMounted(async () => {
@@ -216,5 +228,10 @@ onBeforeUnmount(() => {
   border-radius: 9999px;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
   font-size: 0.8rem;
+  overflow: hidden;
+}
+.locations-map .locations-map-disc[data-face='emoji'] {
+  font-size: 1rem;
+  line-height: 1;
 }
 </style>

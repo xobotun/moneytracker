@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Button from 'primevue/button'
 import PrimeTag from 'primevue/tag'
-import AccountBadge from '@/components/accounts/AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import TagChip from './TagChip.vue'
 import NamePills from './NamePills.vue'
 import type { TagLook } from '@/tags/look'
@@ -54,7 +54,7 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
       @click="emit('toggle')"
     />
     <span v-else class="w-8 shrink-0" aria-hidden="true" />
-    <AccountBadge :icon="look.icon" :colour="look.colour" small />
+    <IconBadge v-bind="look" small />
     <div class="flex min-w-0 flex-1 flex-col">
       <div class="flex min-w-0 items-center gap-x-2" :class="detailed ? 'flex-wrap' : undefined">
         <span class="font-medium" :class="detailed ? 'break-words' : 'truncate'">
@@ -67,6 +67,7 @@ const emit = defineEmits<{ toggle: []; add: []; edit: [] }>()
           :label="link.label"
           :icon="link.look.icon"
           :colour="link.look.colour"
+          :fallback="link.look.fallback"
           :deleted="link.deleted"
           :sr-prefix="`${link.role}: `"
           class="shrink-[2]"

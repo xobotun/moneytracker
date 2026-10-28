@@ -13,7 +13,7 @@ import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import Message from 'primevue/message'
-import AccountBadge from '@/components/accounts/AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import TagTreeRow from '@/components/tags/TagTreeRow.vue'
 import TagEditDialog from '@/components/tags/TagEditDialog.vue'
 import TagMergeDialog from '@/components/tags/TagMergeDialog.vue'
@@ -23,6 +23,7 @@ import { useTagsStore } from '@/stores/tags'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 import { KIND_ICONS, effectiveLook } from '@/tags/look'
+import { setIconClass } from '@/icons/sets'
 import { mergedNamesByTag } from '@/tags/otherNames'
 import { mapLocations } from '@/tags/locationsMap'
 import {
@@ -355,7 +356,10 @@ function onMerged() {
           v-else-if="tree.length === 0"
           class="flex flex-col items-center gap-3 py-10 text-center"
         >
-          <span :class="`pi pi-${KIND_ICONS[kind]} text-4xl text-gray-400`" aria-hidden="true" />
+          <span
+            :class="[setIconClass(KIND_ICONS[kind]), 'text-4xl text-gray-400']"
+            aria-hidden="true"
+          />
           <p class="max-w-sm text-gray-600 dark:text-gray-300">{{ KIND_HINTS[kind] }}</p>
           <Button :label="`Add your first ${noun}`" icon="pi pi-plus" @click="openAdd(null)" />
         </div>
@@ -443,7 +447,7 @@ function onMerged() {
           <ul v-if="showDeleted" class="flex flex-col" :aria-label="`Deleted ${nouns}`">
             <li v-for="tag in deletedTags" :key="tag.id" class="flex items-center gap-2 py-1">
               <span class="w-8 shrink-0" aria-hidden="true" />
-              <AccountBadge v-bind="effectiveLook(tag, store.byId)" small class="opacity-60" />
+              <IconBadge v-bind="effectiveLook(tag, store.byId)" small class="opacity-60" />
               <div class="flex min-w-0 flex-1 items-baseline gap-2">
                 <span class="truncate text-gray-600 line-through dark:text-gray-300">
                   {{ tag.name }}
@@ -487,7 +491,7 @@ function onMerged() {
           :aria-label="`Edit ${tag.name}`"
           @click="editPicked(tag)"
         >
-          <AccountBadge v-bind="effectiveLook(tag, store.byId)" small />
+          <IconBadge v-bind="effectiveLook(tag, store.byId)" small />
           <span class="min-w-0 truncate">{{ tag.name }}</span>
         </Button>
       </li>

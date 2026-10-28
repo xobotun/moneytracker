@@ -2,11 +2,13 @@
 import { computed, ref, useTemplateRef } from 'vue'
 import Popover from 'primevue/popover'
 import InputText from 'primevue/inputtext'
-import { QUICK_ICONS, iconLabel } from './accountForm'
-import { PRIME_ICONS } from './primeIcons'
+import IconBadge from '@/components/icons/IconBadge.vue'
+import { PRIME_ICON_SET, QUICK_ICONS, iconLabel, isPrimeIcon, primeIcon } from '@/icons/sets'
+import type { Icon, SetIcon } from '@/icons/types'
 
-/** The selected PrimeIcons name, without the `pi-` prefix. */
-const icon = defineModel<string>({ required: true })
+/** Picks a PrimeIcons icon; `fallback` draws a picked icon of another kind that cannot be drawn. */
+defineProps<{ fallback: SetIcon }>()
+const icon = defineModel<Icon>({ required: true })
 
 const popover = useTemplateRef<InstanceType<typeof Popover>>('popover')
 const panel = useTemplateRef<HTMLElement>('panel')
@@ -14,10 +16,11 @@ const moreButton = useTemplateRef<HTMLButtonElement>('moreButton')
 const open = ref(false)
 const query = ref('')
 
-const isQuick = computed(() => (QUICK_ICONS as readonly string[]).includes(icon.value))
+const NAMES = PRIME_ICON_SET.names
+const isQuick = computed(() => QUICK_ICONS.some((name) => isPrimeIcon(icon.value, name)))
 const matching = computed(() => {
   const q = query.value.trim().toLowerCase().replace(/\s+/g, '-')
-  return q === '' ? PRIME_ICONS : PRIME_ICONS.filter((name) => name.includes(q))
+  return q === '' ? NAMES : NAMES.filter((name) => name.includes(q))
 })
 
 const tileClass = (selected: boolean) =>
@@ -36,7 +39,7 @@ function toggleAll(event: Event) {
 }
 
 function pick(name: string) {
-  icon.value = name
+  icon.value = primeIcon(name)
   close()
 }
 
@@ -54,13 +57,13 @@ function close() {
       :key="name"
       type="button"
       class="flex size-10 items-center justify-center rounded-md border-2 transition-colors"
-      :class="tileClass(icon === name)"
-      :aria-label="iconLabel(name)"
-      :aria-pressed="icon === name"
-      :title="iconLabel(name)"
-      @click="icon = name"
+      :class="tileClass(isPrimeIcon(icon, name))"
+      :aria-label="iconLabel(primeIcon(name))"
+      :aria-pressed="isPrimeIcon(icon, name)"
+      :title="iconLabel(primeIcon(name))"
+      @click="icon = primeIcon(name)"
     >
-      <span :class="`pi pi-${name}`" aria-hidden="true" />
+      <span :class="PRIME_ICON_SET.className(name)" aria-hidden="true" />
     </button>
     <!-- Shows the picked icon when it is not one of the quick ones, like the
          custom colour swatch shows a custom colour. -->
@@ -79,7 +82,8 @@ function close() {
       :aria-expanded="open"
       @click="toggleAll"
     >
-      <span :class="isQuick ? 'pi pi-ellipsis-h' : `pi pi-${icon}`" aria-hidden="true" />
+      <span v-if="isQuick" class="pi pi-ellipsis-h" aria-hidden="true" />
+      <IconBadge v-else inline :icon="icon" colour="currentColor" :fallback="fallback" />
     </button>
   </div>
 
@@ -104,13 +108,13 @@ function close() {
           :key="name"
           type="button"
           class="flex size-9 items-center justify-center rounded-md border-2 transition-colors"
-          :class="tileClass(icon === name)"
-          :aria-label="iconLabel(name)"
-          :aria-pressed="icon === name"
-          :title="iconLabel(name)"
+          :class="tileClass(isPrimeIcon(icon, name))"
+          :aria-label="iconLabel(primeIcon(name))"
+          :aria-pressed="isPrimeIcon(icon, name)"
+          :title="iconLabel(primeIcon(name))"
           @click="pick(name)"
         >
-          <span :class="`pi pi-${name}`" aria-hidden="true" />
+          <span :class="PRIME_ICON_SET.className(name)" aria-hidden="true" />
         </button>
       </div>
       <p

@@ -4,12 +4,14 @@ import Card from 'primevue/card'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Tag from 'primevue/tag'
-import AccountBadge from '@/components/accounts/AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import AccountEditDialog from '@/components/accounts/AccountEditDialog.vue'
 import BalanceDisplay from '@/components/accounts/BalanceDisplay.vue'
 import { YELLOW_BUTTON } from '@/components/accounts/yellowButton'
 import GroupingEditDialog from '@/components/accounts/GroupingEditDialog.vue'
 import { groupTints } from '@/components/accounts/groupTint'
+import { ACCOUNT_ICON } from '@/components/accounts/accountForm'
+import { GROUPING_ICON } from '@/components/accounts/groupingForm'
 import { usePointerDrag } from './usePointerDrag'
 import { useAccountsStore, type AccountSection } from '@/stores/accounts'
 import { useTagsStore } from '@/stores/tags'
@@ -430,7 +432,12 @@ function tintStyle(grouping: AccountGrouping) {
               >
                 <span class="pi pi-bars" />
               </span>
-              <AccountBadge :icon="section.grouping.icon" :colour="section.grouping.colour" small />
+              <IconBadge
+                :icon="section.grouping.icon"
+                :colour="section.grouping.colour"
+                :fallback="GROUPING_ICON"
+                small
+              />
               <h2 class="min-w-0 flex-1 truncate font-semibold">{{ section.grouping.name }}</h2>
               <BalanceDisplay
                 v-if="!reordering && groupTotal(section)"
@@ -509,7 +516,11 @@ function tintStyle(grouping: AccountGrouping) {
                   >
                     <span class="pi pi-bars" />
                   </span>
-                  <AccountBadge :icon="account.icon" :colour="account.colour" />
+                  <IconBadge
+                    :icon="account.icon"
+                    :colour="account.colour"
+                    :fallback="ACCOUNT_ICON"
+                  />
                   <span class="flex min-w-0 flex-1 flex-col gap-1">
                     <span class="truncate font-medium">{{ account.name }}</span>
                     <span v-if="!reordering" class="flex flex-wrap items-center gap-1">

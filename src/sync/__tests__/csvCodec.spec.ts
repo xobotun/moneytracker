@@ -136,7 +136,7 @@ describe('csvCodec', () => {
       await src.run(
         `INSERT INTO tags (id, kind, name, description, synonyms, colour, icon,
                            moved_at_utc, created_at_utc, updated_at_utc)
-         VALUES (?, 'location', 'Home', 'Berlin, DE', '["a","b"]', '#22c55e', 'home', ?, ?, ?)`,
+         VALUES (?, 'location', 'Home', 'Berlin, DE', '["a","b"]', '#22c55e', '{"kind":"set","set":"pi","name":"home"}', ?, ?, ?)`,
         [id, CUTOFF, CUTOFF, CUTOFF],
       )
       const csv = (await exportTableToCsvFiles(src, { name: 'tags', pk: 'id' }))[0]!
@@ -233,9 +233,9 @@ describe('csvCodec', () => {
       await src.run(
         `INSERT INTO tags (id, kind, name, description, synonyms, colour, icon,
                            moved_at_utc, created_at_utc, updated_at_utc)
-         VALUES (?, 'category', 'Food', NULL, '["Essen"]', '#00ff00', 'tag', ?, ?, ?),
+         VALUES (?, 'category', 'Food', NULL, '["Essen"]', '#00ff00', '{"kind":"set","set":"pi","name":"tag"}', ?, ?, ?),
                 (?, 'merchant', 'Rewe', 'Supermarket', '[]', NULL, NULL, ?, ?, ?),
-                (?, 'journey', 'Lisbon', NULL, '[]', NULL, 'globe', ?, ?, ?)`,
+                (?, 'journey', 'Lisbon', NULL, '[]', NULL, '{"kind":"set","set":"pi","name":"globe"}', ?, ?, ?)`,
         [
           foodId,
           CUTOFF,
@@ -270,13 +270,13 @@ describe('csvCodec', () => {
       const groupingId = newId()
       await src.run(
         `INSERT INTO account_groupings (id, name, colour, icon, sort_order, created_at_utc, updated_at_utc)
-         VALUES (?, 'Cash', '#ffffff', 'group', 3, ?, ?)`,
+         VALUES (?, 'Cash', '#ffffff', '{"kind":"set","set":"pi","name":"group"}', 3, ?, ?)`,
         [groupingId, CUTOFF, CUTOFF],
       )
       await src.run(
         `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, is_cash, location_id,
                                colour, icon, grouping_id, sort_order, created_at_utc, updated_at_utc)
-         VALUES (?, 'Checking', 'USD', 0, 2, 1, ?, '#000000', 'wallet', ?, 7, ?, ?)`,
+         VALUES (?, 'Checking', 'USD', 0, 2, 1, ?, '#000000', '{"kind":"set","set":"pi","name":"wallet"}', ?, 7, ?, ?)`,
         [accId, locId, groupingId, CUTOFF, CUTOFF],
       )
       await src.run(

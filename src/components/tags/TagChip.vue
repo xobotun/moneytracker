@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { accountIconClass } from '@/components/accounts/accountForm'
+import IconBadge from '@/components/icons/IconBadge.vue'
+import type { Icon, SetIcon } from '@/icons/types'
 
 /**
  * A tag as a filled chip: its icon in its colour, then its label (a name or
@@ -10,8 +11,10 @@ import { accountIconClass } from '@/components/accounts/accountForm'
  */
 defineProps<{
   label: string
-  icon: string
+  icon: Icon
   colour: string
+  /** The tag's kind icon, drawn when `icon` cannot be. */
+  fallback: SetIcon
   /** Struck through, with “(deleted)” after it. */
   deleted?: boolean
   /** Read before the icon by screen readers only, e.g. 'merchant: '. */
@@ -26,11 +29,13 @@ defineProps<{
     :class="inText ? 'inline box-decoration-clone break-words' : undefined"
   >
     <span v-if="srPrefix" class="sr-only">{{ srPrefix }}</span>
-    <span
-      :class="[accountIconClass(icon), inText ? 'mr-1' : undefined]"
+    <IconBadge
+      inline
+      :icon="icon"
+      :colour="colour"
+      :fallback="fallback"
       class="text-[0.7rem]"
-      :style="{ color: colour }"
-      aria-hidden="true"
+      :class="inText ? 'mr-1 align-[-0.2em]' : undefined"
     />
     <!-- No spaces around the label: in text they would show inside the chip. -->
     <span :class="[inText ? undefined : 'truncate', deleted ? 'line-through' : undefined]">{{

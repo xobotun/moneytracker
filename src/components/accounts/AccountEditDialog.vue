@@ -6,7 +6,7 @@ import AutoComplete from 'primevue/autocomplete'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import AccountBadge from './AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import ColourPicker from './ColourPicker.vue'
 import IconPicker from './IconPicker.vue'
 import { YELLOW_BUTTON } from './yellowButton'
@@ -17,6 +17,7 @@ import type { ShortId } from '@/db/shortId'
 import CurrencyInput from '@/components/CurrencyInput.vue'
 import { currencyName, currencySymbol, formatMoney } from '@/format/currency'
 import {
+  ACCOUNT_ICON,
   createInputFromDraft,
   currenciesByUse,
   draftFromAccount,
@@ -171,7 +172,13 @@ async function remove() {
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
       <div class="flex items-start gap-3">
-        <AccountBadge :icon="draft.icon" :colour="draft.colour" large class="mt-6" />
+        <IconBadge
+          :icon="draft.icon"
+          :colour="draft.colour"
+          :fallback="ACCOUNT_ICON"
+          large
+          class="mt-6"
+        />
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <label for="account-name" class="text-sm font-medium">Name</label>
           <InputText
@@ -245,7 +252,7 @@ async function remove() {
 
       <fieldset class="flex flex-col gap-2">
         <legend class="mb-2 text-sm font-medium">Icon</legend>
-        <IconPicker v-model="draft.icon" />
+        <IconPicker v-model="draft.icon" :fallback="ACCOUNT_ICON" />
       </fieldset>
 
       <fieldset class="flex flex-col gap-2">

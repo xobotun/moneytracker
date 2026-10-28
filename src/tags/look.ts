@@ -1,26 +1,37 @@
 import { COLOUR_PRESETS } from '@/format/colours'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
+import type { Icon, SetIcon } from '@/icons/types'
+import { primeIcon } from '@/icons/sets'
 
 // How a tag looks: its colour and icon. A tag that sets neither inherits them
 // from its parent, so a tree shares one look unless a branch sets its own.
 
-/** The default icon of each kind (PrimeIcons names, without `pi-`). */
-export const KIND_ICONS: Record<TagKind, string> = {
-  category: 'tag',
-  merchant: 'shop',
-  location: 'map-marker',
-  journey: 'globe', // PrimeIcons has no plane
-  tag: 'hashtag',
+/**
+ * The default icon of each kind: what a new top-level tag starts with, and
+ * what a tag shows when its own icon cannot be drawn (an unknown kind or pack
+ * icon, a missing image).
+ */
+export const KIND_ICONS: Record<TagKind, SetIcon> = {
+  category: primeIcon('tag'),
+  merchant: primeIcon('shop'),
+  location: primeIcon('map-marker'),
+  journey: primeIcon('globe'), // PrimeIcons has no plane
+  tag: primeIcon('hashtag'),
 }
 
 export interface TagLook {
   colour: string
-  icon: string
+  icon: Icon
+  /** The kind's icon, drawn when `icon` cannot be. */
+  fallback: SetIcon
 }
 
 /** The look a new top-level tag starts with: a random preset colour and its kind's icon. */
-export function newTagLook(kind: TagKind, random: () => number = Math.random): TagLook {
+export function newTagLook(
+  kind: TagKind,
+  random: () => number = Math.random,
+): { colour: string; icon: Icon } {
   const index = Math.min(Math.floor(random() * COLOUR_PRESETS.length), COLOUR_PRESETS.length - 1)
   return { colour: COLOUR_PRESETS[index]!, icon: KIND_ICONS[kind] }
 }
@@ -32,8 +43,8 @@ export function newTagLook(kind: TagKind, random: () => number = Math.random): T
  * tree always gets the same colour on every device.
  */
 export function effectiveLook(tag: Tag, byId: ReadonlyMap<ShortId, Tag>): TagLook {
-  const { colour, icon } = lookFrom(tag, tag.kind, tag.id, byId)
-  return { colour, icon }
+  const { colour, icon, fallback } = lookFrom(tag, tag.kind, tag.id, byId)
+  return { colour, icon, fallback }
 }
 
 /** A look with the tags its colour and icon come from; null = the default. */
@@ -80,6 +91,7 @@ function lookFrom(
   return {
     colour: colourFrom?.colour ?? COLOUR_PRESETS[stringHash(top) % COLOUR_PRESETS.length]!,
     icon: iconFrom?.icon ?? KIND_ICONS[kind],
+    fallback: KIND_ICONS[kind],
     colourFrom,
     iconFrom,
   }

@@ -3,6 +3,7 @@ import type { Tag, TagDetailValues, TagKind } from '@/db/types'
 import type { TagCreateInput, TagSaveInput } from '@/db/repositories/TagsRepository'
 import { DEFAULT_LOCATION_RADIUS_METRES } from '@/db/repositories/TagDetailsRepository'
 import { newTagLook } from '@/tags/look'
+import type { Icon } from '@/icons/types'
 import { cleanOtherNames } from '@/tags/otherNames'
 
 // Form logic of the tag editor, kept out of the component so it can be tested
@@ -16,7 +17,7 @@ export interface TagDraft {
   otherNames: string[]
   description: string
   colour: string | null // null = inherited
-  icon: string | null // null = inherited
+  icon: Icon | null // null = inherited
   address: string
   latitude: number | null
   longitude: number | null

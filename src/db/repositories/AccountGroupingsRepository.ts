@@ -2,6 +2,8 @@ import type { Database } from '../Database'
 import type { AccountGrouping } from '../types'
 import { newShortId, type ShortId } from '../shortId'
 import {
+  iconFromColumn,
+  iconToColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -32,7 +34,7 @@ function rowToAccountGrouping(row: AccountGroupingRow): AccountGrouping {
     id: shortIdFromColumn(row.id),
     name: row.name,
     colour: row.colour,
-    icon: row.icon,
+    icon: iconFromColumn(row.icon),
     sort_order: row.sort_order,
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
@@ -54,7 +56,7 @@ export class AccountGroupingsRepository {
     await this.db.run(
       `INSERT INTO account_groupings (id, name, colour, icon, sort_order, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM account_groupings), ?, ?)`,
-      [id, input.name, input.colour, input.icon, now, now],
+      [id, input.name, input.colour, iconToColumn(input.icon), now, now],
     )
     return (await this.findById(id))!
   }
@@ -89,7 +91,7 @@ export class AccountGroupingsRepository {
     }
     if (patch.icon !== undefined) {
       sets.push('icon = ?')
-      params.push(patch.icon)
+      params.push(iconToColumn(patch.icon))
     }
 
     if (sets.length === 0) return

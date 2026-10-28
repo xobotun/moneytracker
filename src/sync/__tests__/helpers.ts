@@ -66,7 +66,7 @@ export async function seedAccount(db: SqlExecutor, input: SeedAccountInput): Pro
     `INSERT INTO accounts
        (id, name, currency, balance_value, balance_scale, tags, location_id, colour, icon,
         created_at_utc, updated_at_utc)
-     VALUES (?, ?, 'USD', 0, 2, ?, ?, '#000000', 'wallet', ?, ?)`,
+     VALUES (?, ?, 'USD', 0, 2, ?, ?, '#000000', '{"kind":"set","set":"pi","name":"wallet"}', ?, ?)`,
     [
       input.id,
       input.name,

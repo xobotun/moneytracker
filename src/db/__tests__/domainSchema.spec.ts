@@ -97,7 +97,7 @@ describe('domain schema migration', () => {
       db.run(
         `INSERT INTO accounts (id, name, currency, balance_value, balance_scale,
                                location_id, colour, icon, created_at_utc, updated_at_utc)
-         VALUES (?, 'Acc', 'USD', 0, 2, ?, '#FFFFFF', 'cash', ?, ?)`,
+         VALUES (?, 'Acc', 'USD', 0, 2, ?, '#FFFFFF', '{"kind":"set","set":"pi","name":"cash"}', ?, ?)`,
         [id, locationId, AT, AT],
       )
     await insertAccount('a0', 'loc')
@@ -162,7 +162,7 @@ describe('domain schema migration', () => {
         0,
         2,
         '#FFFFFF',
-        'cash',
+        '{"kind":"set","set":"pi","name":"money-bill"}',
         '2026-05-20T00:00:00.000Z',
         '2026-05-20T00:00:00.000Z',
       ],
@@ -279,7 +279,7 @@ describe('domain schema migration', () => {
           0,
           2,
           '#FFFFFF',
-          'wallet',
+          '{"kind":"set","set":"pi","name":"wallet"}',
           ...(isCash === undefined ? [] : [isCash]),
           '2026-05-20T00:00:00.000Z',
           '2026-05-20T00:00:00.000Z',

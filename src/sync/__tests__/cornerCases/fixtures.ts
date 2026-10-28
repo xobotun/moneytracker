@@ -1,4 +1,5 @@
 import { expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import type { CategoryPart } from '../../../db/types'
 import type { ShortId } from '../../../db/shortId'
 import type { UUID } from '../../../db/uuid'
@@ -25,7 +26,7 @@ export async function openAccount(device: Device, name: string): Promise<ShortId
     tags: [],
     location_id: null,
     colour: '#000000',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
     grouping_id: null,
   })
   return account.id

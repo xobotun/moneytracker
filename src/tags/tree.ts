@@ -162,8 +162,7 @@ export function tagOptions(
   return tags
     .filter((t) => t.kind === kind && t.deleted_at_utc === null && !exclude.has(t.id))
     .map((t) => {
-      const { icon, colour } = effectiveLook(t, byId)
-      return { id: t.id, label: pathLabel(tagPath(t, byId)), icon, colour }
+      return { id: t.id, label: pathLabel(tagPath(t, byId)), ...effectiveLook(t, byId) }
     })
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 }

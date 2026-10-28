@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { accountIconClass } from '@/components/accounts/accountForm'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import type { TagLook } from '@/tags/look'
 
 /**
@@ -15,12 +15,13 @@ defineProps<{
 
 <template>
   <span class="flex min-w-0 items-center gap-2">
-    <span
-      v-if="option?.icon"
-      :class="accountIconClass(option.icon)"
+    <IconBadge
+      v-if="option?.icon && option.colour && option.fallback"
+      inline
+      :icon="option.icon"
+      :colour="option.colour"
+      :fallback="option.fallback"
       class="shrink-0"
-      :style="{ color: option.colour }"
-      aria-hidden="true"
     />
     <span class="truncate">{{ option?.label ?? placeholder }}</span>
   </span>

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
@@ -44,13 +45,33 @@ describe('TransactionsRepository', () => {
     await db.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, colour, icon, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [accountId1, 'Account 1', 'USD', 0, 2, '#FF0000', 'icon-1', now, now],
+      [
+        accountId1,
+        'Account 1',
+        'USD',
+        0,
+        2,
+        '#FF0000',
+        '{"kind":"set","set":"pi","name":"icon-1"}',
+        now,
+        now,
+      ],
     )
 
     await db.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, colour, icon, created_at_utc, updated_at_utc)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [accountId2, 'Account 2', 'EUR', 0, 2, '#00FF00', 'icon-2', now, now],
+      [
+        accountId2,
+        'Account 2',
+        'EUR',
+        0,
+        2,
+        '#00FF00',
+        '{"kind":"set","set":"pi","name":"icon-2"}',
+        now,
+        now,
+      ],
     )
 
     await db.run(
@@ -698,7 +719,7 @@ describe('TransactionsRepository', () => {
         location_id: null,
         grouping_id: null,
         colour: '#000000',
-        icon: 'wallet',
+        icon: primeIcon('wallet'),
       })
       groceries = await tags.create({ kind: 'category', name: 'Groceries' })
       gifts = await tags.create({ kind: 'category', name: 'Gifts' })

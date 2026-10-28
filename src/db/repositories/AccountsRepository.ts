@@ -10,6 +10,8 @@ import {
 import {
   booleanFromColumn,
   booleanToColumn,
+  iconFromColumn,
+  iconToColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -64,7 +66,7 @@ function rowToAccount(row: AccountRow): Account {
     tags: jsonArrayFromColumn<ShortId>(row.tags),
     location_id: shortIdFromNullableColumn(row.location_id),
     colour: row.colour,
-    icon: row.icon,
+    icon: iconFromColumn(row.icon),
     grouping_id: shortIdFromNullableColumn(row.grouping_id),
     sort_order: row.sort_order,
     created_at_utc: instantFromColumn(row.created_at_utc),
@@ -125,7 +127,7 @@ export class AccountsRepository {
           tagsJson,
           input.location_id,
           input.colour,
-          input.icon,
+          iconToColumn(input.icon),
           input.grouping_id,
           input.grouping_id,
           now,
@@ -210,7 +212,7 @@ export class AccountsRepository {
     }
     if (patch.icon !== undefined) {
       sets.push('icon = ?')
-      params.push(patch.icon)
+      params.push(iconToColumn(patch.icon))
     }
     if (patch.grouping_id !== undefined) {
       // A new group puts the account at its end. SQLite evaluates every SET

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { setActivePinia, createPinia } from 'pinia'
 import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
@@ -30,7 +31,7 @@ function input(name: string) {
     location_id: null,
     grouping_id: null,
     colour: '#3b82f6',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
   }
 }
 
@@ -93,8 +94,16 @@ describe('useAccountsStore', () => {
 
     async function setUp() {
       const store = useAccountsStore()
-      const trip = await store.createGrouping({ name: 'Trip', colour: '#000000', icon: 'car' })
-      const home = await store.createGrouping({ name: 'Home', colour: '#000000', icon: 'home' })
+      const trip = await store.createGrouping({
+        name: 'Trip',
+        colour: '#000000',
+        icon: primeIcon('car'),
+      })
+      const home = await store.createGrouping({
+        name: 'Home',
+        colour: '#000000',
+        icon: primeIcon('home'),
+      })
       const a = await store.create({ ...input('A'), grouping_id: trip.id })
       const b = await store.create({ ...input('B'), grouping_id: trip.id })
       const c = await store.create({ ...input('C'), grouping_id: home.id })
@@ -111,7 +120,7 @@ describe('useAccountsStore', () => {
 
     it('always ends with the ungrouped section, even when it is empty', async () => {
       const store = useAccountsStore()
-      await store.createGrouping({ name: 'Trip', colour: '#000000', icon: 'car' })
+      await store.createGrouping({ name: 'Trip', colour: '#000000', icon: primeIcon('car') })
       expect(store.sections.map((s) => s.grouping?.name ?? null)).toEqual(['Trip', null])
       expect(store.sections[1]!.accounts).toEqual([])
     })
@@ -155,7 +164,7 @@ describe('useAccountsStore', () => {
 
     it('moveAccountBy() passes into an empty group', async () => {
       const store = useAccountsStore()
-      await store.createGrouping({ name: 'Empty', colour: '#000000', icon: 'car' })
+      await store.createGrouping({ name: 'Empty', colour: '#000000', icon: primeIcon('car') })
       const a = await store.create(input('A'))
       await store.moveAccountBy(a.id, -1)
       expect(layout()).toEqual({ Empty: ['A'], '-': [] })

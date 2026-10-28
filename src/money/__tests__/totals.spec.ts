@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { moneyAmount, type MoneyAmount } from '@/db/MoneyAmount'
 import { asUuid } from '@/db/uuid'
 import { asShortId } from '@/db/shortId'
@@ -17,7 +18,7 @@ function account(balance: MoneyAmount): Account {
     tags: [],
     location_id: null,
     colour: '#000000',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
     grouping_id: null,
     sort_order: n,
     created_at_utc: new Date(),

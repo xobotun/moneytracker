@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { defineComponent, h } from 'vue'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
@@ -99,7 +100,7 @@ describe('TagEditDialog', () => {
     await type('tag-name', 'Food')
     await save('Add category')
     const food = await tagsRepo.findByName('category', 'Food', null)
-    expect(food).toMatchObject({ icon: 'tag' })
+    expect(food).toMatchObject({ icon: primeIcon('tag') })
     expect(food!.colour).not.toBeNull()
     expect(w.emitted('update:visible')).toEqual([[false]])
   })
@@ -116,7 +117,7 @@ describe('TagEditDialog', () => {
       kind: 'category',
       name: 'Food',
       colour: '#ef4444',
-      icon: 'tag',
+      icon: primeIcon('tag'),
     })
     await open('category', null, food.id)
     expect(text()).toContain('Inherited: from Food')
@@ -229,7 +230,7 @@ describe('TagEditDialog', () => {
       kind: 'category',
       name: 'Food',
       colour: '#ef4444',
-      icon: 'tag',
+      icon: primeIcon('tag'),
     })
     const snacks = await tagsRepo.create({
       kind: 'category',
@@ -354,7 +355,12 @@ describe('TagEditDialog', () => {
   })
 
   it("shows each default category's icon in its colour, in the list and once picked", async () => {
-    await tagsRepo.create({ kind: 'category', name: 'Food', colour: '#ef4444', icon: 'gift' })
+    await tagsRepo.create({
+      kind: 'category',
+      name: 'Food',
+      colour: '#ef4444',
+      icon: primeIcon('gift'),
+    })
     const shop = await tagsRepo.create({ kind: 'merchant', name: 'Shop' })
     await open('merchant', shop)
     const options = await optionsOf('tag-default-category')

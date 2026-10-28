@@ -10,7 +10,7 @@ import DatePicker from 'primevue/datepicker'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import AccountBadge from '@/components/accounts/AccountBadge.vue'
+import IconBadge from '@/components/icons/IconBadge.vue'
 import ColourPicker from '@/components/accounts/ColourPicker.vue'
 import IconPicker from '@/components/accounts/IconPicker.vue'
 import { DERIVED_CLASS } from '@/components/derived'
@@ -22,7 +22,8 @@ import TagOptionLabel from './TagOptionLabel.vue'
 import type { LatLon } from './mapView'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
-import { effectiveLook, inheritedLook, type TagLook } from '@/tags/look'
+import { KIND_ICONS, effectiveLook, inheritedLook, type TagLook } from '@/tags/look'
+import type { Icon } from '@/icons/types'
 import { carriedNames, foldCase, mergedNames } from '@/tags/otherNames'
 import { subtreeIds, tagOptions } from '@/tags/tree'
 import {
@@ -213,7 +214,7 @@ const shownColour = computed({
 })
 const shownIcon = computed({
   get: () => draft.value.icon ?? inherited.value.icon,
-  set: (icon: string) => (draft.value.icon = icon),
+  set: (icon: Icon) => (draft.value.icon = icon),
 })
 const lookSource = (from: Tag | null) => (from ? `from ${from.name}` : 'the default')
 const colourSource = computed(() => lookSource(inherited.value.colourFrom))
@@ -355,7 +356,13 @@ function merge() {
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
       <div class="flex items-start gap-3">
-        <AccountBadge :icon="shownIcon" :colour="shownColour" large class="mt-6" />
+        <IconBadge
+          :icon="shownIcon"
+          :colour="shownColour"
+          :fallback="KIND_ICONS[kind]"
+          large
+          class="mt-6"
+        />
         <div class="flex min-w-0 flex-1 flex-col gap-1">
           <label for="tag-name" class="text-sm font-medium">Name</label>
           <InputText
@@ -443,7 +450,7 @@ function merge() {
           :class="draft.icon === null ? DERIVED_CLASS : undefined"
           :title="draft.icon === null ? `Inherited: ${iconSource}` : undefined"
         >
-          <IconPicker v-model="shownIcon" />
+          <IconPicker v-model="shownIcon" :fallback="KIND_ICONS[kind]" />
         </div>
         <div class="flex min-h-8 items-center gap-2 text-sm">
           <span v-if="draft.icon === null" :class="DERIVED_CLASS">Inherited: {{ iconSource }}</span>

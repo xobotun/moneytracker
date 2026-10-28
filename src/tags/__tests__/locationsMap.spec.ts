@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues } from '@/db/types'
 import { circleStyle, idsByName, inseparableAtMaxZoom, mapLocations } from '../locationsMap'
@@ -28,7 +29,7 @@ const all = () => true
 
 describe('mapLocations', () => {
   it('shows each live placed location with its position, radius, look and matching', () => {
-    const berlin = location('berlin', { colour: '#112233', icon: 'building' })
+    const berlin = location('berlin', { colour: '#112233', icon: primeIcon('building') })
     const store = location('store', { parent_id: berlin.id })
     const details = new Map<ShortId, TagDetailValues>([
       [berlin.id, placed(52.52, 13.405, { radius_metres: 9000 })],
@@ -43,7 +44,8 @@ describe('mapLocations', () => {
         longitude: 13.405,
         radius: 9000,
         colour: '#112233',
-        icon: 'building',
+        icon: primeIcon('building'),
+        fallback: primeIcon('map-marker'),
         autoMatch: true,
       },
       // The store inherits its parent's look.
@@ -53,7 +55,8 @@ describe('mapLocations', () => {
         longitude: 13.4,
         radius: 30,
         colour: '#112233',
-        icon: 'building',
+        icon: primeIcon('building'),
+        fallback: primeIcon('map-marker'),
         autoMatch: false,
       },
     ])

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { Database } from '../../Database'
 import { runMigrations } from '../../migrations'
 import { migration as settingsMigration } from '../../migrations/001_settings'
@@ -75,7 +76,7 @@ describe('TagsRepository', () => {
       kind: 'category',
       name: 'Food',
       colour: '#22c55e',
-      icon: 'tag',
+      icon: primeIcon('tag'),
     })
     const groceries = await repo.create({
       kind: 'category',
@@ -251,13 +252,13 @@ describe('TagsRepository', () => {
       description: 'Office',
       synonyms: ['job'],
       colour: '#ef4444',
-      icon: 'briefcase',
+      icon: primeIcon('briefcase'),
     })
     expect(await repo.findById(tag.id)).toMatchObject({
       description: 'Office',
       synonyms: ['job'],
       colour: '#ef4444',
-      icon: 'briefcase',
+      icon: primeIcon('briefcase'),
     })
 
     await repo.update(tag.id, { description: '', colour: null, icon: null })
@@ -480,7 +481,7 @@ describe('TagsRepository', () => {
       location_id: null,
       grouping_id: null,
       colour: '#000000',
-      icon: 'wallet',
+      icon: primeIcon('wallet'),
     })
   }
 
@@ -514,7 +515,7 @@ describe('TagsRepository', () => {
       name: 'Rewe',
       description: 'Supermarket',
       colour: '#cc0000',
-      icon: 'shop',
+      icon: primeIcon('shop'),
     })
     const food = await repo.create({ kind: 'category', name: 'Food' })
     const t = await spend((await wallet()).id, food.id, { merchant_id: x.id })
@@ -530,7 +531,7 @@ describe('TagsRepository', () => {
     expect(await repo.findById(y.id)).toMatchObject({
       description: 'Supermarket',
       colour: '#cc0000',
-      icon: 'shop',
+      icon: primeIcon('shop'),
     })
     expect(await repo.usageCount(y.id)).toBe(1)
   })
@@ -689,6 +690,37 @@ describe('TagsRepository', () => {
       })
       return { berlin, munich, shop }
     }
+
+    it('keeps an icon from a newer app as it was, and stamps nothing for it', async () => {
+      const tag = await repo.create({ kind: 'category', name: 'Food' })
+      const newer = '{"kind":"sticker","pack":"cats","id":7}'
+      await db.run('UPDATE tags SET icon = ? WHERE id = ?', [newer, tag.id])
+      const before = (await repo.findById(tag.id))!
+      expect(before.icon).toEqual({ kind: 'unknown', json: newer })
+
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(Date.UTC(2030, 0, 1)))
+        await repo.save(tag.id, await asIs(tag.id))
+        await repo.save(tag.id, { ...(await asIs(tag.id)), description: 'Groceries and meals' })
+      } finally {
+        vi.useRealTimers()
+      }
+      const rows = await db.exec<{ icon: string }>('SELECT icon FROM tags WHERE id = ?', [tag.id])
+      expect(rows[0]!.icon).toBe(newer)
+    })
+
+    it('stamps nothing when the icon is the same value read again', async () => {
+      const tag = await repo.create({ kind: 'category', name: 'Food', icon: primeIcon('gift') })
+      vi.useFakeTimers({ toFake: ['Date'] })
+      try {
+        vi.setSystemTime(new Date(Date.UTC(2030, 0, 1)))
+        await repo.save(tag.id, { ...(await asIs(tag.id)), icon: primeIcon('gift') })
+      } finally {
+        vi.useRealTimers()
+      }
+      expect((await repo.findById(tag.id))!.updated_at_utc).toEqual(tag.updated_at_utc)
+    })
 
     it('renames, moves and writes details in one go', async () => {
       const { munich, shop } = await shopInBerlin()

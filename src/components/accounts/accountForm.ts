@@ -4,36 +4,14 @@ import type { AccountCreateInput, AccountUpdateInput } from '@/db/repositories/A
 import { currencyCodeError, normaliseCurrencyCode } from '@/format/currency'
 import { COLOUR_PRESETS } from '@/format/colours'
 import type { ShortId } from '@/db/shortId'
-import { PRIME_ICONS } from './primeIcons'
+import { primeIcon } from '@/icons/sets'
+import { sameIcon, type Icon } from '@/icons/types'
 
 // Form logic of the account editor, kept out of the component so it can be
 // tested without mounting PrimeVue.
 
-/**
- * Icons shown right in the editor; any other PrimeIcons name can be picked
- * from the full list. Stored without the `pi-` prefix.
- */
-export const QUICK_ICONS = [
-  'wallet',
-  'credit-card',
-  'building-columns',
-  'money-bill',
-  'bitcoin',
-  'ethereum',
-  'paypal',
-  'briefcase',
-  'home',
-  'shopping-bag',
-  'gift',
-  'car',
-  'globe',
-  'mobile',
-  'chart-line',
-  'star',
-  'heart',
-] as const
-
-const DEFAULT_ACCOUNT_ICON = 'wallet'
+/** An account's default icon: what a new one starts with, and what one shows when its own cannot be drawn. */
+export const ACCOUNT_ICON = primeIcon('wallet')
 
 /**
  * What the editor edits. `currency` is the free-form money currency tag;
@@ -42,7 +20,7 @@ const DEFAULT_ACCOUNT_ICON = 'wallet'
 export interface AccountDraft {
   name: string
   currency: string
-  icon: string
+  icon: Icon
   colour: string
   tags: string[]
   is_cash: boolean
@@ -51,39 +29,6 @@ export interface AccountDraft {
 export interface AccountDraftErrors {
   name?: string
   currency?: string
-}
-
-const KNOWN_ICONS = new Set(PRIME_ICONS)
-
-/** CSS class for a stored icon name. Unknown names fall back to the wallet icon. */
-export function accountIconClass(icon: string): string {
-  return `pi pi-${KNOWN_ICONS.has(icon) ? icon : DEFAULT_ACCOUNT_ICON}`
-}
-
-/** Readable name of an icon, for labels and tooltips: 'credit-card' → 'credit card'. */
-export function iconLabel(icon: string): string {
-  return icon === 'building-columns' ? 'bank' : icon.replace(/-/g, ' ')
-}
-
-function relativeLuminance(hex: string): number | null {
-  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim())
-  if (!m) return null
-  const digits = m[1]!.length === 3 ? [...m[1]!].map((d) => d + d).join('') : m[1]!
-  const [r, g, b] = [0, 2, 4].map((i) => {
-    const c = parseInt(digits.slice(i, i + 2), 16) / 255
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-  })
-  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
-}
-
-/**
- * Icon colour for an account badge: white while it keeps the 3:1 contrast WCAG
- * asks of graphics, dark ink on light colours (yellow, teal, …) otherwise.
- */
-export function iconColourOn(background: string): string {
-  const l = relativeLuminance(background)
-  if (l === null) return '#ffffff'
-  return 1.05 / (l + 0.05) >= 3 ? '#ffffff' : '#111827'
 }
 
 /** The currencies `accounts` use, most used first (ties in list order). */
@@ -100,7 +45,7 @@ export function newAccountDraft(existing: readonly Account[]): AccountDraft {
   return {
     name: '',
     currency: currenciesByUse(existing)[0] ?? '',
-    icon: DEFAULT_ACCOUNT_ICON,
+    icon: ACCOUNT_ICON,
     colour: COLOUR_PRESETS[existing.length % COLOUR_PRESETS.length]!,
     tags: [],
     is_cash: false,
@@ -196,7 +141,7 @@ export function patchFromDraft(
   if (draft.currency !== account.balance.currency) {
     patch.balance = moneyAmount(account.balance.value, account.balance.scale, draft.currency)
   }
-  if (draft.icon !== account.icon) patch.icon = draft.icon
+  if (!sameIcon(draft.icon, account.icon)) patch.icon = draft.icon
   if (draft.colour !== account.colour) patch.colour = draft.colour
   if (draft.is_cash !== account.is_cash) patch.is_cash = draft.is_cash
   if (tagIds.join(',') !== account.tags.join(',')) patch.tags = tagIds

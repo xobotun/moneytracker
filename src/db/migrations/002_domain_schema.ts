@@ -41,7 +41,7 @@ export const migration: Migration = {
       synonyms        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(synonyms)), -- JSON array of extra names
       retired_names   TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(retired_names)), -- JSON array of names that no longer find this tag through a tag merged into it
       colour          TEXT,                                              -- NULL = inherited from the parent
-      icon            TEXT,                                              -- PrimeIcons name without 'pi-'; NULL = inherited from the parent
+      icon            TEXT CHECK (icon IS NULL OR json_valid(icon)),     -- JSON object: the icon (src/icons/types.ts); NULL = inherited from the parent
       merged_into_id  TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of the tag this one was merged into (set with deleted_at_utc); NULL = not merged
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
@@ -86,7 +86,7 @@ export const migration: Migration = {
       id              TEXT PRIMARY KEY,                                  -- short id
       name            TEXT NOT NULL,
       colour          TEXT NOT NULL,
-      icon            TEXT NOT NULL,
+      icon            TEXT NOT NULL CHECK (json_valid(icon)),            -- JSON object: the icon (src/icons/types.ts)
       sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position among the groups, ascending; ties by name
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
@@ -103,7 +103,7 @@ export const migration: Migration = {
       tags            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tags)), -- JSON array of plain-tag ids (short ids of tags with kind 'tag')
       location_id     TEXT REFERENCES tags(id) ON DELETE RESTRICT,       -- short id of a location tag; NULL = none
       colour          TEXT NOT NULL,
-      icon            TEXT NOT NULL,
+      icon            TEXT NOT NULL CHECK (json_valid(icon)),            -- JSON object: the icon (src/icons/types.ts)
       grouping_id     TEXT REFERENCES account_groupings(id) ON DELETE RESTRICT, -- short id; NULL = not in a group
       sort_order      INTEGER NOT NULL DEFAULT 0,                        -- position within its group (or among ungrouped accounts), ascending; ties by name
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant

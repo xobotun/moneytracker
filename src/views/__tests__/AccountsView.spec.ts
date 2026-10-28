@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { primeIcon } from '@/icons/sets'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import PrimeVue from 'primevue/config'
@@ -54,7 +55,7 @@ function seed(name: string) {
     location_id: null,
     grouping_id: null,
     colour: '#3b82f6',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
   })
 }
 
@@ -342,7 +343,7 @@ describe('AccountsView', () => {
     expect(document.querySelector('button[aria-label="All icons, selected: euro"]')).not.toBeNull()
     buttonByText('Save').click()
     await settle()
-    expect((await accountsRepo.list())[0]!.icon).toBe('euro')
+    expect((await accountsRepo.list())[0]!.icon).toEqual(primeIcon('euro'))
   })
 
   it('shows the symbol and name of each currency in the suggestions', async () => {
@@ -421,7 +422,11 @@ describe('AccountsView', () => {
     })
 
     it('shows groups outside reorder mode, without their controls', async () => {
-      const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      const trip = await groupingsRepo.create({
+        name: 'Trip',
+        colour: '#000000',
+        icon: primeIcon('car'),
+      })
       await accountsRepo.create({
         name: 'Card',
         balance: zeroMoney('EUR'),
@@ -429,7 +434,7 @@ describe('AccountsView', () => {
         location_id: null,
         grouping_id: trip.id,
         colour: '#3b82f6',
-        icon: 'credit-card',
+        icon: primeIcon('credit-card'),
       })
       await seed('Cash')
       const w = await mountView()
@@ -439,8 +444,8 @@ describe('AccountsView', () => {
     })
 
     it('reorders groups with their arrows', async () => {
-      await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
-      await groupingsRepo.create({ name: 'Home', colour: '#000000', icon: 'home' })
+      await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: primeIcon('car') })
+      await groupingsRepo.create({ name: 'Home', colour: '#000000', icon: primeIcon('home') })
       const w = await mountView()
       buttonByText('Reorder').click()
       await settle()
@@ -451,7 +456,11 @@ describe('AccountsView', () => {
     })
 
     it('deletes a group and keeps its accounts below the groups', async () => {
-      const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      const trip = await groupingsRepo.create({
+        name: 'Trip',
+        colour: '#000000',
+        icon: primeIcon('car'),
+      })
       await accountsRepo.create({
         name: 'Card',
         balance: zeroMoney('EUR'),
@@ -459,7 +468,7 @@ describe('AccountsView', () => {
         location_id: null,
         grouping_id: trip.id,
         colour: '#3b82f6',
-        icon: 'credit-card',
+        icon: primeIcon('credit-card'),
       })
       const w = await mountView()
       buttonByText('Reorder').click()
@@ -577,7 +586,7 @@ describe('AccountsView', () => {
         location_id: null,
         grouping_id,
         colour: '#3b82f6',
-        icon: 'wallet',
+        icon: primeIcon('wallet'),
       })
     }
 
@@ -652,7 +661,11 @@ describe('AccountsView', () => {
 
     it('totals a one-currency group natively, a mixed page in EUR only', async () => {
       await eurRates({ USD: 2 })
-      const trip = await groupingsRepo.create({ name: 'Trip', colour: '#000000', icon: 'car' })
+      const trip = await groupingsRepo.create({
+        name: 'Trip',
+        colour: '#000000',
+        icon: primeIcon('car'),
+      })
       const a = await accountIn('Card A', 'USD', trip.id)
       const b = await accountIn('Card B', 'USD', trip.id)
       const cash = await accountIn('Cash', 'EUR')

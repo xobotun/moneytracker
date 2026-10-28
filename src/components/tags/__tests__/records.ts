@@ -1,4 +1,5 @@
 import type { Database } from '@/db/Database'
+import { primeIcon } from '@/icons/sets'
 import { AccountsRepository } from '@/db/repositories/AccountsRepository'
 import { TransactionsRepository } from '@/db/repositories/TransactionsRepository'
 import { moneyAmount, zeroMoney } from '@/db/MoneyAmount'
@@ -16,7 +17,7 @@ export async function addAccount(db: Database, tags: ShortId[] = []): Promise<Sh
     location_id: null,
     grouping_id: null,
     colour: '#3b82f6',
-    icon: 'wallet',
+    icon: primeIcon('wallet'),
   })
   return account.id
 }

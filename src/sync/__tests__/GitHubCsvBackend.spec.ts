@@ -119,7 +119,7 @@ describe('GitHubCsvBackend', () => {
     await src.run(
       `INSERT INTO accounts (id, name, currency, balance_value, balance_scale, location_id,
                              colour, icon, created_at_utc, updated_at_utc)
-       VALUES (?, 'Checking', 'USD', 0, 2, ?, '#000000', 'wallet', ?, ?)`,
+       VALUES (?, 'Checking', 'USD', 0, 2, ?, '#000000', '{"kind":"set","set":"pi","name":"wallet"}', ?, ?)`,
       [accId, locId, CUTOFF, CUTOFF],
     )
     const hash = await backend.hashDatabase(src)
@@ -343,7 +343,7 @@ describe('GitHubCsvBackend', () => {
       await uploadFrom(backend, a) // leaves the snapshot on the uploaded commit
       await a.run(
         `INSERT INTO account_groupings (id, name, colour, icon, created_at_utc, updated_at_utc)
-         VALUES (?, 'New', '#000', 'x', ?, ?)`,
+         VALUES (?, 'New', '#000', '{"kind":"set","set":"pi","name":"x"}', ?, ?)`,
         [newId(), CUTOFF, CUTOFF],
       )
 
@@ -382,7 +382,7 @@ describe('GitHubCsvBackend', () => {
       dbs.push(withTag)
       await withTag.run(
         `INSERT INTO tags (id, kind, name, colour, icon, moved_at_utc, created_at_utc, updated_at_utc)
-         VALUES ('old000000001', 'tag', 'old', '#00ff00', 'tag', ?, ?, ?)`,
+         VALUES ('old000000001', 'tag', 'old', '#00ff00', '{"kind":"set","set":"pi","name":"tag"}', ?, ?, ?)`,
         [CUTOFF, CUTOFF, CUTOFF],
       )
       remote.injectForeignCommit([

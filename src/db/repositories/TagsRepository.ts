@@ -1,5 +1,6 @@
 import type { Database, SqlExecutor } from '../Database'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues, TagKind } from '../types'
+import type { Icon } from '../../icons/types'
 import { asShortId, newShortId, type ShortId } from '../shortId'
 import { mergeChainEnd } from '../mergeChain'
 import {
@@ -30,6 +31,8 @@ import {
   retiredAfterMerge,
 } from '@/tags/otherNames'
 import {
+  iconFromNullableColumn,
+  iconToNullableColumn,
   instantFromColumn,
   instantFromNullableColumn,
   instantToColumn,
@@ -64,7 +67,7 @@ export type TagCreateInput = {
   description?: string | null
   synonyms?: string[]
   colour?: string | null
-  icon?: string | null
+  icon?: Icon | null
   /** The details of a location, merchant or journey, written in the same transaction. */
   details?: TagDetailValues
 }
@@ -77,7 +80,7 @@ export type TagSaveInput = {
   /** The synonyms and merged names to keep (see `applyOtherNames`). */
   otherNames: string[]
   colour: string | null // null = inherited
-  icon: string | null // null = inherited
+  icon: Icon | null // null = inherited
   /** The fields of the tag's kind are saved; the others are ignored. */
   details: TagDetailValues
 }
@@ -87,7 +90,7 @@ export type TagUpdateInput = {
   description?: string | null
   synonyms?: string[]
   colour?: string | null
-  icon?: string | null
+  icon?: Icon | null
 }
 
 export function rowToTag(row: TagRow): Tag {
@@ -101,7 +104,7 @@ export function rowToTag(row: TagRow): Tag {
     synonyms: jsonArrayFromColumn<string>(row.synonyms),
     retired_names: jsonArrayFromColumn<string>(row.retired_names),
     colour: row.colour,
-    icon: row.icon,
+    icon: iconFromNullableColumn(row.icon),
     merged_into_id: shortIdFromNullableColumn(row.merged_into_id),
     created_at_utc: instantFromColumn(row.created_at_utc),
     updated_at_utc: instantFromColumn(row.updated_at_utc),
@@ -287,7 +290,7 @@ export class TagsRepository {
           optionalTextToColumn(input.description),
           jsonArrayToColumn(synonyms),
           optionalTextToColumn(input.colour),
-          optionalTextToColumn(input.icon),
+          iconToNullableColumn(input.icon ?? null),
           now,
           now,
         ],
@@ -349,8 +352,8 @@ export class TagsRepository {
       }
       const colour = optionalTextToColumn(input.colour)
       if (colour !== tag.colour) set('colour', colour)
-      const icon = optionalTextToColumn(input.icon)
-      if (icon !== tag.icon) set('icon', icon)
+      const icon = iconToNullableColumn(input.icon)
+      if (icon !== iconToNullableColumn(tag.icon)) set('icon', icon)
       if (moves) {
         set('parent_id', parentId)
         set('moved_at_utc', now)
@@ -492,7 +495,7 @@ export class TagsRepository {
     }
     if (patch.icon !== undefined) {
       sets.push('icon = ?')
-      params.push(optionalTextToColumn(patch.icon))
+      params.push(iconToNullableColumn(patch.icon))
     }
     if (sets.length === 0) return
     sets.push('updated_at_utc = ?')
