@@ -1,7 +1,7 @@
 import { shallowReactive } from 'vue'
 import { defineStore } from 'pinia'
 import { getImagesRepository } from '@/db/init'
-import type { StoredImage } from '@/db/types'
+import { imageDataUrl } from '@/icons/dataUrl'
 import type { UUID } from '@/db/uuid'
 
 /** An image as a badge draws it. */
@@ -12,12 +12,7 @@ export interface ImageView {
   fills: boolean
 }
 
-/** The data URL of a stored image. */
-export function imageDataUrl(image: Pick<StoredImage, 'media_type' | 'content'>): string {
-  return image.media_type === 'image/webp'
-    ? `data:image/webp;base64,${image.content}`
-    : `data:image/svg+xml;charset=utf-8,${encodeURIComponent(image.content)}`
-}
+export { imageDataUrl }
 
 /**
  * Images for icons, read by id on demand and kept for the session (rows never

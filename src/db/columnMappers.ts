@@ -82,6 +82,22 @@ export function jsonObjectToNullableColumn<V>(obj: Record<string, V> | null): st
   return obj === null ? null : jsonObjectToColumn(obj)
 }
 
+/**
+ * `obj` as JSON with the keys of every object in it sorted, so the same value
+ * is always the same text, whatever order its keys were set in. For JSON that
+ * two devices must write identically (an image's `source`).
+ */
+export function jsonObjectToCanonicalNullableColumn<V>(
+  obj: Record<string, V> | null,
+): string | null {
+  if (obj === null) return null
+  return JSON.stringify(obj, (_key, value: unknown) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : value,
+  )
+}
+
 export function jsonObjectFromNullableColumn<V>(text: string | null): Record<string, V> | null {
   return text === null ? null : jsonObjectFromColumn<V>(text)
 }

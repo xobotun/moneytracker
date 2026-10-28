@@ -135,8 +135,8 @@ export interface AppliedRate {
   deleted_at_utc: Date | null
 }
 
-/** What an image holds: WebP pixels or SVG markup. */
-export type ImageMediaType = 'image/webp' | 'image/svg+xml'
+/** What an image holds: WebP pixels (PNG where the browser cannot write WebP) or SVG markup. */
+export type ImageMediaType = 'image/webp' | 'image/png' | 'image/svg+xml'
 
 /**
  * A picture an icon shows (docs/plans/2026-10-28-icons-design.md §3): an
@@ -145,7 +145,7 @@ export type ImageMediaType = 'image/webp' | 'image/svg+xml'
 export interface StoredImage {
   id: UUID // UUIDv5 of the content's SHA-256: the same picture is one row on every device
   media_type: ImageMediaType
-  content: string // base64 for WebP, the cleaned markup for SVG
+  content: string // base64 for WebP and PNG, the cleaned markup for SVG
   width: number | null // pixels; null = unknown (an SVG without a size)
   height: number | null
   source: Record<string, unknown> | null // the Text tab's settings for a word; null for an upload

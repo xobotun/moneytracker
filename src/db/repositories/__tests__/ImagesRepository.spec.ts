@@ -95,16 +95,40 @@ describe('ImagesRepository', () => {
     })
   })
 
-  it('refuses a media type other than WebP and SVG', async () => {
+  it('stores PNG, for browsers that cannot write WebP', async () => {
+    const id = await repo.put({
+      mediaType: 'image/png',
+      content: 'iVBORw0KGgo=',
+      width: 1,
+      height: 1,
+    })
+    expect(await repo.get(id)).toMatchObject({ media_type: 'image/png', content: 'iVBORw0KGgo=' })
+  })
+
+  it('refuses a media type other than WebP, PNG and SVG', async () => {
     await expect(
       repo.put({
-        mediaType: 'image/png' as ImageMediaType,
-        content: 'iVBORw0KGgo=',
+        mediaType: 'image/gif' as ImageMediaType,
+        content: 'R0lGODlhAQABAAAAACw=',
         width: 1,
         height: 1,
       }),
     ).rejects.toThrow(/CHECK/)
     expect(await count()).toBe(0)
+  })
+
+  it('writes a word’s settings with sorted keys, whatever order they came in', async () => {
+    const id = await repo.put({
+      mediaType: 'image/svg+xml',
+      content: SVG,
+      width: 256,
+      height: 256,
+      source: { text: 'C&A', font: 'sans', bold: true, nested: { b: 1, a: [{ d: 1, c: 2 }] } },
+    })
+    const [row] = await db.exec<{ source: string }>('SELECT source FROM images WHERE id = ?', [id])
+    expect(row!.source).toBe(
+      '{"bold":true,"font":"sans","nested":{"a":[{"c":2,"d":1}],"b":1},"text":"C&A"}',
+    )
   })
 
   it('finds nothing for an unknown id', async () => {

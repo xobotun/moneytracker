@@ -31,6 +31,9 @@ describe('useImagesStore', () => {
     expect(imageDataUrl({ media_type: 'image/webp', content: WEBP })).toBe(
       `data:image/webp;base64,${WEBP}`,
     )
+    expect(imageDataUrl({ media_type: 'image/png', content: 'iVBORw0KGgo=' })).toBe(
+      'data:image/png;base64,iVBORw0KGgo=',
+    )
     expect(imageDataUrl({ media_type: 'image/svg+xml', content: SVG })).toBe(
       'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ctext%3E%23%20100%25%3C%2Ftext%3E%3C%2Fsvg%3E',
     )

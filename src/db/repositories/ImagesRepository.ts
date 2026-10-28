@@ -5,7 +5,7 @@ import {
   instantFromNullableColumn,
   instantToColumn,
   jsonObjectFromNullableColumn,
-  jsonObjectToNullableColumn,
+  jsonObjectToCanonicalNullableColumn,
   uuidFromColumn,
 } from '../columnMappers'
 import { nameBasedId, type UUID } from '../uuid'
@@ -24,17 +24,17 @@ type ImageRow = {
 
 export interface ImagePutInput {
   mediaType: ImageMediaType
-  /** Base64 for WebP, the cleaned markup for SVG. */
+  /** Base64 for WebP and PNG, the cleaned markup for SVG. */
   content: string
   width: number | null
   height: number | null
-  /** The Text tab's settings for a word; null or left out for an upload. */
+  /** The Text tab's settings for a word (stored with sorted keys); null or left out for an upload. */
   source?: Record<string, unknown> | null
 }
 
 /**
  * The id of an image with `content`: a UUIDv5 of the SHA-256 of the stored
- * text (the base64 for WebP), so the same picture added on two devices is one
+ * text (the base64 for WebP and PNG), so the same picture added on two devices is one
  * row. The media type is not part of the key: one text is never both.
  */
 export async function imageId(content: string): Promise<UUID> {
@@ -79,7 +79,7 @@ export class ImagesRepository {
         input.content,
         input.width,
         input.height,
-        jsonObjectToNullableColumn(input.source ?? null),
+        jsonObjectToCanonicalNullableColumn(input.source ?? null),
         now,
         now,
       ],

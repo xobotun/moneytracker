@@ -21,8 +21,8 @@ export const migration: Migration = {
   up: `
     CREATE TABLE images (
       id              TEXT PRIMARY KEY,                                  -- UUIDv5 of the content's SHA-256
-      media_type      TEXT NOT NULL CHECK (media_type IN ('image/webp', 'image/svg+xml')),
-      content         TEXT NOT NULL,                                     -- base64 for WebP, the cleaned markup for SVG
+      media_type      TEXT NOT NULL CHECK (media_type IN ('image/webp', 'image/png', 'image/svg+xml')),
+      content         TEXT NOT NULL,                                     -- base64 for WebP and PNG, the cleaned markup for SVG
       width           INTEGER,                                           -- pixels; NULL = unknown (an SVG without a size)
       height          INTEGER,                                           -- pixels; NULL = unknown
       source          TEXT CHECK (source IS NULL OR json_valid(source)), -- JSON object: the Text tab's settings for a word; NULL for an upload
