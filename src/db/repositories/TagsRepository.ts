@@ -21,6 +21,7 @@ import {
   journeyCurrencyToColumn,
   noDetails,
   readDetailValues,
+  readJourneyDates,
   writeDetailValues,
 } from './TagDetailsRepository'
 import { countTagUsage, redirectTagReferences } from '../tagReferences'
@@ -32,6 +33,9 @@ import {
   namesAddedByMerge,
   retiredAfterMerge,
 } from '@/tags/otherNames'
+import { newParentName } from '@/tags/journeys'
+import { effectiveLook } from '@/tags/look'
+import { todayLocal } from '@/money/dates'
 import {
   iconFromNullableColumn,
   iconToNullableColumn,
@@ -265,6 +269,48 @@ async function loopPath(ex: SqlExecutor, id: ShortId, parentId: ShortId): Promis
 }
 
 /**
+ * Inserts tag `id` with its details, checking its parent, its names and its
+ * details as `TagsRepository.create` describes; the caller holds the
+ * transaction.
+ */
+async function insertTag(
+  tx: SqlExecutor,
+  id: ShortId,
+  input: TagCreateInput,
+  now: string,
+): Promise<void> {
+  const parentId = input.parent_id ?? null
+  const synonyms = input.synonyms ?? []
+  const details = input.details ? detailsOfKind(input.kind, input.details) : null
+  if (parentId !== null) await assertParent(tx, input.kind, parentId)
+  await assertNamesFree(tx, input.kind, parentId, [input.name, ...synonyms])
+  await tx.run(
+    `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, description, synonyms, colour,
+                       icon, created_at_utc, updated_at_utc)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      input.kind,
+      input.name,
+      parentId,
+      now,
+      optionalTextToColumn(input.description),
+      jsonArrayToColumn(synonyms),
+      optionalTextToColumn(input.colour),
+      iconToNullableColumn(input.icon ?? null),
+      now,
+      now,
+    ],
+  )
+  if (details && DETAIL_FIELDS_BY_KIND[input.kind].some((field) => details[field] !== null)) {
+    await assertDetailLinks(tx, input.kind, details)
+    assertJourneyDates(details)
+    assertJourneyCurrency(details.currency)
+    await writeDetailValues(tx, id, input.kind, details, now)
+  }
+}
+
+/**
  * Tags of all five kinds: categories, merchants, locations, journeys and
  * plain tags. A tag can have a parent of its own kind. Names and synonyms are
  * unique among the live tags of one kind and parent, ignoring case — checked
@@ -280,36 +326,66 @@ export class TagsRepository {
   async create(input: TagCreateInput): Promise<Tag> {
     const id = newShortId()
     const now = instantToColumn(new Date())
-    const parentId = input.parent_id ?? null
-    const synonyms = input.synonyms ?? []
-    const details = input.details ? detailsOfKind(input.kind, input.details) : null
+    await this.db.transaction((tx) => insertTag(tx, id, input, now))
+    return (await this.findById(id))!
+  }
+
+  /**
+   * "Continue journey": ends the live journey `currentId` and starts the new
+   * one `input` describes next to it, in one transaction, so a refusal
+   * changes nothing. When the current journey has no parent, it first gets
+   * one, named after the months it spans (from its start, typed or derived,
+   * to `today`: "Jul–Oct 2026"), with " (2)", " (3)" … when a top-level
+   * journey has that name already, and the current journey's colour, icon
+   * and currency as it shows them; the current journey moves under it. The
+   * current journey's typed end becomes `today` unless it ends earlier; the
+   * new journey goes under the same parent. Returns the new journey.
+   */
+  async continueJourney(
+    currentId: ShortId,
+    input: Omit<TagCreateInput, 'kind' | 'parent_id'>,
+    today: string = todayLocal(),
+  ): Promise<Tag> {
+    const id = newShortId()
+    const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
-      if (parentId !== null) await assertParent(tx, input.kind, parentId)
-      await assertNamesFree(tx, input.kind, parentId, [input.name, ...synonyms])
-      await tx.run(
-        `INSERT INTO tags (id, kind, name, parent_id, moved_at_utc, description, synonyms, colour,
-                           icon, created_at_utc, updated_at_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          input.kind,
-          input.name,
-          parentId,
-          now,
-          optionalTextToColumn(input.description),
-          jsonArrayToColumn(synonyms),
-          optionalTextToColumn(input.colour),
-          iconToNullableColumn(input.icon ?? null),
-          now,
-          now,
-        ],
-      )
-      if (details && DETAIL_FIELDS_BY_KIND[input.kind].some((field) => details[field] !== null)) {
-        await assertDetailLinks(tx, input.kind, details)
-        assertJourneyDates(details)
-        assertJourneyCurrency(details.currency)
-        await writeDetailValues(tx, id, input.kind, details, now)
+      const current = await liveTagOrThrow(tx, currentId, 'Journey')
+      if (current.kind !== 'journey') {
+        throw new TagKindMismatchError(`"${current.name}" is a ${current.kind}, not a journey`)
       }
+      const stored = await readDetailValues(tx, currentId, 'journey')
+      let parentId = current.parent_id
+      if (parentId === null) {
+        const { start } = await readJourneyDates(tx, currentId)
+        const topLevel = await tx.exec<TagRow>(
+          `SELECT * FROM tags
+           WHERE kind = 'journey' AND parent_id IS NULL AND deleted_at_utc IS NULL`,
+        )
+        const look = effectiveLook(current, new Map([[current.id, current]]))
+        parentId = newShortId()
+        await insertTag(
+          tx,
+          parentId,
+          {
+            kind: 'journey',
+            name: newParentName(start, today, topLevel.map(rowToTag)),
+            colour: look.colour,
+            icon: look.icon,
+            details: { ...noDetails(), currency: stored.currency },
+          },
+          now,
+        )
+        await tx.run(
+          'UPDATE tags SET parent_id = ?, moved_at_utc = ?, updated_at_utc = ? WHERE id = ?',
+          [parentId, now, now, currentId],
+        )
+      }
+      if (stored.end_date === null || stored.end_date > today) {
+        const ended = { ...stored, end_date: today }
+        assertJourneyDates(ended)
+        await writeDetailValues(tx, currentId, 'journey', ended, now)
+      }
+      await insertTag(tx, id, { ...input, kind: 'journey', parent_id: parentId }, now)
     })
     return (await this.findById(id))!
   }

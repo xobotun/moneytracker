@@ -8,7 +8,7 @@ import Aura from '@primevue/themes/aura'
 import { Database } from '@/db/Database'
 import { ALL_MIGRATIONS, runMigrations } from '@/db/migrations'
 import { TagsRepository } from '@/db/repositories/TagsRepository'
-import { TagDetailsRepository } from '@/db/repositories/TagDetailsRepository'
+import { TagDetailsRepository, noDetails } from '@/db/repositories/TagDetailsRepository'
 import type { Tag, TagKind } from '@/db/types'
 import type { ShortId } from '@/db/shortId'
 import { DERIVED_CLASS } from '@/components/derived'
@@ -75,11 +75,16 @@ describe('TagEditDialog', () => {
     await db.close()
   })
 
-  async function open(kind: TagKind, tag: Tag | null, parentId: ShortId | null = null) {
+  async function open(
+    kind: TagKind,
+    tag: Tag | null,
+    parentId: ShortId | null = null,
+    continues: Tag | null = null,
+  ) {
     await useTagsStore().load()
     wrapper = mount(TagEditDialog, {
       attachTo: document.body,
-      props: { kind, tag, parentId, visible: true },
+      props: { kind, tag, parentId, continues, visible: true },
       global: {
         plugins: [pinia, [PrimeVue, { theme: { preset: Aura } }]],
         stubs: { LocationMap: MapStub },
@@ -487,6 +492,47 @@ describe('TagEditDialog', () => {
     it('is only on journeys', async () => {
       await open('location', null)
       expect(input('tag-currency')).toBeNull()
+    })
+  })
+
+  describe('continue journey', () => {
+    it('starts today next to the journey under way, and saving ends that one', async () => {
+      const caucasus = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Caucasus',
+        colour: '#ef4444',
+      })
+      const georgia = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        parent_id: caucasus.id,
+        details: { ...noDetails(), start_date: '2026-10-01' },
+      })
+      const w = await open('journey', null, caucasus.id, georgia)
+      expect(input('tag-start-date').value).toBe(todayLocal())
+      expect(text()).toContain('Inherited: from Caucasus')
+      await type('tag-name', 'Armenia')
+      await save('Add journey')
+      expect(w.emitted('update:visible')).toEqual([[false]])
+      const armenia = (await tagsRepo.findByName('journey', 'Armenia'))!
+      expect(armenia.parent_id).toBe(caucasus.id)
+      expect(await detailsRepo.getJourney(armenia.id)).toMatchObject({ start_date: todayLocal() })
+      expect((await detailsRepo.getJourney(georgia.id))!.end_date).toBe(todayLocal())
+    })
+
+    it("shows the repository's refusal, keeps the dialog open and changes nothing", async () => {
+      const georgia = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        details: { ...noDetails(), start_date: '2026-10-01' },
+      })
+      const w = await open('journey', null, null, georgia)
+      await type('tag-name', 'GEORGIA')
+      await save('Add journey')
+      expect(text()).toContain('Another journey at this level is already called “GEORGIA”')
+      expect(w.emitted('update:visible')).toBeUndefined()
+      expect(await tagsRepo.list('journey')).toHaveLength(1)
+      expect((await detailsRepo.getJourney(georgia.id))!.end_date).toBeNull()
     })
   })
 

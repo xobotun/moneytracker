@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { asShortId, type ShortId } from '@/db/shortId'
-import { byJourneyDate, effectiveCurrency, inheritedCurrency } from '../journeys'
+import {
+  byJourneyDate,
+  currentJourney,
+  effectiveCurrency,
+  freeName,
+  inheritedCurrency,
+  monthSpanLabel,
+  newParentName,
+} from '../journeys'
 import { buildTree } from '../tree'
 import { byId, tag } from './fixtures'
 
@@ -100,5 +108,111 @@ describe('byJourneyDate', () => {
       ['winter', []],
       ['summer', ['porto', 'lisbon']],
     ])
+  })
+})
+
+describe('currentJourney', () => {
+  const TODAY = '2026-10-28'
+  const span = (entries: Record<string, [string | null, string | null]>) =>
+    new Map(Object.entries(entries).map(([id, [start, end]]) => [asShortId(id), { start, end }]))
+  const current = (tags: Parameters<typeof buildTree>[0], dates: ReturnType<typeof span>) =>
+    currentJourney(buildTree(tags, 'journey'), dates, TODAY)?.id ?? null
+
+  it('is a journey whose dates hold today: started, and not ended before today', () => {
+    const tags = [journey('past'), journey('open'), journey('future')]
+    expect(
+      current(tags, span({ past: ['2026-01-01', '2026-10-27'], open: ['2026-10-01', null] })),
+    ).toBe('open')
+    // The first and the last day count.
+    expect(current(tags, span({ past: ['2026-10-28', '2026-10-28'] }))).toBe('past')
+    expect(current(tags, span({ future: ['2026-10-29', null] }))).toBeNull()
+    // No start yet (being planned): not under way.
+    expect(current(tags, span({ open: [null, '2026-12-01'] }))).toBeNull()
+    expect(current(tags, span({}))).toBeNull()
+  })
+
+  it('is the deepest such journey, the most specific', () => {
+    const tags = [
+      journey('caucasus'),
+      journey('georgia', 'caucasus'),
+      journey('tbilisi', 'georgia'),
+      journey('lisbon'),
+    ]
+    const dates = span({
+      caucasus: ['2026-09-01', null],
+      georgia: ['2026-10-01', null],
+      tbilisi: ['2026-10-20', null],
+      lisbon: ['2026-10-25', null], // later, but at the top level
+    })
+    expect(current(tags, dates)).toBe('tbilisi')
+  })
+
+  it('among equally deep ones, the one that started later, then by name and id', () => {
+    const tags = [
+      journey('trip'),
+      journey('old', 'trip'),
+      journey('new', 'trip'),
+      tag('b2', { kind: 'journey', name: 'B', parent_id: asShortId('trip') }),
+      tag('b1', { kind: 'journey', name: 'B', parent_id: asShortId('trip') }),
+    ]
+    // Continue journey ends the old one today and starts the new one today.
+    expect(
+      current(
+        tags,
+        span({
+          trip: ['2026-09-01', TODAY],
+          old: ['2026-09-01', TODAY],
+          new: [TODAY, null],
+        }),
+      ),
+    ).toBe('new')
+    expect(current(tags, span({ b2: [TODAY, null], b1: [TODAY, null], new: [TODAY, null] }))).toBe(
+      'b1',
+    )
+  })
+
+  it('leaves out archived journeys', () => {
+    const tags = [
+      journey('trip'),
+      tag('leg', { kind: 'journey', parent_id: asShortId('trip'), archived_at_utc: new Date() }),
+    ]
+    expect(current(tags, span({ trip: ['2026-10-01', null], leg: ['2026-10-20', null] }))).toBe(
+      'trip',
+    )
+  })
+})
+
+describe('monthSpanLabel', () => {
+  it('names one month, months of one year, or months across years', () => {
+    expect(monthSpanLabel('2026-10-01', '2026-10-28')).toBe('Oct 2026')
+    expect(monthSpanLabel('2026-07-14', '2026-10-28')).toBe('Jul–Oct 2026')
+    expect(monthSpanLabel('2025-12-20', '2026-01-05')).toBe('Dec 2025–Jan 2026')
+    expect(monthSpanLabel('2024-01-01', '2026-12-31')).toBe('Jan 2024–Dec 2026')
+  })
+
+  it('takes the dates in either order', () => {
+    expect(monthSpanLabel('2026-10-28', '2026-07-14')).toBe('Jul–Oct 2026')
+  })
+})
+
+describe('freeName', () => {
+  it('is the name when no other has it, ignoring case', () => {
+    expect(freeName('Oct 2026', ['Summer', 'Oct 2025'])).toBe('Oct 2026')
+  })
+
+  it('adds the first free number from 2 up', () => {
+    expect(freeName('Oct 2026', ['oct 2026'])).toBe('Oct 2026 (2)')
+    expect(freeName('Oct 2026', ['Oct 2026', 'Oct 2026 (2)', 'OCT 2026 (3)'])).toBe('Oct 2026 (4)')
+  })
+})
+
+describe('newParentName', () => {
+  it('names the months from the start to today, free at the top level', () => {
+    const top = [{ name: 'Summer', synonyms: ['Jul–Oct 2026'] }]
+    expect(newParentName('2026-07-14', '2026-10-28', top)).toBe('Jul–Oct 2026 (2)')
+    expect(newParentName('2025-12-20', '2026-01-05', top)).toBe('Dec 2025–Jan 2026')
+    // No start known, or one after today: this month.
+    expect(newParentName(null, '2026-10-28', top)).toBe('Oct 2026')
+    expect(newParentName('2026-11-02', '2026-10-28', top)).toBe('Oct 2026')
   })
 })

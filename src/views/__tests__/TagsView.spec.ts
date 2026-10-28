@@ -13,6 +13,9 @@ import { SettingsRepository } from '@/db/repositories/SettingsRepository'
 import { LayoutKeys } from '@/stores/layout-types'
 import { useLayoutStore } from '@/stores/layout'
 import { formatDay } from '@/format/date'
+import { addDays, todayLocal } from '@/money/dates'
+import { monthSpanLabel } from '@/tags/journeys'
+import { useTagsStore } from '@/stores/tags'
 import { DERIVED_CLASS } from '@/components/derived'
 import type { MapLocation } from '@/tags/locationsMap'
 import type { ShortId } from '@/db/shortId'
@@ -622,6 +625,113 @@ describe('TagsView', () => {
     await settle()
     expect(treeRows()).toContain('  Old')
     expect(pageText()).not.toContain('Show deleted')
+  })
+
+  describe('current journey', () => {
+    const today = todayLocal()
+    const daysAgo = (n: number) => addDays(today, -n)
+    async function journey(
+      name: string,
+      dates: { start?: string; end?: string; currency?: string } = {},
+      parent: { id: ShortId } | null = null,
+    ) {
+      const tag = await tagsRepo.create({ kind: 'journey', name, parent_id: parent?.id ?? null })
+      await detailsRepo.setJourney(tag.id, {
+        start_date: dates.start ?? null,
+        end_date: dates.end ?? null,
+        currency: dates.currency ?? null,
+      })
+      return tag
+    }
+    /** The parts of the current-journey bar, one per item, joined by spaces. */
+    function bar(): string | undefined {
+      const shown = document.querySelector('[data-current-journey]')
+      return shown
+        ? [...shown.children].map((part) => part.textContent?.replace(/\s+/g, ' ').trim()).join(' ')
+        : undefined
+    }
+
+    it('shows the deepest journey under way at the top of the tab', async () => {
+      const caucasus = await journey('Caucasus', { start: daysAgo(30) })
+      await journey('Georgia', { start: daysAgo(20) }, caucasus)
+      await journey('Lisbon', { start: daysAgo(100), end: daysAgo(90) })
+      await mountView('/tags?kind=journey')
+      expect(bar()).toBe(
+        `Current journey: Caucasus › Georgia since ${formatDay(daysAgo(20))} Continue journey`,
+      )
+      expect(button('Continue Georgia with a new journey')).toBeDefined()
+    })
+
+    it('shows nothing when no journey is under way, or on other tabs', async () => {
+      await journey('Lisbon', { start: daysAgo(100), end: daysAgo(90) })
+      await journey('Someday')
+      await mountView('/tags?kind=journey')
+      expect(bar()).toBeUndefined()
+      await journey('Georgia', { start: daysAgo(20) })
+      await useTagsStore().load()
+      await router.replace({ query: { kind: 'category' } })
+      await settle()
+      expect(bar()).toBeUndefined()
+    })
+
+    it('continues a top-level journey: both go under a new journey named after its months', async () => {
+      const georgia = await journey('Georgia', { start: daysAgo(20), currency: 'GEL' })
+      await mountView('/tags?kind=journey')
+      button('Continue Georgia with a new journey').click()
+      await settle()
+      const label = monthSpanLabel(daysAgo(20), today)
+      expect(pageText()).toContain('New journey')
+      expect(document.querySelector('[data-continue-note]')!.textContent?.trim()).toBe(
+        `“Georgia” ends today. Both go under a new journey “${label}”.`,
+      )
+      // It goes next to Georgia: no parent to choose; it starts today and
+      // inherits the new parent's look and currency.
+      expect(input('tag-parent')).toBeNull()
+      expect(input('tag-start-date').value).toBe(today)
+      expect(pageText()).toContain(`Inherited: from ${label}`)
+      expect(input('tag-currency').value).toBe('GEL')
+
+      await type('tag-name', 'Armenia')
+      button('Add journey').click()
+      await settle()
+      expect(treeRows()).toEqual([label, '  Armenia', '  Georgia'])
+      expect(bar()).toContain(`Current journey: ${label} › Armenia since ${formatDay(today)}`)
+      expect((await detailsRepo.getJourney(georgia.id))!.end_date).toBe(today)
+    })
+
+    it('continues a journey that has a parent next to it', async () => {
+      const caucasus = await journey('Caucasus')
+      const georgia = await journey('Georgia', { start: daysAgo(20) }, caucasus)
+      await mountView('/tags?kind=journey')
+      button('Continue Georgia with a new journey').click()
+      await settle()
+      expect(document.querySelector('[data-continue-note]')!.textContent?.trim()).toBe(
+        '“Georgia” ends today. The new journey goes next to it, under “Caucasus”.',
+      )
+      await type('tag-name', 'Armenia')
+      button('Add journey').click()
+      await settle()
+      expect(treeRows()).toEqual(['Caucasus', '  Armenia', '  Georgia'])
+      expect((await detailsRepo.getJourney(georgia.id))!.end_date).toBe(today)
+    })
+
+    it('changes nothing when cancelled', async () => {
+      const georgia = await journey('Georgia', { start: daysAgo(20) })
+      await mountView('/tags?kind=journey')
+      button('Continue Georgia with a new journey').click()
+      await settle()
+      await type('tag-name', 'Armenia')
+      button('Cancel').click()
+      await settle()
+      expect(treeRows()).toEqual(['Georgia'])
+      expect((await tagsRepo.findById(georgia.id))!.parent_id).toBeNull()
+      expect((await detailsRepo.getJourney(georgia.id))!.end_date).toBeNull()
+      // The next new journey is an ordinary one again.
+      button('Add journey').click()
+      await settle()
+      expect(document.querySelector('[data-continue-note]')).toBeNull()
+      expect(input('tag-parent')).not.toBeNull()
+    })
   })
 
   describe('link dropdowns', () => {

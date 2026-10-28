@@ -22,7 +22,8 @@ import { moneyAmount, zeroMoney } from '../../MoneyAmount'
 import { AccountsRepository } from '../AccountsRepository'
 import { TransactionsRepository } from '../TransactionsRepository'
 import { TagsRepository, type TagSaveInput } from '../TagsRepository'
-import { TagDetailsRepository, readDetailValues } from '../TagDetailsRepository'
+import { TagDetailsRepository, noDetails, readDetailValues } from '../TagDetailsRepository'
+import { effectiveLook } from '@/tags/look'
 
 const AT = '2026-10-01T00:00:00.000Z'
 
@@ -1569,6 +1570,154 @@ describe('TagsRepository', () => {
         start_date: '2026-05-01',
         end_date: '2026-05-05',
       })
+    })
+  })
+
+  describe('continueJourney', () => {
+    const TODAY = '2026-10-28'
+    let details: TagDetailsRepository
+    beforeEach(() => {
+      details = new TagDetailsRepository(db)
+    })
+    const startingToday = (name: string) => ({
+      name,
+      details: { ...noDetails(), start_date: TODAY },
+    })
+    const journeyRows = async () =>
+      db.exec<{ id: string; name: string; parent_id: string | null }>(
+        "SELECT id, name, parent_id FROM tags WHERE kind = 'journey' ORDER BY name",
+      )
+
+    it('puts a top-level journey under a new one named after its months, ends it, starts the next', async () => {
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        colour: '#ef4444',
+        details: { ...noDetails(), start_date: '2026-07-14', currency: 'GEL' },
+      })
+      const armenia = await repo.continueJourney(georgia.id, startingToday('Armenia'), TODAY)
+
+      const parent = (await repo.findByName('journey', 'Jul–Oct 2026', null))!
+      expect(parent).toMatchObject({
+        parent_id: null,
+        colour: '#ef4444', // Georgia's own
+        icon: primeIcon('globe'), // Georgia shows its kind's icon: copied as it shows
+      })
+      expect((await details.getJourney(parent.id))!.currency).toBe('GEL')
+      const moved = (await repo.findById(georgia.id))!
+      expect(moved.parent_id).toBe(parent.id)
+      expect(moved.moved_at_utc.getTime()).toBeGreaterThanOrEqual(georgia.moved_at_utc.getTime())
+      expect(await details.getJourney(georgia.id)).toMatchObject({
+        start_date: '2026-07-14',
+        end_date: TODAY,
+        currency: 'GEL',
+      })
+      expect(armenia).toMatchObject({ name: 'Armenia', kind: 'journey', parent_id: parent.id })
+      expect(await details.getJourney(armenia.id)).toMatchObject({
+        start_date: TODAY,
+        end_date: null,
+        currency: null, // inherits GEL from the new parent
+      })
+    })
+
+    it('copies the look a journey shows: a default colour too', async () => {
+      const trip = await repo.create({ kind: 'journey', name: 'Trip', icon: primeIcon('car') })
+      await details.setJourney(trip.id, { start_date: '2026-10-01', end_date: null })
+      await repo.continueJourney(trip.id, startingToday('Next'), TODAY)
+      const parent = (await repo.findByName('journey', 'Oct 2026', null))!
+      const shown = (await repo.findById(trip.id))!
+      expect(parent.icon).toEqual(primeIcon('car'))
+      expect(parent.colour).not.toBeNull()
+      // The moved journey, which sets no colour, now shows the same one.
+      expect(effectiveLook(shown, new Map([[parent.id, parent]])).colour).toBe(parent.colour)
+      expect(await details.getJourney(parent.id)).toBeNull() // no currency: no details row
+    })
+
+    it('names the months from a derived start, across years', async () => {
+      const winter = await repo.create({ kind: 'journey', name: 'Winter' })
+      await db.run(
+        `INSERT INTO transactions (id,
+           amount_value__from, amount_scale__from, amount_currency__from,
+           amount_value__to, amount_scale__to, amount_currency__to,
+           transaction_at_local, transaction_at_zone, journey_id, created_at_utc, updated_at_utc)
+         VALUES ('t1', 100, 2, 'EUR', 100, 2, 'EUR', '2025-12-20T12:00:00.000+01:00',
+                 'Europe/Berlin', ?, ?, ?)`,
+        [winter.id, AT, AT],
+      )
+      await repo.continueJourney(winter.id, startingToday('Spring'), '2026-01-05')
+      const parent = (await repo.findById((await repo.findById(winter.id))!.parent_id!))!
+      expect(parent.name).toBe('Dec 2025–Jan 2026')
+    })
+
+    it('makes the new name unique at the top level, synonyms included', async () => {
+      await repo.create({ kind: 'journey', name: 'oct 2026' })
+      await repo.create({ kind: 'journey', name: 'Autumn', synonyms: ['Oct 2026 (2)'] })
+      const trip = await repo.create({
+        kind: 'journey',
+        name: 'Trip',
+        details: { ...noDetails(), start_date: '2026-10-03' },
+      })
+      await repo.continueJourney(trip.id, startingToday('Next'), TODAY)
+      const parent = (await repo.findById((await repo.findById(trip.id))!.parent_id!))!
+      expect(parent.name).toBe('Oct 2026 (3)')
+    })
+
+    it('starts the next journey next to one that has a parent; a later end becomes today', async () => {
+      const caucasus = await repo.create({ kind: 'journey', name: 'Caucasus' })
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        parent_id: caucasus.id,
+        details: { ...noDetails(), start_date: '2026-10-01', end_date: '2026-11-30' },
+      })
+      const before = await journeyRows()
+      const armenia = await repo.continueJourney(georgia.id, startingToday('Armenia'), TODAY)
+      expect(armenia.parent_id).toBe(caucasus.id)
+      expect(await journeyRows()).toHaveLength(before.length + 1) // no new parent
+      expect((await repo.findById(georgia.id))!.parent_id).toBe(caucasus.id)
+      expect((await details.getJourney(georgia.id))!.end_date).toBe(TODAY)
+    })
+
+    it('keeps an end typed before today', async () => {
+      const caucasus = await repo.create({ kind: 'journey', name: 'Caucasus' })
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        parent_id: caucasus.id,
+        details: { ...noDetails(), start_date: '2026-10-01', end_date: '2026-10-20' },
+      })
+      await repo.continueJourney(georgia.id, startingToday('Armenia'), TODAY)
+      expect((await details.getJourney(georgia.id))!.end_date).toBe('2026-10-20')
+    })
+
+    it('changes nothing when the new journey is refused', async () => {
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        details: { ...noDetails(), start_date: '2026-10-01' },
+      })
+      const rows = await journeyRows()
+      const detailRows = await db.exec('SELECT * FROM journey_details')
+      // Its name clashes with Georgia's under the new parent: refused last of all.
+      await expect(
+        repo.continueJourney(georgia.id, startingToday('georgia'), TODAY),
+      ).rejects.toThrow(DuplicateTagNameError)
+      expect(await journeyRows()).toEqual(rows)
+      expect(await db.exec('SELECT * FROM journey_details')).toEqual(detailRows)
+
+      const caucasus = await repo.create({ kind: 'journey', name: 'Caucasus' })
+      await repo.move(georgia.id, caucasus.id)
+      await expect(
+        repo.continueJourney(georgia.id, startingToday('Georgia'), TODAY),
+      ).rejects.toThrow(DuplicateTagNameError)
+      expect((await details.getJourney(georgia.id))!.end_date).toBeNull()
+    })
+
+    it('refuses a tag that is no journey', async () => {
+      const food = await repo.create({ kind: 'category', name: 'Food' })
+      await expect(repo.continueJourney(food.id, startingToday('Next'), TODAY)).rejects.toThrow(
+        TagKindMismatchError,
+      )
     })
   })
 })

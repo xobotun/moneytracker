@@ -20,6 +20,8 @@ import TagEditDialog from '@/components/tags/TagEditDialog.vue'
 import TagMergeDialog from '@/components/tags/TagMergeDialog.vue'
 import LocationsMap from '@/components/tags/LocationsMap.vue'
 import TagOptionLabel from '@/components/tags/TagOptionLabel.vue'
+import TagChip from '@/components/tags/TagChip.vue'
+import { DERIVED_CLASS } from '@/components/derived'
 import { KIND_NOUNS, KIND_PLURALS } from '@/components/tags/tagForm'
 import { useTagsStore } from '@/stores/tags'
 import type { ShortId } from '@/db/shortId'
@@ -28,7 +30,8 @@ import { KIND_ICONS, effectiveLook } from '@/tags/look'
 import { setIconClass } from '@/icons/sets'
 import { mergedNamesByTag } from '@/tags/otherNames'
 import { mapLocations } from '@/tags/locationsMap'
-import { byJourneyDate, effectiveCurrency } from '@/tags/journeys'
+import { byJourneyDate, currentJourney, effectiveCurrency } from '@/tags/journeys'
+import { todayLocal } from '@/money/dates'
 import {
   buildTree,
   filterTree,
@@ -318,6 +321,23 @@ function toggle(id: ShortId) {
   collapsed.value = next
 }
 
+// --- The journey under way today, at the top of the Journeys tab ---
+
+const current = computed(() =>
+  kind.value === 'journey' ? currentJourney(tree.value, journeyDates.value, todayLocal()) : null,
+)
+const currentChip = computed(() =>
+  current.value
+    ? {
+        label: pathLabel(tagPath(current.value, store.byId)),
+        ...effectiveLook(current.value, store.byId),
+      }
+    : null,
+)
+const currentSince = computed(() =>
+  current.value ? journeyDates.value.get(current.value.id) : undefined,
+)
+
 const hasDuplicates = computed(() =>
   store.tags.some((t) => t.kind === kind.value && store.duplicateIds.has(t.id)),
 )
@@ -349,16 +369,27 @@ async function restore(tag: Tag) {
 
 const editVisible = ref(false)
 const editing = ref<{ tag: Tag | null; parentId: ShortId | null }>({ tag: null, parentId: null })
+// The journey "Continue journey" continues; null for every other new tag.
+const continuing = ref<Tag | null>(null)
 const mergeVisible = ref(false)
 const mergeSource = ref<Tag | null>(null)
 
 function openAdd(parentId: ShortId | null) {
   editing.value = { tag: null, parentId }
+  continuing.value = null
   editVisible.value = true
 }
 
 function openEdit(tag: Tag) {
   editing.value = { tag, parentId: tag.parent_id }
+  continuing.value = null
+  editVisible.value = true
+}
+
+/** The new-journey dialog, next to the journey under way, which saving ends. */
+function openContinue(current: Tag) {
+  editing.value = { tag: null, parentId: current.parent_id }
+  continuing.value = current
   editVisible.value = true
 }
 
@@ -443,6 +474,37 @@ function onMerged() {
         </div>
 
         <template v-else>
+          <div
+            v-if="current && currentChip"
+            class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-gray-200 px-3 py-2 dark:border-gray-700"
+            data-current-journey
+          >
+            <span class="text-sm">Current journey:</span>
+            <TagChip v-bind="currentChip" class="flex max-w-full" />
+            <span
+              v-if="currentSince?.start"
+              class="text-sm text-gray-600 dark:text-gray-300"
+              :class="currentSince.startTyped ? undefined : DERIVED_CLASS"
+              :title="
+                currentSince.startTyped
+                  ? undefined
+                  : 'From its transactions and the journeys under it'
+              "
+            >
+              since {{ formatDay(currentSince.start) }}
+            </span>
+            <Button
+              type="button"
+              label="Continue journey"
+              icon="pi pi-forward"
+              severity="secondary"
+              size="small"
+              class="ml-auto"
+              :aria-label="`Continue ${current.name} with a new journey`"
+              @click="openContinue(current)"
+            />
+          </div>
+
           <!-- The dropdown takes a line of its own on a narrow screen. -->
           <div class="flex flex-wrap gap-2">
             <IconField class="min-w-0 flex-1">
@@ -607,6 +669,7 @@ function onMerged() {
     :kind="kind"
     :tag="editing.tag"
     :parent-id="editing.parentId"
+    :continues="continuing"
     :close-on-escape="!mergeVisible"
     @merge="openMerge"
   />

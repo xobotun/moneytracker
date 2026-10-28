@@ -21,10 +21,10 @@ import { DEFAULT_LOCATION_RADIUS_METRES, noDetails } from '@/db/repositories/Tag
 import LocationMap from './LocationMap.vue'
 import TagOptionLabel from './TagOptionLabel.vue'
 import type { LatLon } from './mapView'
-import type { ShortId } from '@/db/shortId'
+import { asShortId, type ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
-import { KIND_ICONS, inheritedLook, type TagLook } from '@/tags/look'
-import { inheritedCurrency } from '@/tags/journeys'
+import { KIND_ICONS, effectiveLook, inheritedLook, type TagLook } from '@/tags/look'
+import { effectiveCurrency, inheritedCurrency, newParentName } from '@/tags/journeys'
 import type { Icon } from '@/icons/types'
 import {
   carriedNames,
@@ -33,7 +33,7 @@ import {
   mergedNames,
   withOtherName,
 } from '@/tags/otherNames'
-import { heldOption, subtreeIds, tagOptions } from '@/tags/tree'
+import { heldOption, pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
 import { formatDay } from '@/format/date'
 import { todayLocal } from '@/money/dates'
 import {
@@ -51,23 +51,30 @@ import {
 
 /**
  * Edits `tag`, or creates a new tag of `kind` under `parentId` when it is
- * null. `closeOnEscape` is off while a dialog stacked on top of this one is
- * open: every open dialog hears Escape, and only the top one should close.
+ * null. With `continues` (the journey under way; `tag` null), the new
+ * journey continues it ("Continue journey"): it goes next to it, starting
+ * today, and saving also ends that one — under a new parent first when it
+ * has none (`TagsRepository.continueJourney`). `closeOnEscape` is off while a
+ * dialog stacked on top of this one is open: every open dialog hears Escape,
+ * and only the top one should close.
  */
 const props = withDefaults(
   defineProps<{
     kind: TagKind
     tag: Tag | null
     parentId?: ShortId | null
+    continues?: Tag | null
     closeOnEscape?: boolean
   }>(),
-  { parentId: null, closeOnEscape: true },
+  { parentId: null, continues: null, closeOnEscape: true },
 )
 const visible = defineModel<boolean>('visible', { required: true })
 /** Asks for the merge dialog for this tag (the page stacks it over this one). */
 const emit = defineEmits<{ merge: [tag: Tag] }>()
 
 const store = useTagsStore()
+/** Stands for the parent "Continue journey" makes, until saving makes it. */
+const NEW_PARENT = asShortId('(new parent)')
 const noun = computed(() => KIND_NOUNS[props.kind])
 const nouns = computed(() => KIND_PLURALS[props.kind])
 
@@ -121,7 +128,12 @@ async function reset() {
   mapFallback.value = null
   const tag = props.tag
   if (!tag) {
-    draft.value = newTagDraft(props.kind, props.parentId)
+    draft.value = props.continues
+      ? {
+          ...newTagDraft(props.kind, props.continues.parent_id ?? NEW_PARENT),
+          start_date: todayLocal(),
+        }
+      : newTagDraft(props.kind, props.parentId)
     carried.value = []
     void prepareMap(current, props.parentId)
     return
@@ -220,8 +232,53 @@ const categoryOptions = computed(() => linkOptions('category', draft.value.defau
 
 // --- Colour and icon: inherited ones are derived values ---
 
+// --- Continue journey: the new journey goes next to the one under way ---
+
+/**
+ * The parent made for a top-level journey under way, as saving will make it:
+ * named after its months, with the look and currency it shows.
+ */
+const newParent = computed<Tag | null>(() => {
+  const current = props.continues
+  if (!current || current.parent_id !== null) return null
+  const topLevel = store.tags.filter(
+    (t) => t.kind === 'journey' && t.parent_id === null && t.deleted_at_utc === null,
+  )
+  const start = store.journeyDatesById.get(current.id)?.start ?? null
+  const look = effectiveLook(current, store.byId)
+  return {
+    ...current,
+    id: NEW_PARENT,
+    name: newParentName(start, todayLocal(), topLevel),
+    synonyms: [],
+    colour: look.colour,
+    icon: look.icon,
+    archived_at_utc: null,
+  }
+})
+// The tags and details the inherited look and currency come from, the new parent included.
+const lookById = computed(() =>
+  newParent.value ? new Map(store.byId).set(NEW_PARENT, newParent.value) : store.byId,
+)
+const lookDetails = computed(() => {
+  const current = props.continues
+  if (!newParent.value || !current) return store.detailsById
+  const { currency } = effectiveCurrency(current, store.byId, store.detailsById)
+  return new Map(store.detailsById).set(NEW_PARENT, { ...noDetails(), currency })
+})
+/** What saving will do besides adding the journey. */
+const continueNote = computed(() => {
+  const current = props.continues
+  if (!current) return null
+  const ends = `“${current.name}” ends today.`
+  if (newParent.value) return `${ends} Both go under a new journey “${newParent.value.name}”.`
+  const parent = current.parent_id === null ? undefined : store.byId.get(current.parent_id)
+  const under = parent ? pathLabel(tagPath(parent, store.byId)) : ''
+  return `${ends} The new journey goes next to it, under “${under}”.`
+})
+
 const inherited = computed(() =>
-  inheritedLook(props.kind, draft.value.parent_id, props.tag?.id ?? null, store.byId),
+  inheritedLook(props.kind, draft.value.parent_id, props.tag?.id ?? null, lookById.value),
 )
 const shownColour = computed({
   get: () => draft.value.colour ?? inherited.value.colour,
@@ -314,7 +371,7 @@ const DATES_SOURCE = 'From its transactions and the journeys under it'
 // --- A journey's currency: inherited until typed ---
 
 const inheritedCur = computed(() =>
-  inheritedCurrency(draft.value.parent_id, store.byId, store.detailsById),
+  inheritedCurrency(draft.value.parent_id, lookById.value, lookDetails.value),
 )
 const shownCurrency = computed({
   get: () => draft.value.currency ?? inheritedCur.value.currency ?? '',
@@ -349,6 +406,8 @@ async function save() {
         input.otherNames = withOtherName(input.otherNames, props.tag.name)
       }
       await store.save(props.tag.id, input)
+    } else if (props.continues) {
+      await store.continueJourney(props.continues.id, createInputFromDraft(props.kind, draft.value))
     } else await store.create(createInputFromDraft(props.kind, draft.value))
     visible.value = false
   } catch (e) {
@@ -431,6 +490,9 @@ async function setArchived(archived: boolean) {
     class="w-[34rem] max-w-[calc(100vw-2rem)]"
   >
     <form class="flex flex-col gap-5" novalidate @submit.prevent="save">
+      <Message v-if="continueNote" severity="info" :closable="false" data-continue-note>
+        {{ continueNote }}
+      </Message>
       <Message v-if="archivedOn" severity="secondary" :closable="false" data-archived-note>
         Archived on {{ archivedOn }}: no longer offered in pickers.
       </Message>
@@ -474,7 +536,8 @@ async function setArchived(archived: boolean) {
         </div>
       </div>
 
-      <div class="flex flex-col gap-1">
+      <!-- Continuing, the new journey goes next to the current one (the note says where). -->
+      <div v-if="!continues" class="flex flex-col gap-1">
         <label for="tag-parent" class="text-sm font-medium">Under</label>
         <Select
           v-model="draft.parent_id"

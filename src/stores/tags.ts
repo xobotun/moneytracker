@@ -104,6 +104,16 @@ export const useTagsStore = defineStore('tags', () => {
     return tag
   }
 
+  /** Ends the journey under way and starts the next one beside it (`TagsRepository.continueJourney`). */
+  async function continueJourney(
+    currentId: ShortId,
+    input: Omit<TagCreateInput, 'kind' | 'parent_id'>,
+  ): Promise<Tag> {
+    const tag = await getTagsRepository().continueJourney(currentId, input)
+    await load()
+    return tag
+  }
+
   async function save(id: ShortId, input: TagSaveInput): Promise<void> {
     await getTagsRepository().save(id, input)
     await load()
@@ -167,6 +177,7 @@ export const useTagsStore = defineStore('tags', () => {
     nameOf,
     resolvePlainTags,
     create,
+    continueJourney,
     save,
     merge,
     remove,
