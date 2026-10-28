@@ -137,6 +137,7 @@ async function remove() {
           v-model="draft.icon"
           v-model:open="iconDialogOpen"
           :colour="draft.colour"
+          owner-noun="group"
           :fallback="GROUPING_ICON"
         />
       </fieldset>

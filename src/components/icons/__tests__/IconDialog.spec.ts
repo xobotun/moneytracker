@@ -105,6 +105,7 @@ describe('IconDialog', () => {
           visible: visible.value,
           'onUpdate:visible': (next: boolean) => (visible.value = next),
           colour: RED,
+          ownerNoun: 'merchant',
           fallback: primeIcon('shop'),
         }),
     )
@@ -220,6 +221,47 @@ describe('IconDialog', () => {
       source: wordSource(settings),
     })
     expect(visible.value).toBe(false)
+  })
+
+  it('resets the background to the owner’s colour and the text to a readable one', async () => {
+    await open(primeIcon('shop'))
+    await showTab('Text')
+    await type('icon-word-text', 'SAS')
+    const swatch = (legend: string, name: string) =>
+      [...shownPanel().querySelectorAll('fieldset')]
+        .find((f) => f.querySelector('legend')?.textContent?.trim() === legend)!
+        .querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`)!
+    const preview = () =>
+      decodeURIComponent(shownPanel().querySelector('img')!.getAttribute('src')!)
+    const resetBackground = () => button("Use the merchant's colour as background")
+    const resetText = () => button('Use a readable text colour')
+
+    // A new word: both colours are what Reset would give, so neither shows one.
+    expect(resetBackground).toThrow()
+    expect(resetText).toThrow()
+    expect(pageText()).toContain("The merchant's colour")
+    expect(pageText()).toContain('Readable on the background')
+
+    // A light background: the text, still the readable colour, follows to dark ink.
+    swatch('Background', 'amber').click()
+    await settle()
+    expect(preview()).toContain('fill="#f59e0b"/>')
+    expect(preview()).toContain('fill="#111827"')
+    expect(resetText).toThrow()
+
+    // A picked text colour stays when the background changes back.
+    swatch('Text colour', 'blue').click()
+    await settle()
+    resetBackground().click()
+    await settle()
+    expect(preview()).toContain(`fill="${RED}"/>`)
+    expect(preview()).toContain('fill="#3b82f6"')
+    expect(resetBackground).toThrow()
+
+    resetText().click()
+    await settle()
+    expect(preview()).toContain('fill="#ffffff"')
+    expect(resetText).toThrow()
   })
 
   it('reopens a word on the Text tab with its settings', async () => {

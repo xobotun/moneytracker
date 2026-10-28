@@ -21,9 +21,10 @@ import TextTab from './TextTab.vue'
  * pack icon, an emoji, a word or a picture, one tab each. Choosing in any
  * tab sets the icon and closes. It opens on the tab of the icon it is given:
  * a word on Text with its settings, an uploaded picture on Image showing it.
- * `colour` is the owner's colour: the badges' ring, a new word's background.
+ * `colour` is the colour of the owner (the `ownerNoun`, e.g. merchant) the
+ * icon is for: the badges' ring, a new word's background.
  */
-const props = defineProps<{ colour: string; fallback: SetIcon }>()
+const props = defineProps<{ colour: string; ownerNoun: string; fallback: SetIcon }>()
 const icon = defineModel<Icon>('icon', { required: true })
 const visible = defineModel<boolean>('visible', { required: true })
 const emit = defineEmits<{ 'after-hide': [] }>()
@@ -112,6 +113,7 @@ const TABS: { name: TabName; label: string; icon: string }[] = [
           <TextTab
             :start="word"
             :colour="props.colour"
+            :owner-noun="props.ownerNoun"
             :fallback="props.fallback"
             :active="tab === 'text'"
             @pick="pick"

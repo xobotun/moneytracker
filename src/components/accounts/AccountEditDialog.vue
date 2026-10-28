@@ -258,6 +258,7 @@ async function remove() {
           v-model="draft.icon"
           v-model:open="iconDialogOpen"
           :colour="draft.colour"
+          owner-noun="account"
           :fallback="ACCOUNT_ICON"
         />
       </fieldset>

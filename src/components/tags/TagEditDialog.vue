@@ -456,6 +456,7 @@ function merge() {
             v-model="shownIcon"
             v-model:open="iconDialogOpen"
             :colour="shownColour"
+            :owner-noun="noun"
             :fallback="KIND_ICONS[kind]"
           />
         </div>

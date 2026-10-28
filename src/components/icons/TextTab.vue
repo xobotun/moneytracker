@@ -16,6 +16,7 @@ import {
   WORD_MAX_LENGTH,
   WORD_SIZE,
   defaultWord,
+  normaliseHex,
   wordSource,
   wordSvg,
   wordText,
@@ -28,34 +29,36 @@ import IconPreview from './IconPreview.vue'
  * colours, previewed as the badges will show it. Saving stores the word's
  * picture (src/icons/wordSvg.ts) with its settings, so it can be edited here
  * again; a change makes a new picture. `start` is the word being edited, or
- * null for a new one on the owner's `colour`.
+ * null for a new one on the owner's `colour` (the owner is what the icon is
+ * for, a `ownerNoun`: 'merchant', 'account', …).
  */
 const props = defineProps<{
   start: WordSettings | null
   colour: string
+  ownerNoun: string
   fallback: SetIcon
   active: boolean
 }>()
 const emit = defineEmits<{ pick: [icon: Icon] }>()
 
 const word = reactive<WordSettings>({ ...(props.start ?? defaultWord(props.colour)) })
+const sameColour = (a: string, b: string) => normaliseHex(a) === normaliseHex(b)
 
-// The text colour follows the background (white or black, whichever reads)
-// until one is picked; a word made that way reopens following it.
+// The background a new word starts with, and Reset brings back: the owner's colour.
+const ownersBackground = computed(() => defaultWord(props.colour).background)
+const backgroundIsOwners = computed(() => sameColour(word.background, ownersBackground.value))
+function resetBackground() {
+  word.background = ownersBackground.value
+}
+
+// The text colour Reset brings back: white or black, whichever reads on the
+// background. While the text has it, it follows a change of background.
 const readable = computed(() => iconColourOn(word.background))
-const colourFollows = ref(word.colour === readable.value)
-watch(readable, (colour) => {
-  if (colourFollows.value) word.colour = colour
+const textIsReadable = computed(() => sameColour(word.colour, readable.value))
+watch(readable, (now, before) => {
+  if (sameColour(word.colour, before)) word.colour = now
 })
-const textColour = computed({
-  get: () => word.colour,
-  set: (colour: string) => {
-    word.colour = colour
-    colourFollows.value = false
-  },
-})
-function followBackground() {
-  colourFollows.value = true
+function resetTextColour() {
   word.colour = readable.value
 }
 
@@ -163,12 +166,12 @@ async function save() {
       <legend class="mb-2 text-sm font-medium">Text colour</legend>
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div
-          :class="colourFollows ? DERIVED_CLASS : undefined"
-          :title="colourFollows ? 'Readable on the background' : undefined"
+          :class="textIsReadable ? DERIVED_CLASS : undefined"
+          :title="textIsReadable ? 'Readable on the background' : undefined"
         >
-          <ColourPicker v-model="textColour" />
+          <ColourPicker v-model="word.colour" />
         </div>
-        <span v-if="colourFollows" class="text-sm" :class="DERIVED_CLASS">
+        <span v-if="textIsReadable" class="text-sm" :class="DERIVED_CLASS">
           Readable on the background
         </span>
         <Button
@@ -179,15 +182,36 @@ async function save() {
           severity="secondary"
           text
           size="small"
-          aria-label="Use a text colour readable on the background"
-          @click="followBackground"
+          aria-label="Use a readable text colour"
+          @click="resetTextColour"
         />
       </div>
     </fieldset>
 
     <fieldset class="flex flex-col">
       <legend class="mb-2 text-sm font-medium">Background</legend>
-      <ColourPicker v-model="word.background" />
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div
+          :class="backgroundIsOwners ? DERIVED_CLASS : undefined"
+          :title="backgroundIsOwners ? `The ${ownerNoun}'s colour` : undefined"
+        >
+          <ColourPicker v-model="word.background" />
+        </div>
+        <span v-if="backgroundIsOwners" class="text-sm" :class="DERIVED_CLASS">
+          The {{ ownerNoun }}'s colour
+        </span>
+        <Button
+          v-else
+          type="button"
+          label="Reset"
+          icon="pi pi-undo"
+          severity="secondary"
+          text
+          size="small"
+          :aria-label="`Use the ${ownerNoun}'s colour as background`"
+          @click="resetBackground"
+        />
+      </div>
     </fieldset>
   </form>
 </template>

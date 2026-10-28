@@ -7,12 +7,13 @@ import type { Icon, SetIcon } from '@/icons/types'
 
 /**
  * Quick picks of PrimeIcons, and a tile that opens the dialog with every
- * other way to choose an icon (IconDialog.vue). `colour` is the owner's
- * colour, `fallback` its default icon, drawn for a picked icon that cannot
+ * other way to choose an icon (IconDialog.vue). `colour` is the colour of the
+ * owner the icon is for, `ownerNoun` what it is ("merchant", "account"),
+ * `fallback` its default icon, drawn for a picked icon that cannot
  * be drawn. `open` tells the dialog underneath not to close on Escape while
  * the icon dialog is open: every open dialog hears it.
  */
-defineProps<{ fallback: SetIcon; colour: string }>()
+defineProps<{ fallback: SetIcon; colour: string; ownerNoun: string }>()
 const icon = defineModel<Icon>({ required: true })
 const open = defineModel<boolean>('open', { default: false })
 
@@ -68,6 +69,7 @@ const tileClass = (selected: boolean) =>
     v-model:icon="icon"
     v-model:visible="open"
     :colour="colour"
+    :owner-noun="ownerNoun"
     :fallback="fallback"
     @after-hide="moreButton?.focus()"
   />
