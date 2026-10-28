@@ -131,6 +131,26 @@ describe('useLayoutStore', () => {
     })
   })
 
+  describe('hideAmounts', () => {
+    it('defaults to showing amounts, loads the saved choice and persists a new one', async () => {
+      const store = useLayoutStore()
+      expect(store.hideAmounts).toBe(false)
+      mockStore.set('layout.hideAmounts', true)
+      await store.hydrate()
+      expect(store.hideAmounts).toBe(true)
+      await store.setHideAmounts(false)
+      expect(store.hideAmounts).toBe(false)
+      expect(mockStore.get('layout.hideAmounts')).toBe(false)
+    })
+
+    it('reverts when the save fails', async () => {
+      writeMode.value = 'fail'
+      const store = useLayoutStore()
+      await expect(store.setHideAmounts(true)).rejects.toThrow('disk full')
+      expect(store.hideAmounts).toBe(false)
+    })
+  })
+
   describe('setCollapseMode', () => {
     it('persists and updates collapseMode', async () => {
       const store = useLayoutStore()
@@ -147,6 +167,7 @@ describe('useLayoutStore', () => {
       ['layout.tagRows', 'chunky', 'tagRows', 'detailed'],
       ['layout.locationsView', 'globe', 'locationsView', 'list'],
       ['layout.isDark', 'yes', 'isDark', false],
+      ['layout.hideAmounts', 1, 'hideAmounts', false],
       ['layout.themePreset', 'RemovedTheme', 'themePreset', 'Aura'],
     ] as const)('%s = %j', async (storageKey, stored, field, expected) => {
       mockStore.set(storageKey, stored)
