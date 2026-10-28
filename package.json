@@ -13,7 +13,7 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "lint": "run-s lint:*",
-    "lint:oxlint": "oxlint . --fix --ignore-pattern node_modules --ignore-pattern dist",
+    "lint:oxlint": "oxlint . --fix --ignore-pattern node_modules --ignore-pattern dist --ignore-pattern .claude",
     "lint:eslint": "eslint . --fix --cache",
     "format": "prettier --write --experimental-cli src/"
   },

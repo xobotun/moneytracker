@@ -32,3 +32,6 @@ Thumbs.db
 
 # Local SQLite files (debug dumps, exports) — may contain personal data
 *.sqlite
+
+# Git worktrees that Claude Code agents check out inside the repo
+/.claude/worktrees/
