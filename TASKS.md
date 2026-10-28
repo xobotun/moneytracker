@@ -550,6 +550,7 @@ Known sync defects, postponed (review 2026-10-18):
 - **Small Tags page comforts** (nice-to-have 15): "Add 'Kaufland'" from a filter with no match, collapsed branches kept per device, Collapse all / Expand all, …
 - **Starter categories** (nice-to-have 14): migration 003 with deterministic ids, once Pavel and his wife agree the list
 - **Undo a merge, right after it** (ideas, group 3 item 4, narrowed): after a merge the page offers Undo while the user has not left it or touched either tag. Save the rows the merge changes (both tags, their details, the rewritten references) before it, and put them back in one transaction, only while nothing has changed them since (a sync in between turns Undo off)
+- **Location shapes instead of circles** (ideas, group 3 item 6): an airport, a mall, a long market street. Unlikely soon: drawing and editing a polygon on a phone is the hard part, plus point-in-polygon matching and syncing the shape
 
 ### Polish & operational gaps
 
