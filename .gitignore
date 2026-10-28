@@ -35,3 +35,6 @@ Thumbs.db
 
 # Git worktrees that Claude Code agents check out inside the repo
 /.claude/worktrees/
+
+# Screenshots and logs from the Playwright MCP browser
+/.playwright-mcp/
