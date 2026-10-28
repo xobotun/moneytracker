@@ -7,11 +7,13 @@ import {
   filterTree,
   flattenTree,
   heldOption,
+  linkFilter,
   pathLabel,
   subtreeIds,
   tagMatches,
   tagOptions,
   tagPath,
+  type LinkChoice,
   type TagNode,
 } from '../tree'
 import { byId, tag } from './fixtures'
@@ -239,5 +241,46 @@ describe('flattenTree', () => {
       ['groceries', 1, true, false],
       ['fun', 0, false, false],
     ])
+  })
+})
+
+describe('linkFilter', () => {
+  const tags: Tag[] = [
+    tag('food'),
+    tag('groceries', under('food')),
+    tag('bread', under('groceries')),
+    tag('fun'),
+    tag('rewe', { kind: 'merchant' }),
+    tag('bakery', { kind: 'merchant' }),
+    tag('kiosk', { kind: 'merchant' }),
+    tag('cinema', { kind: 'merchant' }),
+  ]
+  // Each merchant's default category.
+  const links = new Map([
+    [asShortId('rewe'), asShortId('groceries')],
+    [asShortId('bakery'), asShortId('bread')],
+    [asShortId('cinema'), asShortId('fun')],
+  ])
+  const merchants = tags.filter((t) => t.kind === 'merchant')
+  const kept = (choice: LinkChoice, subtree: boolean) =>
+    merchants.filter(linkFilter(choice, links, tags, subtree)).map((t) => t.id)
+
+  it('keeps every tag for any', () => {
+    expect(kept('any', true)).toEqual(['rewe', 'bakery', 'kiosk', 'cinema'])
+  })
+
+  it('keeps the tags that link to nothing for none', () => {
+    expect(kept('none', true)).toEqual(['kiosk'])
+  })
+
+  it('keeps the tags linked to the chosen one', () => {
+    expect(kept(asShortId('groceries'), false)).toEqual(['rewe'])
+    expect(kept(asShortId('food'), false)).toEqual([])
+  })
+
+  it('with subtree, also the tags linked to one of its descendants', () => {
+    expect(kept(asShortId('food'), true)).toEqual(['rewe', 'bakery'])
+    expect(kept(asShortId('groceries'), true)).toEqual(['rewe', 'bakery'])
+    expect(kept(asShortId('bread'), true)).toEqual(['bakery'])
   })
 })

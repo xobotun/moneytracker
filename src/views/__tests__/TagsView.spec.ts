@@ -15,10 +15,12 @@ import { useLayoutStore } from '@/stores/layout'
 import { formatDay } from '@/format/date'
 import { DERIVED_CLASS } from '@/components/derived'
 import type { MapLocation } from '@/tags/locationsMap'
+import type { ShortId } from '@/db/shortId'
 import {
   button,
   choose,
   input,
+  optionsOf,
   pageText,
   settle,
   stubBrowser,
@@ -557,6 +559,161 @@ describe('TagsView', () => {
     await settle()
     expect(treeRows()).toContain('  Old')
     expect(pageText()).not.toContain('Show deleted')
+  })
+
+  describe('link dropdowns', () => {
+    /** Types `text` into the filter. */
+    async function find(text: string) {
+      const filter = document.querySelector<HTMLInputElement>('input[type=search]')!
+      filter.value = text
+      filter.dispatchEvent(new Event('input'))
+      await settle()
+    }
+    const chosen = () => input('tags-link-filter').textContent?.trim()
+    /** The dropdown's option labels, opening and closing it again. */
+    async function options() {
+      const labels = (await optionsOf('tags-link-filter')).map((o) => o.textContent?.trim())
+      ;(input('tags-link-filter').closest('.p-select') as HTMLElement).click()
+      await settle()
+      return labels
+    }
+
+    /**
+     * Merchants Rewe, Edeka and Kaiser's (archived); locations Berlin (placed,
+     * no merchant) > Rewe Mitte (placed, Rewe), Kiez Laden (Edeka, unplaced)
+     * and Kiosk (no merchant, unplaced).
+     */
+    async function stores() {
+      const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
+      const edeka = await tagsRepo.create({ kind: 'merchant', name: 'Edeka' })
+      const kaisers = await tagsRepo.create({ kind: 'merchant', name: "Kaiser's" })
+      await tagsRepo.archive(kaisers.id)
+      const place = async (
+        name: string,
+        merchant: { id: ShortId } | null,
+        at: { latitude: number; longitude: number } | null,
+        parent: ShortId | null = null,
+      ) => {
+        const tag = await tagsRepo.create({ kind: 'location', name, parent_id: parent })
+        await detailsRepo.setLocation(tag.id, {
+          address: null,
+          latitude: at?.latitude ?? null,
+          longitude: at?.longitude ?? null,
+          merchant_id: merchant?.id ?? null,
+        })
+        return tag
+      }
+      const berlin = await place('Berlin', null, { latitude: 52.52, longitude: 13.405 })
+      await place('Rewe Mitte', rewe, { latitude: 52.523, longitude: 13.41 }, berlin.id)
+      await place('Kiez Laden', edeka, null)
+      await place('Kiosk', null, null)
+    }
+
+    it('keep the locations of one merchant, or of none, with their ancestors', async () => {
+      await stores()
+      await mountView('/tags?kind=location')
+      expect(chosen()).toBe('Any merchant')
+      // Archived merchants are not offered.
+      expect(await options()).toEqual(['Any merchant', 'No merchant', 'Edeka', 'Rewe'])
+      await choose('tags-link-filter', 'Rewe')
+      expect(treeRows()).toEqual(['Berlin', '  Rewe Mitte'])
+      await choose('tags-link-filter', 'No merchant')
+      expect(treeRows()).toEqual(['Berlin', 'Kiosk'])
+      await choose('tags-link-filter', 'Any merchant')
+      expect(treeRows()).toEqual(['Berlin', '  Rewe Mitte', 'Kiez Laden', 'Kiosk'])
+    })
+
+    it('combine with the filter text, which matches only the tag’s own names', async () => {
+      await stores()
+      await mountView('/tags?kind=location')
+      // A merchant's name does not find its stores as text.
+      await find('edeka')
+      expect(treeRows()).toEqual([])
+      expect(pageText()).toContain('Nothing matches “edeka”.')
+      await find('k')
+      expect(treeRows()).toEqual(['Kiez Laden', 'Kiosk'])
+      await choose('tags-link-filter', 'Edeka')
+      expect(treeRows()).toEqual(['Kiez Laden'])
+      await find('kiosk')
+      expect(pageText()).toContain('Nothing matches “kiosk” with the merchant chosen.')
+      await find('')
+      await choose('tags-link-filter', 'No merchant')
+      await find('mitte')
+      expect(treeRows()).toEqual([])
+    })
+
+    it('keep the placed locations of the merchant on the map', async () => {
+      await stores()
+      await useLayoutStore().setLocationsView('map')
+      await mountView('/tags?kind=location')
+      const onMap = () =>
+        [...document.querySelectorAll('[data-map] button')].map((b) => b.textContent!.trim())
+      expect(onMap()).toEqual(['Berlin', 'Rewe Mitte'])
+      await choose('tags-link-filter', 'Rewe')
+      expect(onMap()).toEqual(['Rewe Mitte'])
+      await choose('tags-link-filter', 'No merchant')
+      expect(onMap()).toEqual(['Berlin'])
+      expect(pageText()).toContain('1 location has no position, so it is not on the map.')
+      await choose('tags-link-filter', 'Edeka')
+      expect(onMap()).toEqual([])
+    })
+
+    it('keep the merchants whose default category is the chosen one or under it', async () => {
+      const food = await tagsRepo.create({ kind: 'category', name: 'Food' })
+      const groceries = await tagsRepo.create({
+        kind: 'category',
+        name: 'Groceries',
+        parent_id: food.id,
+      })
+      const bread = await tagsRepo.create({
+        kind: 'category',
+        name: 'Bread',
+        parent_id: groceries.id,
+      })
+      const fun = await tagsRepo.create({ kind: 'category', name: 'Fun' })
+      const merchant = async (name: string, category: { id: ShortId } | null) => {
+        const tag = await tagsRepo.create({ kind: 'merchant', name })
+        await detailsRepo.setMerchant(tag.id, { default_category_id: category?.id ?? null })
+      }
+      await merchant('Rewe', groceries)
+      await merchant('Bakery', bread)
+      await merchant('Cinema', fun)
+      await merchant('Kiosk', null)
+      await mountView('/tags?kind=merchant')
+      expect(chosen()).toBe('Any category')
+      expect(await options()).toEqual([
+        'Any category',
+        'No default category',
+        'Food',
+        'Food › Groceries',
+        'Food › Groceries › Bread',
+        'Fun',
+      ])
+      await choose('tags-link-filter', 'Food')
+      expect(treeRows()).toEqual(['Bakery', 'Rewe'])
+      await choose('tags-link-filter', 'Food › Groceries › Bread')
+      expect(treeRows()).toEqual(['Bakery'])
+      await choose('tags-link-filter', 'No default category')
+      expect(treeRows()).toEqual(['Kiosk'])
+      await choose('tags-link-filter', 'Fun')
+      expect(treeRows()).toEqual(['Cinema'])
+    })
+
+    it('reset when switching tabs, and show only on the Locations and Merchants tabs', async () => {
+      await stores()
+      await mountView('/tags?kind=location')
+      await choose('tags-link-filter', 'Rewe')
+      await router.replace({ query: { kind: 'merchant' } })
+      await settle()
+      expect(chosen()).toBe('Any category')
+      await router.replace({ query: { kind: 'location' } })
+      await settle()
+      expect(chosen()).toBe('Any merchant')
+      expect(treeRows()).toEqual(['Berlin', '  Rewe Mitte', 'Kiez Laden', 'Kiosk'])
+      await router.replace({ query: { kind: 'journey' } })
+      await settle()
+      expect(input('tags-link-filter')).toBeNull()
+    })
   })
 
   describe('archived tags', () => {

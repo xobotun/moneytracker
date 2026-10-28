@@ -114,6 +114,31 @@ export function tagMatches(tag: Tag, query: string, merged: readonly string[]): 
   return [tag.name, ...tag.synonyms, ...merged].some((name) => foldCase(name).includes(q))
 }
 
+/** A link dropdown's choice: every tag, those linked to none, or those linked to one tag. */
+export type LinkChoice = 'any' | 'none' | ShortId
+
+/**
+ * What a link dropdown keeps (a location's merchant, a merchant's default
+ * category): every tag for 'any', those that link to nothing for 'none',
+ * else those that link to the chosen tag — or, with `subtree`, to one of its
+ * live descendants too (`tags`: all of them). `links` maps a tag to the tag
+ * it links to (the tags store's `detailLinks`).
+ */
+export function linkFilter(
+  choice: LinkChoice,
+  links: ReadonlyMap<ShortId, ShortId>,
+  tags: readonly Tag[],
+  subtree: boolean,
+): (tag: Tag) => boolean {
+  if (choice === 'any') return () => true
+  if (choice === 'none') return (tag) => !links.has(tag.id)
+  const wanted = subtree ? subtreeIds(choice, tags) : new Set([choice])
+  return (tag) => {
+    const link = links.get(tag.id)
+    return link !== undefined && wanted.has(link)
+  }
+}
+
 /** The names from the topmost ancestor down to the tag. */
 export function tagPath(tag: Tag, byId: ReadonlyMap<ShortId, Tag>): string[] {
   const path: string[] = []

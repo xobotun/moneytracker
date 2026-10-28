@@ -9,6 +9,7 @@ import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
+import Select from 'primevue/select'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
@@ -18,6 +19,7 @@ import TagTreeRow from '@/components/tags/TagTreeRow.vue'
 import TagEditDialog from '@/components/tags/TagEditDialog.vue'
 import TagMergeDialog from '@/components/tags/TagMergeDialog.vue'
 import LocationsMap from '@/components/tags/LocationsMap.vue'
+import TagOptionLabel from '@/components/tags/TagOptionLabel.vue'
 import { KIND_NOUNS, KIND_PLURALS } from '@/components/tags/tagForm'
 import { useTagsStore } from '@/stores/tags'
 import type { ShortId } from '@/db/shortId'
@@ -30,9 +32,13 @@ import {
   buildTree,
   filterTree,
   flattenTree,
+  heldOption,
+  linkFilter,
   pathLabel,
   tagMatches,
+  tagOptions,
   tagPath,
+  type LinkChoice,
   type RowFact,
   type RowLink,
 } from '@/tags/tree'
@@ -88,8 +94,53 @@ const nouns = computed(() => KIND_PLURALS[kind.value])
 
 const query = ref('')
 const collapsed = ref(new Set<ShortId>())
+
+// The dropdown beside the filter on the tabs whose tags link to another one:
+// locations by their merchant, merchants by their default category (or one
+// of its sub-categories). Page state, like the filter text.
+const LINK_FILTERS: Partial<
+  Record<TagKind, { kind: TagKind; noun: string; any: string; none: string; subtree: boolean }>
+> = {
+  location: {
+    kind: 'merchant',
+    noun: 'merchant',
+    any: 'Any merchant',
+    none: 'No merchant',
+    subtree: false,
+  },
+  merchant: {
+    kind: 'category',
+    noun: 'category',
+    any: 'Any category',
+    none: 'No default category',
+    subtree: true,
+  },
+}
+const linkChoice = ref<LinkChoice>('any')
+const linkSpec = computed(() => LINK_FILTERS[kind.value])
+// A chosen tag archived or deleted since stays shown, labelled so.
+const linkChoices = computed(() => {
+  const spec = linkSpec.value
+  if (!spec) return []
+  const chosen = linkChoice.value
+  const held = chosen === 'any' || chosen === 'none' ? null : heldOption(chosen, store.byId)
+  return [
+    { id: 'any', label: spec.any },
+    { id: 'none', label: spec.none },
+    ...tagOptions(store.tags, spec.kind),
+    ...(held ? [held] : []),
+  ]
+})
+const linkKeeps = computed(() => {
+  const spec = linkSpec.value
+  return spec
+    ? linkFilter(linkChoice.value, store.detailLinks, store.tags, spec.subtree)
+    : () => true
+})
+
 watch(kind, () => {
   query.value = ''
+  linkChoice.value = 'any'
   actionError.value = null
 })
 
@@ -235,10 +286,17 @@ const archivedCount = computed(
 // lets through with their ancestors, so an archived tag with active children
 // stays as their (faint) parent.
 const tree = computed(() => buildTree(store.tags, kind.value))
-const filtering = computed(() => query.value.trim() !== '')
+const typed = computed(() => query.value.trim() !== '')
+const filtering = computed(() => typed.value || linkChoice.value !== 'any')
 const shows = (t: Tag) =>
   (showArchived.value || t.archived_at_utc === null) &&
-  tagMatches(t, query.value, merged.value.get(t.id) ?? [])
+  tagMatches(t, query.value, merged.value.get(t.id) ?? []) &&
+  linkKeeps.value(t)
+const nothingMatches = computed(() => {
+  const chosen = linkChoice.value === 'any' ? null : `the ${linkSpec.value?.noun} chosen`
+  if (!typed.value) return `No ${nouns.value} with ${chosen}.`
+  return `Nothing matches “${query.value}”${chosen ? ` with ${chosen}` : ''}.`
+})
 const shownTree = computed(() => filterTree(tree.value, shows))
 // While filtering every branch is open, so each match shows.
 const rows = computed(() =>
@@ -382,7 +440,8 @@ function onMerged() {
         </div>
 
         <template v-else>
-          <div class="flex gap-2">
+          <!-- The dropdown takes a line of its own on a narrow screen. -->
+          <div class="flex flex-wrap gap-2">
             <IconField class="min-w-0 flex-1">
               <InputIcon class="pi pi-search" />
               <InputText
@@ -393,6 +452,24 @@ function onMerged() {
                 fluid
               />
             </IconField>
+            <Select
+              v-if="linkSpec"
+              v-model="linkChoice"
+              input-id="tags-link-filter"
+              :options="linkChoices"
+              option-label="label"
+              option-value="id"
+              :aria-label="`Show only the ${nouns} of one ${linkSpec.noun}`"
+              filter
+              class="order-last w-full sm:order-none sm:w-56"
+            >
+              <template #value="{ value }">
+                <TagOptionLabel :option="linkChoices.find((o) => o.id === value)" />
+              </template>
+              <template #option="{ option }">
+                <TagOptionLabel :option="option" />
+              </template>
+            </Select>
             <SelectButton
               :model-value="display"
               :options="displays"
@@ -436,7 +513,7 @@ function onMerged() {
               v-else-if="located.shown.length === 0 && filtering"
               class="text-gray-500 dark:text-gray-400"
             >
-              Nothing matches “{{ query }}”.
+              {{ nothingMatches }}
             </p>
           </template>
           <ul v-else-if="rows.length > 0" class="flex flex-col" :aria-label="TAB_LABELS[kind]">
@@ -457,7 +534,7 @@ function onMerged() {
             </li>
           </ul>
           <p v-else-if="filtering" class="text-gray-500 dark:text-gray-400">
-            Nothing matches “{{ query }}”.
+            {{ nothingMatches }}
           </p>
           <p v-else class="text-gray-500 dark:text-gray-400">Every {{ noun }} is archived.</p>
         </template>
