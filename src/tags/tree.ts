@@ -1,6 +1,6 @@
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
-import type { TagLook } from './look'
+import { effectiveLook, type TagLook } from './look'
 import { foldCase } from './otherNames'
 
 // The tags of one kind as the Tags page shows them: a tree, its filter, and
@@ -146,15 +146,24 @@ export function subtreeIds(id: ShortId, tags: readonly Tag[]): Set<ShortId> {
   return ids
 }
 
+/** A tag as a picker lists it: its path, and the icon and colour it shows. */
+export interface TagOption extends TagLook {
+  id: ShortId
+  label: string
+}
+
 /** The live tags of `kind` other than `exclude` for a picker, labelled by their path, sorted by it. */
 export function tagOptions(
   tags: readonly Tag[],
   kind: TagKind,
   exclude: ReadonlySet<ShortId> = new Set(),
-): { id: ShortId; label: string }[] {
+): TagOption[] {
   const byId = new Map(tags.map((t) => [t.id, t]))
   return tags
     .filter((t) => t.kind === kind && t.deleted_at_utc === null && !exclude.has(t.id))
-    .map((t) => ({ id: t.id, label: pathLabel(tagPath(t, byId)) }))
+    .map((t) => {
+      const { icon, colour } = effectiveLook(t, byId)
+      return { id: t.id, label: pathLabel(tagPath(t, byId)), icon, colour }
+    })
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
 }

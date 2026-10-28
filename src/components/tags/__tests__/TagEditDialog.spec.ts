@@ -353,6 +353,25 @@ describe('TagEditDialog', () => {
     expect(text()).toContain('Could not get the position. User denied Geolocation')
   })
 
+  it("shows each default category's icon in its colour, in the list and once picked", async () => {
+    await tagsRepo.create({ kind: 'category', name: 'Food', colour: '#ef4444', icon: 'gift' })
+    const shop = await tagsRepo.create({ kind: 'merchant', name: 'Shop' })
+    await open('merchant', shop)
+    const options = await optionsOf('tag-default-category')
+    const option = (label: string) => options.find((o) => o.textContent?.trim() === label)!
+    const icon = option('Food').querySelector<HTMLElement>('.pi-gift')!
+    expect(icon.getAttribute('aria-hidden')).toBe('true')
+    expect(icon.style.color).toBe('rgb(239, 68, 68)')
+    expect(option('None').querySelector('.pi')).toBeNull()
+
+    // The list is open already: pick from it (Select picks on mousedown).
+    option('Food').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    await settle()
+    const picked = input('tag-default-category')
+    expect(picked.textContent?.trim()).toBe('Food')
+    expect(picked.querySelector('.pi-gift')).not.toBeNull()
+  })
+
   it('keeps a link to a merchant deleted since', async () => {
     const rewe = await tagsRepo.create({ kind: 'merchant', name: 'Rewe' })
     const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })

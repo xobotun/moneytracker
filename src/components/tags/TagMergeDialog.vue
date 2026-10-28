@@ -12,8 +12,10 @@ import { useTagsStore } from '@/stores/tags'
 import { MergeConflictError, TagLoopError } from '@/db/errors'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailConflict, TagDetailField, TagDetailValues } from '@/db/types'
+import type { TagLook } from '@/tags/look'
 import { pathLabel, subtreeIds, tagOptions, tagPath } from '@/tags/tree'
 import { KIND_NOUNS } from './tagForm'
+import TagOptionLabel from './TagOptionLabel.vue'
 import { formatMetres } from '@/format/distance'
 import { answerError, emptyAnswer, typedValue, type Answer } from './mergeForm'
 
@@ -112,7 +114,10 @@ function shown(field: TagDetailField, value: TagDetailValues[TagDetailField]): s
   return value
 }
 
-function linkOptions(field: TagDetailField) {
+/** The live tags a link may point to, with their look; 'None' has none. */
+function linkOptions(
+  field: TagDetailField,
+): ({ id: ShortId | null; label: string } & Partial<TagLook>)[] {
   return [
     { id: null, label: 'None' },
     ...tagOptions(store.tags, field === 'merchant_id' ? 'merchant' : 'category'),
@@ -280,7 +285,17 @@ async function merge() {
             :aria-label="`Another ${FIELD_LABELS[c.field].toLowerCase()}`"
             filter
             fluid
-          />
+          >
+            <template #value="{ value, placeholder }">
+              <TagOptionLabel
+                :option="linkOptions(c.field).find((o) => o.id === value)"
+                :placeholder="placeholder"
+              />
+            </template>
+            <template #option="{ option }">
+              <TagOptionLabel :option="option" />
+            </template>
+          </Select>
           <DatePicker
             v-else
             v-model="answers[c.field]!.date"

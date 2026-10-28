@@ -139,19 +139,21 @@ describe('subtreeIds', () => {
 })
 
 describe('tagOptions', () => {
-  it('lists live tags of the kind by path, without the excluded ones', () => {
+  it('lists live tags of the kind by path with their look, without the excluded ones', () => {
     const tags = [
-      tag('food', { name: 'Food' }),
+      tag('food', { name: 'Food', colour: '#ef4444', icon: 'gift' }),
       tag('groceries', { name: 'Groceries', ...under('food') }),
       tag('bakery', { name: 'Bakery', ...under('food') }),
-      tag('drinks', { name: 'Drinks' }),
+      tag('drinks', { name: 'Drinks', colour: '#3b82f6' }),
       tag('gone', { name: 'Gone', deleted_at_utc: DELETED }),
       tag('rewe', { name: 'Rewe', kind: 'merchant' }),
     ]
     expect(tagOptions(tags, 'category', new Set([asShortId('bakery')]))).toEqual([
-      { id: 'drinks', label: 'Drinks' },
-      { id: 'food', label: 'Food' },
-      { id: 'groceries', label: 'Food › Groceries' },
+      // No icon of its own: the kind's.
+      { id: 'drinks', label: 'Drinks', icon: 'tag', colour: '#3b82f6' },
+      { id: 'food', label: 'Food', icon: 'gift', colour: '#ef4444' },
+      // Inherited from Food.
+      { id: 'groceries', label: 'Food › Groceries', icon: 'gift', colour: '#ef4444' },
     ])
   })
 })
