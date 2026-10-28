@@ -114,6 +114,12 @@ export const useTagsStore = defineStore('tags', () => {
     return tag
   }
 
+  /** Ends the journey today, typed (`TagsRepository.endJourney`). */
+  async function endJourney(id: ShortId): Promise<void> {
+    await getTagsRepository().endJourney(id)
+    await load()
+  }
+
   async function save(id: ShortId, input: TagSaveInput): Promise<void> {
     await getTagsRepository().save(id, input)
     await load()
@@ -178,6 +184,7 @@ export const useTagsStore = defineStore('tags', () => {
     resolvePlainTags,
     create,
     continueJourney,
+    endJourney,
     save,
     merge,
     remove,

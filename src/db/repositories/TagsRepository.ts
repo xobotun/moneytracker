@@ -150,6 +150,29 @@ async function liveTagOrThrow(ex: SqlExecutor, id: ShortId, role: string): Promi
   return tag
 }
 
+/** The live journey `id`; as `liveTagOrThrow`, and a TagKindMismatchError for another kind. */
+async function liveJourneyOrThrow(ex: SqlExecutor, id: ShortId): Promise<Tag> {
+  const tag = await liveTagOrThrow(ex, id, 'Journey')
+  if (tag.kind !== 'journey') {
+    throw new TagKindMismatchError(`"${tag.name}" is a ${tag.kind}, not a journey`)
+  }
+  return tag
+}
+
+/** Types `today` as the end of journey `id` (its `stored` details), unless it ends earlier already. */
+async function endJourneyIn(
+  ex: SqlExecutor,
+  id: ShortId,
+  stored: TagDetailValues,
+  today: string,
+  now: string,
+): Promise<void> {
+  if (stored.end_date !== null && stored.end_date <= today) return
+  const ended = { ...stored, end_date: today }
+  assertJourneyDates(ended)
+  await writeDetailValues(ex, id, 'journey', ended, now)
+}
+
 /** Both tags must be live and of one kind; returns them. */
 async function mergePair(
   ex: SqlExecutor,
@@ -349,10 +372,7 @@ export class TagsRepository {
     const id = newShortId()
     const now = instantToColumn(new Date())
     await this.db.transaction(async (tx) => {
-      const current = await liveTagOrThrow(tx, currentId, 'Journey')
-      if (current.kind !== 'journey') {
-        throw new TagKindMismatchError(`"${current.name}" is a ${current.kind}, not a journey`)
-      }
+      const current = await liveJourneyOrThrow(tx, currentId)
       const stored = await readDetailValues(tx, currentId, 'journey')
       let parentId = current.parent_id
       if (parentId === null) {
@@ -380,14 +400,22 @@ export class TagsRepository {
           [parentId, now, now, currentId],
         )
       }
-      if (stored.end_date === null || stored.end_date > today) {
-        const ended = { ...stored, end_date: today }
-        assertJourneyDates(ended)
-        await writeDetailValues(tx, currentId, 'journey', ended, now)
-      }
+      await endJourneyIn(tx, currentId, stored, today, now)
       await insertTag(tx, id, { ...input, kind: 'journey', parent_id: parentId }, now)
     })
     return (await this.findById(id))!
+  }
+
+  /**
+   * "End journey": the live journey `id` ends `today`, typed, unless it ends
+   * earlier already; its start and currency stay as they are.
+   */
+  async endJourney(id: ShortId, today: string = todayLocal()): Promise<void> {
+    const now = instantToColumn(new Date())
+    await this.db.transaction(async (tx) => {
+      await liveJourneyOrThrow(tx, id)
+      await endJourneyIn(tx, id, await readDetailValues(tx, id, 'journey'), today, now)
+    })
   }
 
   /**

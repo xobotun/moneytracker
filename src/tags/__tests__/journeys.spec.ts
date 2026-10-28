@@ -113,12 +113,24 @@ describe('byJourneyDate', () => {
 
 describe('currentJourney', () => {
   const TODAY = '2026-10-28'
-  const span = (entries: Record<string, [string | null, string | null]>) =>
-    new Map(Object.entries(entries).map(([id, [start, end]]) => [asShortId(id), { start, end }]))
+  // Each journey's [start, end], derived unless `typed` says which are typed.
+  type Typed = 'start' | 'end' | 'both'
+  const span = (entries: Record<string, [string | null, string | null, Typed?]>) =>
+    new Map(
+      Object.entries(entries).map(([id, [start, end, typed]]) => [
+        asShortId(id),
+        {
+          start,
+          end,
+          startTyped: typed === 'start' || typed === 'both',
+          endTyped: typed === 'end' || typed === 'both',
+        },
+      ]),
+    )
   const current = (tags: Parameters<typeof buildTree>[0], dates: ReturnType<typeof span>) =>
     currentJourney(buildTree(tags, 'journey'), dates, TODAY)?.id ?? null
 
-  it('is a journey whose dates hold today: started, and not ended before today', () => {
+  it('is a journey whose derived dates hold today: started, and not ended before today', () => {
     const tags = [journey('past'), journey('open'), journey('future')]
     expect(
       current(tags, span({ past: ['2026-01-01', '2026-10-27'], open: ['2026-10-01', null] })),
@@ -126,9 +138,47 @@ describe('currentJourney', () => {
     // The first and the last day count.
     expect(current(tags, span({ past: ['2026-10-28', '2026-10-28'] }))).toBe('past')
     expect(current(tags, span({ future: ['2026-10-29', null] }))).toBeNull()
+    expect(current(tags, span({ future: ['2026-10-29', null, 'start'] }))).toBeNull()
     // No start yet (being planned): not under way.
     expect(current(tags, span({ open: [null, '2026-12-01'] }))).toBeNull()
+    expect(current(tags, span({ open: [null, '2026-12-01', 'end'] }))).toBeNull()
     expect(current(tags, span({}))).toBeNull()
+  })
+
+  it('keeps a journey with a typed start and no typed end under way until it is ended', () => {
+    const tags = [journey('trip')]
+    // Its last transaction was yesterday: still under way this morning.
+    expect(current(tags, span({ trip: ['2026-10-01', '2026-10-27', 'start'] }))).toBe('trip')
+    expect(current(tags, span({ trip: ['2026-10-01', null, 'start'] }))).toBe('trip')
+    // Only its derived dates: over after the last day with a transaction.
+    expect(current(tags, span({ trip: ['2026-10-01', '2026-10-27'] }))).toBeNull()
+  })
+
+  it('ends a journey on its typed end: "End journey" types today', () => {
+    const tags = [journey('trip')]
+    expect(current(tags, span({ trip: ['2026-10-01', '2026-10-27', 'both'] }))).toBeNull()
+    expect(current(tags, span({ trip: ['2026-10-01', TODAY, 'both'] }))).toBeNull()
+    expect(current(tags, span({ trip: ['2026-10-01', TODAY, 'end'] }))).toBeNull()
+    expect(current(tags, span({ trip: ['2026-10-01', '2026-10-29', 'both'] }))).toBe('trip')
+    expect(current(tags, span({ trip: ['2026-10-01', '2026-10-29', 'end'] }))).toBe('trip')
+  })
+
+  it('gives way to the journey above once the deepest one is ended', () => {
+    const tags = [journey('caucasus'), journey('georgia', 'caucasus')]
+    // A typed start: open.
+    expect(
+      current(
+        tags,
+        span({ caucasus: ['2026-09-01', TODAY, 'start'], georgia: ['2026-10-01', TODAY, 'both'] }),
+      ),
+    ).toBe('caucasus')
+    // Derived only: Georgia's typed end is its derived end, today.
+    expect(
+      current(
+        tags,
+        span({ caucasus: ['2026-10-01', TODAY], georgia: ['2026-10-01', TODAY, 'both'] }),
+      ),
+    ).toBe('caucasus')
   })
 
   it('is the deepest such journey, the most specific', () => {
@@ -161,14 +211,18 @@ describe('currentJourney', () => {
         tags,
         span({
           trip: ['2026-09-01', TODAY],
-          old: ['2026-09-01', TODAY],
-          new: [TODAY, null],
+          old: ['2026-09-01', TODAY, 'both'],
+          new: [TODAY, null, 'start'],
         }),
       ),
     ).toBe('new')
-    // Continued on the day it started: the one that ends today gives way.
+    // Started the same day: the one that ends today gives way.
     expect(current(tags, span({ old: [TODAY, TODAY], new: [TODAY, null] }))).toBe('new')
     expect(current(tags, span({ old: [TODAY, '2026-11-02'], new: [TODAY, '2026-11-01'] }))).toBe(
+      'old',
+    )
+    // A typed start with no typed end is open, the latest, whatever its last transaction.
+    expect(current(tags, span({ old: [TODAY, TODAY, 'start'], new: [TODAY, '2026-11-01'] }))).toBe(
       'old',
     )
     expect(current(tags, span({ b2: [TODAY, null], b1: [TODAY, null], new: [TODAY, null] }))).toBe(
