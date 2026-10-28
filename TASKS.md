@@ -538,6 +538,8 @@ Known sync defects, postponed (review 2026-10-18):
 - Mapping rules from raw entries to transactions, accounts, and tags
 - Matching imported lines to merchants honours `merchant_details.auto_match`: a merchant with it off is not matched by itself
 - Dedup against existing transactions (a statement line that matches a hand-entered transaction fills that transaction's `description__auto` instead of adding a second one)
+- Later: **live balances and transactions from banks (open banking)** — automatic ingest of transactions too; needs a licensed aggregator and per-country coverage (ideas, group 3 item 9)
+- Later: **scanning receipts**, and **reading them (OCR) with each item sorted into a category**, which splits the transaction by category
 
 ### Later (decided 2026-10-28, from docs/ideas/2026-10-28-tags-accounts-ideas.md)
 
@@ -551,6 +553,7 @@ Known sync defects, postponed (review 2026-10-18):
 - **Starter categories** (nice-to-have 14): migration 003 with deterministic ids, once Pavel and his wife agree the list
 - **Undo a merge, right after it** (ideas, group 3 item 4, narrowed): after a merge the page offers Undo while the user has not left it or touched either tag. Save the rows the merge changes (both tags, their details, the rewritten references) before it, and put them back in one transaction, only while nothing has changed them since (a sync in between turns Undo off)
 - **Location shapes instead of circles** (ideas, group 3 item 6): an airport, a mall, a long market street. Unlikely soon: drawing and editing a polygon on a phone is the hard part, plus point-in-polygon matching and syncing the shape
+- **Budgets** per journey or category (ideas, group 3 item 8): later, a feature of its own (periods, rollover, alerts)
 
 ### Polish & operational gaps
 
