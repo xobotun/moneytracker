@@ -419,9 +419,11 @@ async function setArchived(archived: boolean) {
           :disabled="saving"
           @click="recalculate"
         />
-        <span class="flex-1" />
-        <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
-        <Button type="submit" :label="account ? 'Save' : 'Add account'" :loading="saving" />
+        <!-- Kept together on the right, on a line of their own on a narrow screen. -->
+        <div class="ml-auto flex gap-2">
+          <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
+          <Button type="submit" :label="account ? 'Save' : 'Add account'" :loading="saving" />
+        </div>
       </div>
     </form>
   </Dialog>

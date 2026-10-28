@@ -816,14 +816,16 @@ async function setArchived(archived: boolean) {
           :disabled="saving || loading"
           @click="setArchived(true)"
         />
-        <span class="flex-1" />
-        <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
-        <Button
-          type="submit"
-          :label="tag ? 'Save' : `Add ${noun}`"
-          :loading="saving"
-          :disabled="loading || loadFailed"
-        />
+        <!-- Kept together on the right, on a line of their own on a narrow screen. -->
+        <div class="ml-auto flex gap-2">
+          <Button type="button" label="Cancel" severity="secondary" text @click="visible = false" />
+          <Button
+            type="submit"
+            :label="tag ? 'Save' : `Add ${noun}`"
+            :loading="saving"
+            :disabled="loading || loadFailed"
+          />
+        </div>
       </div>
     </form>
   </Dialog>
