@@ -49,13 +49,18 @@ const isEmpty = computed(() => store.accounts.length === 0 && store.groupings.le
 const money = useMoneySettingsStore()
 const baseCurrency = computed(() => money.baseCurrency)
 const rates = useRatesStore()
-const pageTotal = computed(() => totalView(store.accounts, baseCurrency.value, rates.table))
+// Archived accounts are out of the page and group totals; their own section
+// shows theirs.
+const pageTotal = computed(() => totalView(store.active, baseCurrency.value, rates.table))
 const groupTotal = (section: AccountSection) =>
   totalView(section.accounts, baseCurrency.value, rates.table)
+const archivedTotal = computed(() => totalView(store.archived, baseCurrency.value, rates.table))
+// The archived accounts' section starts collapsed.
+const showArchived = ref(false)
 
-// Today's rate from each account currency to the base one. Resolved in the
-// background (fetching what is missing); until then the amount shows "no …
-// rate", and it updates when the rate arrives.
+// Today's rate from each account currency to the base one, archived accounts
+// included. Resolved in the background (fetching what is missing); until then
+// the amount shows "no … rate", and it updates when the rate arrives.
 const neededPairs = computed(() =>
   [...new Set(store.accounts.map((a) => a.balance.currency))]
     .filter((c) => c !== baseCurrency.value)
@@ -595,6 +600,70 @@ function tintStyle(grouping: AccountGrouping) {
           </section>
         </TransitionGroup>
         <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+
+        <!-- Archived accounts: apart, collapsed, with their own total; reorder
+             mode leaves them out (they keep their group and place). -->
+        <section
+          v-if="!reordering && store.archived.length > 0"
+          class="mt-3 flex flex-col gap-2"
+          aria-label="Archived accounts"
+        >
+          <div class="flex items-center gap-2">
+            <Button
+              type="button"
+              :label="`Archived accounts (${store.archived.length})`"
+              :icon="showArchived ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+              severity="secondary"
+              text
+              :aria-expanded="showArchived"
+              aria-controls="archived-accounts"
+              @click="showArchived = !showArchived"
+            />
+            <span class="flex-1" />
+            <BalanceDisplay
+              v-if="archivedTotal"
+              :view="archivedTotal"
+              :base-currency="baseCurrency"
+              class="pr-3"
+              data-archived-total
+            />
+          </div>
+          <ul v-if="showArchived" id="archived-accounts" class="flex flex-col gap-2">
+            <li v-for="account in store.archived" :key="account.id">
+              <div
+                class="flex items-center gap-3 rounded-lg border border-gray-200 bg-(--p-card-background) p-3 dark:border-gray-700"
+              >
+                <IconBadge :icon="account.icon" :colour="account.colour" :fallback="ACCOUNT_ICON" />
+                <span class="flex min-w-0 flex-1 flex-col gap-1">
+                  <span class="truncate font-medium">{{ account.name }}</span>
+                  <span class="flex flex-wrap items-center gap-1">
+                    <Tag :value="account.balance.currency" severity="secondary" />
+                    <span
+                      v-for="tag in shownTags(account)"
+                      :key="tag.id"
+                      class="text-xs text-gray-500 dark:text-gray-400"
+                    >
+                      #{{ tag.name }}
+                    </span>
+                  </span>
+                </span>
+                <BalanceDisplay
+                  :view="balanceView(account, baseCurrency, rates.table)"
+                  :base-currency="baseCurrency"
+                />
+                <Button
+                  label="Edit"
+                  icon="pi pi-pencil"
+                  severity="secondary"
+                  text
+                  :aria-label="`Edit ${account.name}`"
+                  :pt="{ label: { class: 'hidden sm:inline' } }"
+                  @click="openAccount(account)"
+                />
+              </div>
+            </li>
+          </ul>
+        </section>
 
         <!-- Balances are a cache of the transactions, kept on every write;
              "Recalculate" rebuilds them all, should one ever be off. "Refresh

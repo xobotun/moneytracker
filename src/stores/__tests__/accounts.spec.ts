@@ -196,6 +196,43 @@ describe('useAccountsStore', () => {
       await store.removeGrouping(trip.id)
       expect(layout()).toEqual({ Home: ['C'], '-': ['D', 'A', 'B'] })
     })
+
+    describe('archived accounts', () => {
+      const archivedNames = () => useAccountsStore().archived.map((a) => a.name)
+
+      it('leave their section for `archived`, by name, and come back where they were', async () => {
+        const { store, a, d } = await setUp()
+        await store.archive(d.id)
+        await store.archive(a.id)
+        expect(layout()).toEqual({ Trip: ['B'], Home: ['C'], '-': [] })
+        expect(archivedNames()).toEqual(['A', 'D'])
+        expect(store.active.map((x) => x.name).sort()).toEqual(['B', 'C'])
+        expect(store.accounts).toHaveLength(4)
+        expect((await accountsRepo.findById(a.id))!.archived_at_utc).not.toBeNull()
+
+        await store.unarchive(a.id)
+        expect(layout()).toEqual({ Trip: ['A', 'B'], Home: ['C'], '-': [] })
+        expect(archivedNames()).toEqual(['D'])
+      })
+
+      it('are ignored by the arrows and moves', async () => {
+        const { store, b, c } = await setUp()
+        await store.archive(c.id)
+        // Home is empty now: B, last in Trip, steps down into it.
+        expect(store.canMoveAccountBy(c.id, 1)).toBe(false)
+        await store.moveAccountBy(b.id, 1)
+        expect(layout()).toEqual({ Trip: ['A'], Home: ['B'], '-': ['D'] })
+        expect(archivedNames()).toEqual(['C'])
+      })
+
+      it('a failed archive rethrows and leaves the state as it was', async () => {
+        const { store, d } = await setUp()
+        await accountsRepo.softDelete(d.id) // behind the store's back
+        await expect(store.archive(d.id)).rejects.toThrow(/deleted/)
+        expect(archivedNames()).toEqual([])
+        expect(layout()['-']).toEqual(['D'])
+      })
+    })
   })
 
   it('remove() soft-deletes the account', async () => {

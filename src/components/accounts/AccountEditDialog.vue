@@ -45,6 +45,7 @@ const hiddenTags = ref<ShortId[]>([])
 const submitted = ref(false)
 const saving = ref(false)
 const confirmingDelete = ref(false)
+const confirmingArchive = ref(false)
 const error = ref<string | null>(null)
 const recalculating = ref(false)
 const recalculated = ref<string | null>(null)
@@ -69,6 +70,7 @@ watch(
     hiddenTags.value = props.account ? hiddenTagIds(props.account, visibleTagName) : []
     submitted.value = false
     confirmingDelete.value = false
+    confirmingArchive.value = false
     error.value = null
     recalculated.value = null
     void checkCurrencyLock()
@@ -157,6 +159,42 @@ async function remove() {
   } catch (e) {
     error.value = `Could not delete the account. ${(e as Error).message}`
     confirmingDelete.value = false
+  } finally {
+    saving.value = false
+  }
+}
+
+// --- Archive: out of the page and group totals, its history kept ---
+
+/** The account as the store holds it now (a recalculation may have changed the balance). */
+const current = computed(() =>
+  props.account ? (store.accounts.find((a) => a.id === props.account!.id) ?? props.account) : null,
+)
+const isArchived = computed(() => current.value?.archived_at_utc != null)
+/** What the account still holds, when that is not zero (the cached balance is enough here). */
+const heldAmount = computed(() => {
+  const balance = current.value?.balance
+  return balance && balance.value !== 0 ? formatMoney(balance) : null
+})
+
+/** Archives at once when the account is empty; otherwise asks first. */
+function askArchive() {
+  error.value = null
+  if (heldAmount.value) confirmingArchive.value = true
+  else void setArchived(true)
+}
+
+async function setArchived(archived: boolean) {
+  if (!props.account) return
+  saving.value = true
+  error.value = null
+  try {
+    if (archived) await store.archive(props.account.id)
+    else await store.unarchive(props.account.id)
+    visible.value = false
+  } catch (e) {
+    error.value = `Could not ${archived ? 'archive' : 'unarchive'} the account. ${(e as Error).message}`
+    confirmingArchive.value = false
   } finally {
     saving.value = false
   }
@@ -309,7 +347,29 @@ async function remove() {
           />
         </div>
       </div>
-      <div v-else class="flex items-center gap-2">
+      <div
+        v-else-if="confirmingArchive && account"
+        class="flex flex-col gap-3 rounded-md border border-amber-300 p-3 dark:border-amber-700"
+        role="alert"
+      >
+        <p>It still holds {{ heldAmount }}. Archive it anyway?</p>
+        <div class="flex justify-end gap-2">
+          <Button
+            type="button"
+            label="Keep it"
+            severity="secondary"
+            text
+            @click="confirmingArchive = false"
+          />
+          <Button
+            type="button"
+            label="Archive account"
+            :loading="saving"
+            @click="setArchived(true)"
+          />
+        </div>
+      </div>
+      <div v-else class="flex flex-wrap items-center gap-2">
         <Button
           v-if="account"
           type="button"
@@ -321,6 +381,30 @@ async function remove() {
           :pt="{ label: { class: 'hidden sm:inline' } }"
           :disabled="saving"
           @click="confirmingDelete = true"
+        />
+        <Button
+          v-if="account && isArchived"
+          type="button"
+          label="Unarchive"
+          icon="pi pi-replay"
+          severity="secondary"
+          text
+          :aria-label="`Unarchive ${account.name}`"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :disabled="saving"
+          @click="setArchived(false)"
+        />
+        <Button
+          v-else-if="account"
+          type="button"
+          label="Archive"
+          icon="pi pi-inbox"
+          severity="secondary"
+          text
+          :aria-label="`Archive ${account.name}`"
+          :pt="{ label: { class: 'hidden sm:inline' } }"
+          :disabled="saving"
+          @click="askArchive"
         />
         <Button
           v-if="account"

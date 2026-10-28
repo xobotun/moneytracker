@@ -32,15 +32,31 @@ export const useAccountsStore = defineStore('accounts', () => {
   const groupings = ref<AccountGrouping[]>([])
   const loaded = ref(false)
 
+  /** The accounts that are not archived, in order: the ones the sections, totals and reorder see. */
+  const active = computed(() => accounts.value.filter((a) => a.archived_at_utc === null))
+
+  /** The archived accounts, by name: listed apart, out of the page and group totals. */
+  const archived = computed(() =>
+    accounts.value
+      .filter((a) => a.archived_at_utc !== null)
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) ||
+          (a.id < b.id ? -1 : 1),
+      ),
+  )
+
   /**
-   * Each live group with its accounts, in order, then a last section with the
-   * accounts in no group — always present, even when empty. An account whose
-   * group is deleted or missing (a sync merge can leave that) goes there too.
+   * Each live group with its active accounts, in order, then a last section
+   * with the active accounts in no group — always present, even when empty.
+   * An account whose group is deleted or missing (a sync merge can leave
+   * that) goes there too. Archived accounts are in `archived` instead; they
+   * keep their group, so unarchiving puts them back.
    */
   const sections = computed<AccountSection[]>(() => {
     const byGrouping = new Map<ShortId, Account[]>(groupings.value.map((g) => [g.id, []]))
     const ungrouped: Account[] = []
-    for (const account of accounts.value) {
+    for (const account of active.value) {
       const members = account.grouping_id === null ? undefined : byGrouping.get(account.grouping_id)
       ;(members ?? ungrouped).push(account)
     }
@@ -117,6 +133,18 @@ export const useAccountsStore = defineStore('accounts', () => {
       throw new Error(`It is still used by ${used} transaction${used === 1 ? '' : 's'}.`)
     }
     await getAccountsRepository().softDelete(id)
+    await load()
+  }
+
+  /** Sets the account apart: out of its group's block and the totals, its history kept. */
+  async function archive(id: ShortId): Promise<void> {
+    await getAccountsRepository().archive(id)
+    await load()
+  }
+
+  /** Puts the account back in its group, where it was. */
+  async function unarchive(id: ShortId): Promise<void> {
+    await getAccountsRepository().unarchive(id)
     await load()
   }
 
@@ -203,6 +231,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     accounts,
     groupings,
     loaded,
+    active,
+    archived,
     sections,
     load,
     create,
@@ -211,6 +241,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     recalculateBalance,
     transactionCount,
     remove,
+    archive,
+    unarchive,
     moveAccount,
     moveAccountBy,
     canMoveAccountBy,

@@ -844,5 +844,132 @@ describe('AccountsView', () => {
         `The balance was off; it is ${formatMoney(moneyAmount(1250, 2, 'EUR'))} now.`,
       )
     })
+
+    describe('archived accounts', () => {
+      const archivedSection = (w: VueWrapper) => w.find('section[aria-label="Archived accounts"]')
+      const disclosure = (w: VueWrapper) => archivedSection(w).find('button[aria-expanded]')
+      const listedIn = (w: VueWrapper, label: string) =>
+        w
+          .find(`section[aria-label="${label}"]`)
+          .findAll('li .font-medium')
+          .map((n) => n.text())
+
+      it('are listed apart, collapsed, out of the page and group totals, with their own', async () => {
+        const trip = await groupingsRepo.create({
+          name: 'Trip',
+          colour: '#000000',
+          icon: primeIcon('car'),
+        })
+        const card = await accountIn('Card', 'EUR', trip.id)
+        const old = await accountIn('Old card', 'EUR', trip.id)
+        const cash = await accountIn('Cash', 'EUR')
+        const wallet = await accountIn('Wallet', 'EUR')
+        await income(card.id, 1000, 'EUR')
+        await income(old.id, 300, 'EUR')
+        await income(cash.id, 200, 'EUR')
+        await income(wallet.id, 50, 'EUR')
+        await accountsRepo.archive(old.id)
+        await accountsRepo.archive(wallet.id)
+        const w = await mountSettled()
+
+        expect(listedIn(w, 'Trip')).toEqual(['Card'])
+        expect(listedIn(w, 'Accounts in no group')).toEqual(['Cash'])
+        const header = w.find('section[aria-label="Trip"] > div').text()
+        expect(header).toContain(formatMoney(moneyAmount(1000, 2, 'EUR')))
+        const total = w.find('[aria-label="Total of all accounts"]').text()
+        expect(total).toContain(formatMoney(moneyAmount(1200, 2, 'EUR')))
+
+        // Collapsed, with its count and total.
+        expect(disclosure(w).text()).toBe('Archived accounts (2)')
+        expect(disclosure(w).attributes('aria-expanded')).toBe('false')
+        expect(listedIn(w, 'Archived accounts')).toEqual([])
+        expect(archivedSection(w).find('[data-archived-total]').text()).toContain(
+          formatMoney(moneyAmount(350, 2, 'EUR')),
+        )
+
+        await disclosure(w).trigger('click')
+        await settle()
+        expect(disclosure(w).attributes('aria-expanded')).toBe('true')
+        expect(listedIn(w, 'Archived accounts')).toEqual(['Old card', 'Wallet'])
+        expect(rowText(w, 'Old card')).toContain(formatMoney(moneyAmount(300, 2, 'EUR')))
+        expect(rowText(w, 'Wallet')).toContain(formatMoney(moneyAmount(50, 2, 'EUR')))
+      })
+
+      it('are left out of reorder mode', async () => {
+        const old = await accountIn('Old card', 'EUR')
+        await accountIn('Cash', 'EUR')
+        await accountsRepo.archive(old.id)
+        const w = await mountSettled()
+        expect(archivedSection(w).exists()).toBe(true)
+        buttonByText('Reorder').click()
+        await settle()
+        expect(archivedSection(w).exists()).toBe(false)
+        expect(w.find('[aria-label="Move Old card up"]').exists()).toBe(false)
+      })
+
+      async function openEdit(w: VueWrapper, name: string) {
+        await w.find(`button[aria-label="Edit ${name}"]`).trigger('click')
+        await settle()
+      }
+      const dialogButton = (label: string) =>
+        document.querySelector<HTMLButtonElement>(`.p-dialog button[aria-label="${label}"]`)
+
+      it('archives an empty account from its dialog at once', async () => {
+        const cash = await accountIn('Cash', 'EUR')
+        const w = await mountSettled()
+        await openEdit(w, 'Cash')
+        const archive = dialogButton('Archive Cash')!
+        expect(archive.textContent?.trim()).toBe('Archive')
+        archive.click()
+        await settle()
+        expect(document.querySelector('.p-dialog')).toBeNull()
+        expect((await accountsRepo.findById(cash.id))!.archived_at_utc).not.toBeNull()
+        expect(disclosure(w).text()).toBe('Archived accounts (1)')
+      })
+
+      it('asks before archiving an account that still holds money', async () => {
+        const cash = await accountIn('Cash', 'EUR')
+        await income(cash.id, 1250, 'EUR')
+        const w = await mountSettled()
+        await openEdit(w, 'Cash')
+        dialogButton('Archive Cash')!.click()
+        await settle()
+        const alert = document.querySelector('.p-dialog [role=alert]')!
+        expect(alert.textContent).toContain(
+          `It still holds ${formatMoney(moneyAmount(1250, 2, 'EUR'))}. Archive it anyway?`,
+        )
+        expect((await accountsRepo.findById(cash.id))!.archived_at_utc).toBeNull()
+
+        buttonByText('Keep it').click()
+        await settle()
+        expect(document.querySelector('.p-dialog [role=alert]')).toBeNull()
+        dialogButton('Archive Cash')!.click()
+        await settle()
+        buttonByText('Archive account').click()
+        await settle()
+        expect(document.querySelector('.p-dialog')).toBeNull()
+        expect((await accountsRepo.findById(cash.id))!.archived_at_utc).not.toBeNull()
+      })
+
+      it('unarchives from the dialog, back into its group', async () => {
+        const trip = await groupingsRepo.create({
+          name: 'Trip',
+          colour: '#000000',
+          icon: primeIcon('car'),
+        })
+        const card = await accountIn('Card', 'EUR', trip.id)
+        await accountsRepo.archive(card.id)
+        const w = await mountSettled()
+        expect(listedIn(w, 'Trip')).toEqual([])
+        await disclosure(w).trigger('click')
+        await settle()
+        await openEdit(w, 'Card')
+        expect(dialogButton('Archive Card')).toBeNull()
+        dialogButton('Unarchive Card')!.click()
+        await settle()
+        expect(listedIn(w, 'Trip')).toEqual(['Card'])
+        expect(archivedSection(w).exists()).toBe(false)
+      })
+    })
   })
 })
