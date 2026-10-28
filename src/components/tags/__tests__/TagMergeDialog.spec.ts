@@ -119,6 +119,7 @@ describe('TagMergeDialog', () => {
       'family keeps its colour, icon and description.',
     ])
     expect(movingNames()).toEqual(['mia'])
+    expect(pageText()).toContain("A merge can't be undone: mia can't be restored afterwards.")
     expect(await tagsRepo.findById(mia.id)).not.toBeNull()
   })
 

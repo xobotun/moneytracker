@@ -232,6 +232,10 @@ async function merge() {
           description.
         </p>
       </div>
+      <!-- Restoring refuses a merged tag (TagsRepository.restore): nothing in the app undoes it. -->
+      <Message v-if="targetChip" severity="warn" :closable="false" size="small">
+        A merge can't be undone: {{ source.name }} can't be restored afterwards.
+      </Message>
 
       <fieldset
         v-for="c in conflicts"
