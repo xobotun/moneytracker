@@ -126,3 +126,11 @@ Built as designed, on branch `tags-page`. Differences and additions:
 - The reset buttons are always shown next to a typed colour, icon or date, not only on hover or focus: phones have no hover.
 - The tree is a flat list of rows with their depth (`flattenTree`) and disclosure buttons, not a recursive component or ARIA tree.
 - The merge dialog's "another" for a detail allows an empty value, which clears it.
+
+Added on 2026-10-28:
+
+- The linked tag (a merchant's default category, a location's merchant) sits in a chip after the name; other names and the description go on a second, fainter line.
+- Slim or detailed rows, chosen per device with a selector beside the filter (layout setting `layout.tagRows`). Detailed rows also list a location's address or coordinates, radius and matching, and a journey's dates, derived ones fainter.
+- A location has a radius (`location_details.radius_metres`, 10 m by default), and `nearestLocations` measures to the edge of its circle. Distances show through `formatMetres` in `src/format/distance.ts`.
+- The location dialog has an OpenStreetMap map (Leaflet, loaded only when shown) to pick the position; it opens on the nearest placed ancestor when the location has none.
+- Locations and merchants have an `auto_match` flag, on by default, edited with a checkbox; a merge asks which to keep (decisions §2.6).

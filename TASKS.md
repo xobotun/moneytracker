@@ -336,11 +336,16 @@ Per [docs/plans/2026-10-25-exchange-rates-decisions.md](docs/plans/2026-10-25-ex
 ### Tags page
 
 - Design: [docs/plans/2026-10-27-tags-page-design.md](docs/plans/2026-10-27-tags-page-design.md), plan: [docs/plans/2026-10-27-tags-page-plan.md](docs/plans/2026-10-27-tags-page-plan.md)
-- `/tags` (nav item "Tags"): a tab per kind, kept in the URL (`?kind=merchant`); each a tree sorted by name with collapsible branches, a filter over every name, other names in fainter text, Add (a child) and Edit per row, duplicates outlined and explained (merged by hand), "Show deleted" with Restore. A merchant row shows its default category, a location row its merchant (plain text, no link). Parent loops and dead parents that sync leaves show at the top level (`src/tags/tree.ts`)
+- `/tags` (nav item "Tags"): a tab per kind, kept in the URL (`?kind=merchant`); each a tree sorted by name with collapsible branches, a filter over every name, other names in fainter text, Add (a child) and Edit per row, duplicates outlined and explained (merged by hand), "Show deleted" with Restore. A merchant row shows its default category, a location row its merchant (not a link). Parent loops and dead parents that sync leaves show at the top level (`src/tags/tree.ts`)
 - Edit dialog for every kind: name, parent (by path, never its own subtree), other names, description, colour and icon (an inherited look shows as derived, with a reset), a location's address, position ("Use my position") and merchant, a merchant's default category, a journey's dates (derived from its transactions and sub-journeys until typed). Saved in one transaction (`TagsRepository.save`): a refused rename no longer leaves a tag moved. Delete confirms with the use count; a category in use goes to merge
 - Merge dialog: target of the same kind, what moves, and an answer per differing detail (keep one or type another). A merge now fills the target's empty detail with the source's link to a deleted tag
 - `tags.retired_names`: removing a merged name stops it finding the tag (the merged tag's own row still holds it, and edits to a tombstone never sync); a merge carries the list on (`src/tags/otherNames.ts`)
 - Plain tags can be nested now, so an account keeps its tags by id when saved and a typed name finds a tag at any level (`resolvePlainTags`)
+- Rows: the linked tag (a merchant's default category, a location's merchant) sits in a chip after the name; other names and the description go on a second, fainter line
+- Slim or detailed rows, chosen per device (layout setting `layout.tagRows`, a selector beside the filter): slim keeps a row to one line (the chip from sm, other names and description from md up); detailed shows everything, wrapped, plus a location's address or coordinates, radius and matching, or a journey's dates (derived ones fainter). The tags store reads every details row in one go (`TagDetailsRepository.detailsByTag`)
+- A location is a circle: `location_details.radius_metres` (whole metres, 10 m by default). `nearestLocations` measures to the circle's edge, 0 inside it. The dialog edits the radius; a merge asks about a differing one
+- Map picking in the location dialog: Leaflet with OpenStreetMap tiles, loaded only when the map is shown (`LocationMap.vue`). A click or a drag sets the position, the radius shows as a circle; the map opens on the location, else on its nearest placed ancestor, else the world
+- Automatic matching flags, on by default: `location_details.auto_match` (off: never filled in by itself, still offered nearby; `nearestLocations` returns it flagged) and `merchant_details.auto_match` (off: imported lines naming the merchant are not matched by themselves, once import exists). A checkbox in the dialog, "not matched automatically" on a detailed row; a merge asks which flag to keep
 
 ## To Do
 
@@ -373,7 +378,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
     - Category picker; split across several categories, each part showing its *from* and *to* amount (remainder, rate and warning rules in the category-vs-tag decisions doc, §2.4: a negative part warns; whether the rate warning shows next to the sum warning is decided with this view's design)
     - Merchant, location and journey fields (merchant hidden on income and transfers by default); #tag picker with autocomplete (a synonym finds the tag, the main name is shown)
     - Date/time + timezone picker; date-override field
-    - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position
+    - Location from the device position: the nearest known location within ~150 m, nearby ones as one-tap choices, create a location from the position. A location with `auto_match` off is offered nearby but never filled in; distances count from the location's circle edge (`nearestLocations`)
     - "On a journey" switch (per device): start a new journey or join an ongoing / recent one
     - Typed vs. derived values (the UI rule in CLAUDE.md)
     - Cash / non-cash toggle (once schema supports it)
@@ -497,6 +502,7 @@ Known sync defects, postponed (review 2026-10-18):
 - Bank statement import (format TBD — likely CSV / OFX / institution-specific parsers)
 - Push notification import (format TBD — Android notification listener export, parsing rules per bank)
 - Mapping rules from raw entries to transactions, accounts, and tags
+- Matching imported lines to merchants honours `merchant_details.auto_match`: a merchant with it off is not matched by itself
 - Dedup against existing transactions (a statement line that matches a hand-entered transaction fills that transaction's `description__auto` instead of adding a second one)
 
 ### Polish & operational gaps
