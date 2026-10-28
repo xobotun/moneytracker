@@ -105,6 +105,15 @@ describe('validateDraft', () => {
     })
     expect(validateDraft({ ...valid, start_date: '2026-05-09', end_date: null })).toEqual({})
   })
+
+  it('refuses a journey currency with a space; inherited or cleared is fine', () => {
+    expect(validateDraft({ ...valid, currency: 'G EL' })).toEqual({
+      currency: 'A currency code has no spaces.',
+    })
+    expect(validateDraft({ ...valid, currency: 'gel' })).toEqual({})
+    expect(validateDraft({ ...valid, currency: '' })).toEqual({})
+    expect(validateDraft({ ...valid, currency: null })).toEqual({})
+  })
 })
 
 describe('saveInputFromDraft', () => {
@@ -142,6 +151,7 @@ describe('createInputFromDraft', () => {
       name: 'Rome',
       otherNames: [' Roma ', 'rome'],
       start_date: '2026-05-01',
+      currency: ' eur ',
     }
     expect(createInputFromDraft('journey', draft)).toEqual({
       kind: 'journey',
@@ -151,7 +161,7 @@ describe('createInputFromDraft', () => {
       synonyms: ['Roma'],
       colour: COLOUR_PRESETS[0],
       icon: primeIcon('globe'),
-      details: { ...noDetails(), start_date: '2026-05-01' },
+      details: { ...noDetails(), start_date: '2026-05-01', currency: 'EUR' },
     })
   })
 })

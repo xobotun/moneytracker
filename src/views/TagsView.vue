@@ -28,6 +28,7 @@ import { KIND_ICONS, effectiveLook } from '@/tags/look'
 import { setIconClass } from '@/icons/sets'
 import { mergedNamesByTag } from '@/tags/otherNames'
 import { mapLocations } from '@/tags/locationsMap'
+import { effectiveCurrency } from '@/tags/journeys'
 import {
   buildTree,
   filterTree,
@@ -217,7 +218,8 @@ watch(
 
 /**
  * What a detailed row lists under the names: a location's place, a journey's
- * dates, and when a location or merchant is not matched automatically.
+ * dates and currency, and when a location or merchant is not matched
+ * automatically.
  */
 function factsOf(tag: Tag): RowFact[] {
   if (tag.kind === 'location') {
@@ -240,22 +242,30 @@ function factsOf(tag: Tag): RowFact[] {
     return d?.auto_match === false ? [{ text: 'not matched automatically', derived: false }] : []
   }
   if (tag.kind === 'journey') {
-    const dates = journeyDates.value.get(tag.id)
-    if (!dates) return []
-    const source = 'From its transactions and the journeys under it'
     const facts: RowFact[] = []
-    if (dates.start) {
+    const dates = journeyDates.value.get(tag.id)
+    const source = 'From its transactions and the journeys under it'
+    if (dates?.start) {
       facts.push({
         text: `from ${formatDay(dates.start)}`,
         derived: !dates.startTyped,
         title: dates.startTyped ? undefined : source,
       })
     }
-    if (dates.end) {
+    if (dates?.end) {
       facts.push({
         text: `to ${formatDay(dates.end)}`,
         derived: !dates.endTyped,
         title: dates.endTyped ? undefined : source,
+      })
+    }
+    const { currency, from } = effectiveCurrency(tag, store.byId, store.detailsById)
+    if (currency !== null) {
+      const inherited = from !== null && from.id !== tag.id
+      facts.push({
+        text: `in ${currency}`,
+        derived: inherited,
+        title: inherited ? `Inherited from ${from.name}` : undefined,
       })
     }
     return facts

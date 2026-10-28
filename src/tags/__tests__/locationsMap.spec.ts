@@ -21,6 +21,7 @@ function placed(
     default_category_id: null,
     start_date: null,
     end_date: null,
+    currency: null,
     ...over,
   }
 }

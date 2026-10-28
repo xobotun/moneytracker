@@ -16,7 +16,9 @@ import {
   DEFAULT_LOCATION_RADIUS_METRES,
   DETAIL_FIELDS_BY_KIND,
   assertDetailLinks,
+  assertJourneyCurrency,
   assertJourneyDates,
+  journeyCurrencyToColumn,
   noDetails,
   readDetailValues,
   writeDetailValues,
@@ -167,7 +169,11 @@ function sameDetail(a: TagDetailValues[TagDetailField], b: TagDetailValues[TagDe
   return a === b
 }
 
-/** The fields of `kind` from `values`, the others empty; empty text is none, and an empty radius or matching flag the default. */
+/**
+ * The fields of `kind` from `values`, the others empty; empty text is none,
+ * and an empty radius or matching flag the default. A currency is stored
+ * trimmed and upper-cased.
+ */
 function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues {
   const next = noDetails()
   for (const field of DETAIL_FIELDS_BY_KIND[kind]) {
@@ -176,6 +182,7 @@ function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues 
   next.address = optionalTextToColumn(next.address)
   next.start_date = optionalTextToColumn(next.start_date)
   next.end_date = optionalTextToColumn(next.end_date)
+  next.currency = journeyCurrencyToColumn(next.currency)
   if (kind === 'location') next.radius_metres ??= DEFAULT_LOCATION_RADIUS_METRES
   if (kind === 'location' || kind === 'merchant') next.auto_match ??= true
   return next
@@ -300,6 +307,7 @@ export class TagsRepository {
       if (details && DETAIL_FIELDS_BY_KIND[input.kind].some((field) => details[field] !== null)) {
         await assertDetailLinks(tx, input.kind, details)
         assertJourneyDates(details)
+        assertJourneyCurrency(details.currency)
         await writeDetailValues(tx, id, input.kind, details, now)
       }
     })
@@ -375,6 +383,7 @@ export class TagsRepository {
       if (changed.includes('start_date') || changed.includes('end_date')) {
         assertJourneyDates(next)
       }
+      if (changed.includes('currency')) assertJourneyCurrency(next.currency)
       await writeDetailValues(tx, id, tag.kind, next, now)
     })
   }
@@ -547,7 +556,7 @@ export class TagsRepository {
 
   /**
    * The detail fields (address, position, merchant, default category, journey
-   * dates) where the source and the target both have a value and the values
+   * dates and currency) where the source and the target both have a value and the values
    * differ: a merge needs a decision for each of them.
    */
   async detailConflicts(sourceId: ShortId, targetId: ShortId): Promise<TagDetailConflict[]> {
@@ -598,6 +607,8 @@ export class TagsRepository {
             resolved[field] !== undefined ? resolved[field] : (into[field] ?? from[field])
           ;(next as Record<TagDetailField, unknown>)[field] = value ?? null
         }
+        // A currency typed in the merge dialog is stored like a saved one.
+        next.currency = journeyCurrencyToColumn(next.currency)
         const changed = fields.filter((field) => !sameDetail(next[field], into[field]))
         // Only a link on neither side is checked: one either tag already has
         // may point to a tag deleted since, and the source's fills the
@@ -606,6 +617,7 @@ export class TagsRepository {
         if (changed.includes('start_date') || changed.includes('end_date')) {
           assertJourneyDates(next)
         }
+        if (changed.includes('currency')) assertJourneyCurrency(next.currency)
         if (changed.length > 0) {
           await writeDetailValues(tx, targetId, target.kind, next, now)
         }

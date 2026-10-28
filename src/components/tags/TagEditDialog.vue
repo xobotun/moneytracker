@@ -13,6 +13,7 @@ import Message from 'primevue/message'
 import IconBadge from '@/components/icons/IconBadge.vue'
 import ColourPicker from '@/components/accounts/ColourPicker.vue'
 import IconPicker from '@/components/accounts/IconPicker.vue'
+import CurrencyInput from '@/components/CurrencyInput.vue'
 import { DERIVED_CLASS } from '@/components/derived'
 import { useTagsStore } from '@/stores/tags'
 import { CategoryInUseError, DuplicateTagNameError, TagLoopError } from '@/db/errors'
@@ -23,6 +24,7 @@ import type { LatLon } from './mapView'
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagKind } from '@/db/types'
 import { KIND_ICONS, inheritedLook, type TagLook } from '@/tags/look'
+import { inheritedCurrency } from '@/tags/journeys'
 import type { Icon } from '@/icons/types'
 import {
   carriedNames,
@@ -306,6 +308,17 @@ const endDate = computed({
   set: (date: Date | null) => (draft.value.end_date = toIso(date)),
 })
 const DATES_SOURCE = 'From its transactions and the journeys under it'
+
+// --- A journey's currency: inherited until typed ---
+
+const inheritedCur = computed(() =>
+  inheritedCurrency(draft.value.parent_id, store.byId, store.detailsById),
+)
+const shownCurrency = computed({
+  get: () => draft.value.currency ?? inheritedCur.value.currency ?? '',
+  set: (code: string) => (draft.value.currency = code),
+})
+const currencySource = computed(() => `from ${inheritedCur.value.from?.name ?? ''}`)
 
 // --- Save, delete, merge ---
 
@@ -762,6 +775,49 @@ async function setArchived(archived: boolean) {
           Taken from its transactions until you type a date.
         </small>
       </fieldset>
+
+      <div v-if="kind === 'journey'" class="flex flex-col gap-1">
+        <label for="tag-currency" class="text-sm font-medium">Currency</label>
+        <div
+          :class="draft.currency === null ? DERIVED_CLASS : undefined"
+          :title="
+            draft.currency === null && inheritedCur.from
+              ? `Inherited: ${currencySource}`
+              : undefined
+          "
+        >
+          <CurrencyInput
+            v-model="shownCurrency"
+            input-id="tag-currency"
+            :invalid="!!shownErrors.currency"
+            :describedby="shownErrors.currency ? 'tag-currency-error' : 'tag-currency-hint'"
+            fluid
+          />
+        </div>
+        <div v-if="inheritedCur.from" class="flex min-h-8 items-center gap-2 text-sm">
+          <span v-if="draft.currency === null" :class="DERIVED_CLASS">
+            Inherited: {{ currencySource }}
+          </span>
+          <Button
+            v-else
+            type="button"
+            label="Reset"
+            icon="pi pi-undo"
+            severity="secondary"
+            text
+            size="small"
+            :aria-label="`Use the currency ${currencySource}`"
+            @click="draft.currency = null"
+          />
+        </div>
+        <small v-if="shownErrors.currency" id="tag-currency-error" class="text-red-600">
+          {{ shownErrors.currency }}
+        </small>
+        <small v-else id="tag-currency-hint" class="text-gray-500 dark:text-gray-400">
+          Optional. What its spending is offered in; the journeys under it use it too unless they
+          set their own.
+        </small>
+      </div>
 
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 

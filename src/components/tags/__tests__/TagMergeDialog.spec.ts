@@ -235,6 +235,27 @@ describe('TagMergeDialog', () => {
     })
   })
 
+  it('asks about a differing journey currency, another one typed in a currency field', async () => {
+    const tbilisi = await tagsRepo.create({ kind: 'journey', name: 'Tbilisi' })
+    const georgia = await tagsRepo.create({ kind: 'journey', name: 'Georgia' })
+    const dates = { start_date: null, end_date: null }
+    await detailsRepo.setJourney(tbilisi.id, { ...dates, currency: 'GEL' })
+    await detailsRepo.setJourney(georgia.id, { ...dates, currency: 'EUR' })
+    await open(tbilisi)
+    await choose('merge-target', 'Georgia')
+    expect(pageText()).toContain('Currency: the two differ')
+    expect(pageText()).toContain('GEL (Tbilisi)')
+    expect(pageText()).toContain('EUR (Georgia)')
+    await pick('currency', 'other')
+    await type('merge-currency-value', 'U SD')
+    expect(pageText()).toContain('A currency code has no spaces.')
+    expect(button('Merge').disabled).toBe(true)
+    await type('merge-currency-value', 'usd')
+    button('Merge').click()
+    await settle()
+    expect((await detailsRepo.getJourney(georgia.id))!.currency).toBe('USD')
+  })
+
   it('keeps Merge disabled until every conflict is answered', async () => {
     const { a } = await twoLocations()
     await open(a)

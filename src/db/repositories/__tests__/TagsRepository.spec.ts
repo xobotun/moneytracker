@@ -1154,6 +1154,7 @@ describe('TagsRepository', () => {
       default_category_id: null,
       start_date: null,
       end_date: null,
+      currency: null,
     }
 
     it('writes the details in the same transaction', async () => {
@@ -1181,6 +1182,35 @@ describe('TagsRepository', () => {
         }),
       ).rejects.toThrow(DeletedTagError)
       expect(await repo.findByName('merchant', 'Rewe')).toBeNull()
+    })
+
+    it("checks a journey's currency and stores it upper-cased", async () => {
+      const georgia = await repo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        details: { ...none, currency: ' gel ' },
+      })
+      expect((await details.getJourney(georgia.id))!.currency).toBe('GEL')
+      await expect(
+        repo.create({ kind: 'journey', name: 'Armenia', details: { ...none, currency: 'A MD' } }),
+      ).rejects.toThrow(InvalidTagDetailsError)
+      expect(await repo.findByName('journey', 'Armenia')).toBeNull()
+
+      const save = (currency: string | null) =>
+        repo.save(georgia.id, {
+          name: 'Georgia',
+          parent_id: null,
+          description: null,
+          otherNames: [],
+          colour: null,
+          icon: null,
+          details: { ...none, currency },
+        })
+      await save('lari')
+      expect((await details.getJourney(georgia.id))!.currency).toBe('LARI')
+      await expect(save('la ri')).rejects.toThrow(InvalidTagDetailsError)
+      await save('')
+      expect((await details.getJourney(georgia.id))!.currency).toBeNull()
     })
 
     it('writes no details row when every field is empty', async () => {
@@ -1259,6 +1289,29 @@ describe('TagsRepository', () => {
       ])
       await repo.merge(a.id, b.id, { auto_match: false })
       expect((await details.getLocation(b.id))!.auto_match).toBe(false)
+    })
+
+    it("fills a journey's currency from the source, and asks when the two differ", async () => {
+      const a = await repo.create({ kind: 'journey', name: 'Tbilisi' })
+      const b = await repo.create({ kind: 'journey', name: 'Georgia' })
+      const c = await repo.create({ kind: 'journey', name: 'Armenia' })
+      const dates = { start_date: null, end_date: null }
+      await details.setJourney(a.id, { ...dates, currency: 'GEL' })
+      await repo.merge(a.id, b.id)
+      expect((await details.getJourney(b.id))!.currency).toBe('GEL')
+
+      await details.setJourney(c.id, { ...dates, currency: 'AMD' })
+      expect(await repo.detailConflicts(c.id, b.id)).toEqual([
+        { field: 'currency', source: 'AMD', target: 'GEL' },
+      ])
+      await expect(repo.merge(c.id, b.id)).rejects.toThrow(MergeConflictError)
+      // Another one, typed: checked and stored like a saved one.
+      await expect(repo.merge(c.id, b.id, { currency: 'U SD' })).rejects.toThrow(
+        InvalidTagDetailsError,
+      )
+      expect(await repo.findById(c.id)).not.toBeNull()
+      await repo.merge(c.id, b.id, { currency: ' usd ' })
+      expect((await details.getJourney(b.id))!.currency).toBe('USD')
     })
 
     it("asks which of two merchants' matching flags to keep when they differ", async () => {

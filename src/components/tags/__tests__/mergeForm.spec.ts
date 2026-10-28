@@ -47,4 +47,15 @@ describe('answerError', () => {
     )
     expect(answerError('position', { ...other, latitude: 52.5, longitude: 13.4 })).toBeUndefined()
   })
+
+  it('refuses another currency with a space; empty is none, a code is upper-cased', () => {
+    const other = { ...emptyAnswer(), choice: 'other' as const }
+    expect(answerError('currency', { ...other, text: 'U SD' })).toBe(
+      'A currency code has no spaces.',
+    )
+    expect(answerError('currency', { ...other, text: ' ' })).toBeUndefined()
+    expect(typedValue('currency', { ...other, text: ' ' })).toBeNull()
+    expect(answerError('currency', { ...other, text: ' usd ' })).toBeUndefined()
+    expect(typedValue('currency', { ...other, text: ' usd ' })).toBe('USD')
+  })
 })

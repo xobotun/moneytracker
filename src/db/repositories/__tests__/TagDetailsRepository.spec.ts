@@ -72,6 +72,7 @@ describe('TagDetailsRepository', () => {
       tag_id: lisbon.id,
       start_date: '2026-07-01',
       end_date: null,
+      currency: null,
     })
 
     // Setting again replaces the row in place; an empty address is NULL.
@@ -452,7 +453,7 @@ describe('TagDetailsRepository', () => {
       merchant_id: null,
     })
     const rome = await tags.create({ kind: 'journey', name: 'Rome' })
-    await repo.setJourney(rome.id, { start_date: '2026-05-01', end_date: null })
+    await repo.setJourney(rome.id, { start_date: '2026-05-01', end_date: null, currency: 'EUR' })
     // A deleted details row links nothing.
     const gone = await tags.create({ kind: 'location', name: 'Gone' })
     await repo.setLocation(gone.id, {
@@ -474,9 +475,33 @@ describe('TagDetailsRepository', () => {
         [home.id, { ...none, ...place, address: 'Weg 1' }],
         [rewe.id, { ...none, default_category_id: food.id, auto_match: true }],
         [edeka.id, { ...none, auto_match: true }],
-        [rome.id, { ...none, start_date: '2026-05-01' }],
+        [rome.id, { ...none, start_date: '2026-05-01', currency: 'EUR' }],
       ]),
     )
+  })
+
+  it("stores a journey's own currency, trimmed and upper-cased; none is inherited", async () => {
+    const georgia = await tags.create({ kind: 'journey', name: 'Georgia' })
+    const dates = { start_date: null, end_date: null }
+    await repo.setJourney(georgia.id, { ...dates, currency: ' gel ' })
+    expect((await repo.getJourney(georgia.id))!.currency).toBe('GEL')
+    expect((await repo.values(georgia.id, 'journey')).currency).toBe('GEL')
+    // Custom codes are fine, like an account's.
+    await repo.setJourney(georgia.id, { ...dates, currency: 'usdt' })
+    expect((await repo.getJourney(georgia.id))!.currency).toBe('USDT')
+    await expect(repo.setJourney(georgia.id, { ...dates, currency: 'U SD' })).rejects.toThrow(
+      InvalidTagDetailsError,
+    )
+    expect((await repo.getJourney(georgia.id))!.currency).toBe('USDT')
+    // Blank is none.
+    await repo.setJourney(georgia.id, { ...dates, currency: '   ' })
+    expect((await repo.getJourney(georgia.id))!.currency).toBeNull()
+    await repo.setJourney(georgia.id, { ...dates, currency: 'GEL' })
+    // Left out: none of its own, inherited from the parent.
+    await repo.setJourney(georgia.id, dates)
+    expect((await repo.getJourney(georgia.id))!.currency).toBeNull()
+    const food = await tags.create({ kind: 'category', name: 'Food' })
+    expect((await repo.values(food.id, 'category')).currency).toBeNull()
   })
 
   it("stores a location's radius, 10 m by default", async () => {

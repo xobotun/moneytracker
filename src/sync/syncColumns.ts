@@ -129,6 +129,7 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
     { name: 'tag_id', sqlType: 'TEXT', nullable: true },
     { name: 'start_date', sqlType: 'TEXT', nullable: true },
     { name: 'end_date', sqlType: 'TEXT', nullable: true },
+    { name: 'currency', sqlType: 'TEXT', nullable: true },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },

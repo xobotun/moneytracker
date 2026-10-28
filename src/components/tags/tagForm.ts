@@ -1,7 +1,11 @@
 import type { ShortId } from '@/db/shortId'
 import type { Tag, TagDetailValues, TagKind } from '@/db/types'
 import type { TagCreateInput, TagSaveInput } from '@/db/repositories/TagsRepository'
-import { DEFAULT_LOCATION_RADIUS_METRES } from '@/db/repositories/TagDetailsRepository'
+import {
+  DEFAULT_LOCATION_RADIUS_METRES,
+  journeyCurrencyToColumn,
+} from '@/db/repositories/TagDetailsRepository'
+import { currencyCodeError } from '@/format/currency'
 import { newTagLook } from '@/tags/look'
 import type { Icon } from '@/icons/types'
 import { cleanOtherNames } from '@/tags/otherNames'
@@ -27,6 +31,7 @@ export interface TagDraft {
   default_category_id: ShortId | null
   start_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
   end_date: string | null
+  currency: string | null // a journey's; null = inherited, '' (cleared) is saved as inherited
 }
 
 export interface TagDraftErrors {
@@ -34,6 +39,7 @@ export interface TagDraftErrors {
   position?: string
   radius?: string
   dates?: string
+  currency?: string
 }
 
 /** The singular word for a kind, as headings and buttons use it. */
@@ -80,6 +86,7 @@ export function newTagDraft(
     default_category_id: null,
     start_date: null,
     end_date: null,
+    currency: null,
   }
 }
 
@@ -94,6 +101,7 @@ type DetailDraft = Pick<
   | 'default_category_id'
   | 'start_date'
   | 'end_date'
+  | 'currency'
 >
 
 /** The detail fields of a draft (they are read after the tag's own fields). */
@@ -108,6 +116,7 @@ export function detailDraft(details: TagDetailValues): DetailDraft {
     default_category_id: details.default_category_id,
     start_date: details.start_date,
     end_date: details.end_date,
+    currency: details.currency,
   }
 }
 
@@ -160,6 +169,10 @@ export function validateDraft(draft: TagDraft): TagDraftErrors {
   if (draft.start_date !== null && draft.end_date !== null && draft.start_date > draft.end_date) {
     errors.dates = 'The journey cannot end before it starts.'
   }
+  if (draft.currency !== null && draft.currency.trim() !== '') {
+    const currency = currencyCodeError(draft.currency)
+    if (currency) errors.currency = currency
+  }
   return errors
 }
 
@@ -174,6 +187,7 @@ function detailsFromDraft(draft: TagDraft): TagDetailValues {
     default_category_id: draft.default_category_id,
     start_date: draft.start_date,
     end_date: draft.end_date,
+    currency: journeyCurrencyToColumn(draft.currency),
   }
 }
 

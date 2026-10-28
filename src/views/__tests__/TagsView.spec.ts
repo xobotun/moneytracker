@@ -401,6 +401,40 @@ describe('TagsView', () => {
       expect(parts('Summer').map((p) => p.textContent?.trim())).toEqual([from, to])
       expect(parts('Summer').every((p) => p.className.includes(DERIVED_CLASS))).toBe(true)
     })
+
+    it("detailed rows list a journey's currency, an inherited one fainter", async () => {
+      const caucasus = await tagsRepo.create({ kind: 'journey', name: 'Caucasus' })
+      await detailsRepo.setJourney(caucasus.id, {
+        start_date: null,
+        end_date: null,
+        currency: 'EUR',
+      })
+      const georgia = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Georgia',
+        parent_id: caucasus.id,
+      })
+      await tagsRepo.create({ kind: 'journey', name: 'Tbilisi', parent_id: georgia.id })
+      await detailsRepo.setJourney(georgia.id, {
+        start_date: null,
+        end_date: null,
+        currency: 'GEL',
+      })
+      await tagsRepo.create({ kind: 'journey', name: 'Yerevan', parent_id: caucasus.id })
+      await tagsRepo.create({ kind: 'journey', name: 'Summer' })
+      await mountView('/tags?kind=journey')
+      const fact = (name: string) =>
+        rowOf(name).querySelector<HTMLElement>('[data-facts] > span:not([aria-hidden])')
+      expect(fact('Caucasus')!.textContent?.trim()).toBe('in EUR')
+      expect(fact('Caucasus')!.className).not.toContain(DERIVED_CLASS)
+      expect(fact('Georgia')!.textContent?.trim()).toBe('in GEL')
+      expect(fact('Tbilisi')!.textContent?.trim()).toBe('in GEL')
+      expect(fact('Tbilisi')!.className).toContain(DERIVED_CLASS)
+      expect(fact('Tbilisi')!.title).toBe('Inherited from Georgia')
+      expect(fact('Yerevan')!.textContent?.trim()).toBe('in EUR')
+      expect(fact('Yerevan')!.title).toBe('Inherited from Caucasus')
+      expect(fact('Summer')).toBeNull()
+    })
   })
 
   describe('map of locations', () => {

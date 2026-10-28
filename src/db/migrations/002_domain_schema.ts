@@ -78,6 +78,7 @@ export const migration: Migration = {
       tag_id          TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a journey tag
       start_date      TEXT,                                              -- 'YYYY-MM-DD' typed by the user; NULL = derived from the journey's transactions
       end_date        TEXT,                                              -- 'YYYY-MM-DD' typed by the user; NULL = derived from the journey's transactions
+      currency        TEXT,                                              -- currency code, free-form like accounts.currency (ISO 4217 or custom); NULL = inherited from the parent journey
       created_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       updated_at_utc  TEXT NOT NULL,                                     -- ISO 8601 UTC instant
       deleted_at_utc  TEXT                                               -- ISO 8601 UTC instant; NULL = live

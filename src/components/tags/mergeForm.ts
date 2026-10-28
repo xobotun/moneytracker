@@ -1,5 +1,6 @@
 import type { ShortId } from '@/db/shortId'
 import type { TagDetailField, TagDetailValues } from '@/db/types'
+import { currencyCodeError, normaliseCurrencyCode } from '@/format/currency'
 import { positionError, radiusError } from './tagForm'
 
 // The answers of the merge dialog, kept out of the component so they can be
@@ -56,6 +57,8 @@ export function typedValue(field: TagDetailField, a: Answer): TagDetailValues[Ta
     case 'start_date':
     case 'end_date':
       return toIso(a.date)
+    case 'currency':
+      return a.text.trim() === '' ? null : normaliseCurrencyCode(a.text)
   }
 }
 
@@ -64,5 +67,8 @@ export function answerError(field: TagDetailField, a: Answer): string | undefine
   if (a.choice === null) return 'Choose one.'
   if (a.choice === 'other' && field === 'position') return positionError(a.latitude, a.longitude)
   if (a.choice === 'other' && field === 'radius_metres') return radiusError(a.radius)
+  if (a.choice === 'other' && field === 'currency' && a.text.trim() !== '') {
+    return currencyCodeError(a.text) ?? undefined
+  }
   return undefined
 }

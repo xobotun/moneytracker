@@ -16,6 +16,7 @@ import {
   TagNotFoundError,
 } from '../errors'
 import { isCalendarDate } from '@/money/dates'
+import { currencyCodeError, normaliseCurrencyCode } from '@/format/currency'
 import {
   booleanFromColumn,
   booleanToColumn,
@@ -46,6 +47,7 @@ type JourneyDetailsRow = {
   tag_id: string
   start_date: string | null
   end_date: string | null
+  currency: string | null
 }
 
 /** The radius of a location that sets none: about a shop. */
@@ -120,7 +122,7 @@ async function readMerchant(ex: SqlExecutor, id: ShortId): Promise<MerchantDetai
 
 async function readJourney(ex: SqlExecutor, id: ShortId): Promise<JourneyDetails | null> {
   const rows = await ex.exec<JourneyDetailsRow>(
-    `SELECT tag_id, start_date, end_date FROM journey_details
+    `SELECT tag_id, start_date, end_date, currency FROM journey_details
      WHERE tag_id = ? AND deleted_at_utc IS NULL`,
     [id],
   )
@@ -130,6 +132,7 @@ async function readJourney(ex: SqlExecutor, id: ShortId): Promise<JourneyDetails
     tag_id: shortIdFromColumn(row.tag_id),
     start_date: row.start_date,
     end_date: row.end_date,
+    currency: row.currency,
   }
 }
 
@@ -137,7 +140,7 @@ async function readJourney(ex: SqlExecutor, id: ShortId): Promise<JourneyDetails
 export const DETAIL_FIELDS_BY_KIND: Record<TagKind, readonly TagDetailField[]> = {
   location: ['address', 'position', 'merchant_id', 'radius_metres', 'auto_match'],
   merchant: ['default_category_id', 'auto_match'],
-  journey: ['start_date', 'end_date'],
+  journey: ['start_date', 'end_date', 'currency'],
   category: [],
   tag: [],
 }
@@ -153,6 +156,7 @@ export function noDetails(): TagDetailValues {
     default_category_id: null,
     start_date: null,
     end_date: null,
+    currency: null,
   }
 }
 
@@ -183,6 +187,7 @@ export async function readDetailValues(
     const d = await readJourney(ex, id)
     values.start_date = d?.start_date ?? null
     values.end_date = d?.end_date ?? null
+    values.currency = d?.currency ?? null
   }
   return values
 }
@@ -260,6 +265,19 @@ export function assertJourneyDates(values: Pick<TagDetailValues, 'start_date' | 
   }
 }
 
+/** A typed journey currency as stored: trimmed and upper-cased; empty is none (inherited). */
+export function journeyCurrencyToColumn(currency: string | null): string | null {
+  return currency === null ? null : optionalTextToColumn(normaliseCurrencyCode(currency))
+}
+
+/** A journey's own currency: null (inherited) or a code as `currencyCodeError` accepts it. */
+export function assertJourneyCurrency(currency: string | null): void {
+  const error = currency === null ? null : currencyCodeError(currency)
+  if (error !== null) {
+    throw new InvalidTagDetailsError(`A journey's currency "${currency}" is not valid: ${error}`)
+  }
+}
+
 /** Upserts the details row of a location, merchant or journey with all of its fields. */
 export async function writeDetailValues(
   ex: SqlExecutor,
@@ -306,12 +324,21 @@ export async function writeDetailValues(
     )
   } else if (kind === 'journey') {
     await ex.run(
-      `INSERT INTO journey_details (tag_id, start_date, end_date, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO journey_details (tag_id, start_date, end_date, currency, created_at_utc,
+                                    updated_at_utc)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(tag_id) DO UPDATE SET
          start_date = excluded.start_date, end_date = excluded.end_date,
+         currency = excluded.currency,
          updated_at_utc = excluded.updated_at_utc, deleted_at_utc = NULL`,
-      [id, optionalTextToColumn(v.start_date), optionalTextToColumn(v.end_date), now, now],
+      [
+        id,
+        optionalTextToColumn(v.start_date),
+        optionalTextToColumn(v.end_date),
+        optionalTextToColumn(v.currency),
+        now,
+        now,
+      ],
     )
   }
 }
@@ -319,7 +346,8 @@ export async function writeDetailValues(
 /**
  * What only one kind of tag has, in a side table keyed by the tag's id: a
  * location's address, coordinates and merchant; a merchant's default
- * category; a journey's typed dates. Each kind is checked on write.
+ * category; a journey's typed dates and currency. Each kind is checked on
+ * write.
  */
 export class TagDetailsRepository {
   constructor(private db: Database) {}
@@ -345,7 +373,7 @@ export class TagDetailsRepository {
         `SELECT tag_id, default_category_id, auto_match FROM merchant_details ${live}`,
       ),
       this.db.exec<JourneyDetailsRow>(
-        `SELECT tag_id, start_date, end_date FROM journey_details ${live}`,
+        `SELECT tag_id, start_date, end_date, currency FROM journey_details ${live}`,
       ),
     ])
     const byTag = new Map<ShortId, TagDetailValues>()
@@ -375,6 +403,7 @@ export class TagDetailsRepository {
         ...noDetails(),
         start_date: row.start_date,
         end_date: row.end_date,
+        currency: row.currency,
       })
     }
     return byTag
@@ -440,14 +469,22 @@ export class TagDetailsRepository {
 
   /**
    * Stores the dates typed for a journey tag (null = derived from its
-   * transactions): calendar dates 'YYYY-MM-DD', the start not after the end.
+   * transactions): calendar dates 'YYYY-MM-DD', the start not after the end;
+   * and its currency (null or left out = inherited from its parent), a code
+   * stored trimmed and upper-cased.
    */
-  async setJourney(id: ShortId, d: Omit<JourneyDetails, 'tag_id'>): Promise<void> {
+  async setJourney(
+    id: ShortId,
+    d: Omit<JourneyDetails, 'tag_id' | 'currency'> & { currency?: string | null },
+  ): Promise<void> {
     assertJourneyDates(d)
+    const currency = journeyCurrencyToColumn(d.currency ?? null)
+    assertJourneyCurrency(currency)
     await this.write(id, 'journey', 'Journey details', {
       ...noDetails(),
       start_date: d.start_date,
       end_date: d.end_date,
+      currency,
     })
   }
 

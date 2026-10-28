@@ -8,6 +8,7 @@ import InputNumber from 'primevue/inputnumber'
 import DatePicker from 'primevue/datepicker'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import CurrencyInput from '@/components/CurrencyInput.vue'
 import { useTagsStore } from '@/stores/tags'
 import { MergeConflictError, TagLoopError } from '@/db/errors'
 import type { ShortId } from '@/db/shortId'
@@ -36,6 +37,7 @@ const FIELD_LABELS: Record<TagDetailField, string> = {
   default_category_id: 'Default category',
   start_date: 'Start date',
   end_date: 'End date',
+  currency: 'Currency',
 }
 
 const store = useTagsStore()
@@ -339,6 +341,13 @@ async function merge() {
               <TagOptionLabel :option="option" />
             </template>
           </Select>
+          <CurrencyInput
+            v-else-if="c.field === 'currency'"
+            v-model="answers[c.field]!.text"
+            input-id="merge-currency-value"
+            aria-label="Another currency"
+            fluid
+          />
           <DatePicker
             v-else
             v-model="answers[c.field]!.date"

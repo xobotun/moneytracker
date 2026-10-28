@@ -422,6 +422,74 @@ describe('TagEditDialog', () => {
     })
   })
 
+  describe('journey currency', () => {
+    const dates = { start_date: null, end_date: null }
+
+    it('saves one typed on a new journey, upper-cased', async () => {
+      await open('journey', null)
+      await type('tag-name', 'Georgia')
+      expect(input('tag-currency').value).toBe('')
+      await type('tag-currency', 'gel')
+      await save('Add journey')
+      const georgia = await tagsRepo.findByName('journey', 'Georgia')
+      expect((await detailsRepo.getJourney(georgia!.id))!.currency).toBe('GEL')
+    })
+
+    it('shows an inherited one as derived, and resets a typed one to it', async () => {
+      const caucasus = await tagsRepo.create({ kind: 'journey', name: 'Caucasus' })
+      await detailsRepo.setJourney(caucasus.id, { ...dates, currency: 'EUR' })
+      const tbilisi = await tagsRepo.create({
+        kind: 'journey',
+        name: 'Tbilisi',
+        parent_id: caucasus.id,
+      })
+      await open('journey', tbilisi)
+      expect(input('tag-currency').value).toBe('EUR')
+      const wrapperOf = () => input('tag-currency').closest('[title]')
+      expect(wrapperOf()!.getAttribute('title')).toBe('Inherited: from Caucasus')
+      expect(wrapperOf()!.className).toContain(DERIVED_CLASS)
+      expect(text()).toContain('Inherited: from Caucasus')
+
+      await type('tag-currency', 'GEL')
+      expect(wrapperOf()).toBeNull()
+      await save()
+      expect((await detailsRepo.getJourney(tbilisi.id))!.currency).toBe('GEL')
+      wrapper!.unmount()
+      document.body.innerHTML = ''
+
+      await open('journey', (await tagsRepo.findById(tbilisi.id))!)
+      expect(input('tag-currency').value).toBe('GEL')
+      button('Use the currency from Caucasus').click()
+      await settle()
+      expect(input('tag-currency').value).toBe('EUR')
+      await save()
+      expect((await detailsRepo.getJourney(tbilisi.id))!.currency).toBeNull()
+    })
+
+    it('follows the parent chosen in the dialog', async () => {
+      const caucasus = await tagsRepo.create({ kind: 'journey', name: 'Caucasus' })
+      await detailsRepo.setJourney(caucasus.id, { ...dates, currency: 'EUR' })
+      await open('journey', null)
+      expect(input('tag-currency').value).toBe('')
+      await choose('tag-parent', 'Caucasus')
+      expect(input('tag-currency').value).toBe('EUR')
+    })
+
+    it('refuses a code with a space', async () => {
+      await open('journey', null)
+      await type('tag-name', 'Georgia')
+      await type('tag-currency', 'G EL')
+      await save('Add journey')
+      expect(text()).toContain('A currency code has no spaces.')
+      expect(await tagsRepo.findByName('journey', 'Georgia')).toBeNull()
+    })
+
+    it('is only on journeys', async () => {
+      await open('location', null)
+      expect(input('tag-currency')).toBeNull()
+    })
+  })
+
   it('removes a merged name so it stops finding the tag', async () => {
     const job = await tagsRepo.create({ kind: 'tag', name: 'job' })
     const work = await tagsRepo.create({ kind: 'tag', name: 'work' })

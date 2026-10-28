@@ -65,11 +65,12 @@ export interface MerchantDetails {
   auto_match: boolean // an imported line (statement, receipt) naming it gets this merchant by itself (on by default)
 }
 
-/** Side data of a `journey` tag: dates the user typed over the derived ones. */
+/** Side data of a `journey` tag: dates the user typed over the derived ones, and its currency. */
 export interface JourneyDetails {
   tag_id: ShortId
   start_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
   end_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
+  currency: string | null // what its spending is offered in (a code, free-form); null = inherited from the parent (src/tags/journeys.ts)
 }
 
 /** A tag's details as one value set; a field its kind does not have stays null. */
@@ -82,6 +83,7 @@ export interface TagDetailValues {
   default_category_id: ShortId | null
   start_date: string | null
   end_date: string | null
+  currency: string | null // a journey's own currency (null = inherited); null for other kinds
 }
 export type TagDetailField = keyof TagDetailValues
 export interface TagDetailConflict<F extends TagDetailField = TagDetailField> {
