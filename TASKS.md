@@ -376,6 +376,7 @@ Items called out in [REQUIREMENTS.md](REQUIREMENTS.md) but not yet in the schema
 
 ### CRUD UI
 
+- Icons, step 2 (docs/plans/2026-10-28-icons-design.md §5–6): the "All icons" dialog with tabs (Icons per pack, Emoji library bundled, Text, Image), image import (downscale to WebP, DOMPurify for SVG, size warnings). Canonicalise the `source` JSON of a word so two devices making the same one write the same row
 - Accounts (list, create, edit, delete, reorder: done, see Accounts UI)
     - Optional home location picker (needs location tags first; the dialog leaves `location_id` untouched)
 - Transactions
