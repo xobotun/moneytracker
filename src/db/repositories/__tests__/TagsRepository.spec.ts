@@ -1034,6 +1034,7 @@ describe('TagsRepository', () => {
       expect(await details.getMerchant(rewe.id)).toEqual({
         tag_id: rewe.id,
         default_category_id: groceries.id,
+        auto_match: true,
       })
     })
 
@@ -1126,6 +1127,18 @@ describe('TagsRepository', () => {
       ])
       await repo.merge(a.id, b.id, { auto_match: false })
       expect((await details.getLocation(b.id))!.auto_match).toBe(false)
+    })
+
+    it("asks which of two merchants' matching flags to keep when they differ", async () => {
+      const a = await repo.create({ kind: 'merchant', name: 'REWE' })
+      const b = await repo.create({ kind: 'merchant', name: 'REWE Markt' })
+      await details.setMerchant(a.id, { default_category_id: null })
+      await details.setMerchant(b.id, { default_category_id: null, auto_match: false })
+      expect(await repo.detailConflicts(a.id, b.id)).toEqual([
+        { field: 'auto_match', source: true, target: false },
+      ])
+      await repo.merge(a.id, b.id, { auto_match: true })
+      expect((await details.getMerchant(b.id))!.auto_match).toBe(true)
     })
 
     it('treats equal values as no conflict', async () => {
@@ -1232,6 +1245,7 @@ describe('TagsRepository', () => {
       expect(await details.getMerchant(m2.id)).toEqual({
         tag_id: m2.id,
         default_category_id: food.id,
+        auto_match: true,
       })
 
       const j1 = await repo.create({ kind: 'journey', name: 'Rome' })

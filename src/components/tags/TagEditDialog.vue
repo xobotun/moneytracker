@@ -547,19 +547,33 @@ function merge() {
         </div>
       </template>
 
-      <div v-if="kind === 'merchant'" class="flex flex-col gap-1">
-        <label for="tag-default-category" class="text-sm font-medium">Default category</label>
-        <Select
-          v-model="draft.default_category_id"
-          input-id="tag-default-category"
-          :options="categoryOptions"
-          option-label="label"
-          option-value="id"
-          placeholder="None"
-          filter
-          fluid
-        />
-      </div>
+      <template v-if="kind === 'merchant'">
+        <div class="flex flex-col gap-1">
+          <label for="tag-default-category" class="text-sm font-medium">Default category</label>
+          <Select
+            v-model="draft.default_category_id"
+            input-id="tag-default-category"
+            :options="categoryOptions"
+            option-label="label"
+            option-value="id"
+            placeholder="None"
+            filter
+            fluid
+          />
+        </div>
+        <div class="flex items-start gap-2">
+          <Checkbox v-model="draft.auto_match" input-id="tag-auto-match" binary class="mt-0.5" />
+          <div class="flex flex-col">
+            <label for="tag-auto-match" class="text-sm font-medium">
+              Match imported lines automatically
+            </label>
+            <small class="text-gray-500 dark:text-gray-400">
+              Bank statements and receipts that name this merchant will get it by itself, once
+              import exists. Turn off for a name that is too generic to trust.
+            </small>
+          </div>
+        </div>
+      </template>
 
       <fieldset v-if="kind === 'journey'" class="flex flex-col gap-1">
         <legend class="mb-1 text-sm font-medium">Dates</legend>

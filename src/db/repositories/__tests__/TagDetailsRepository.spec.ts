@@ -66,6 +66,7 @@ describe('TagDetailsRepository', () => {
     expect(await repo.getMerchant(rewe.id)).toEqual({
       tag_id: rewe.id,
       default_category_id: groceries.id,
+      auto_match: true,
     })
     expect(await repo.getJourney(lisbon.id)).toEqual({
       tag_id: lisbon.id,
@@ -461,8 +462,8 @@ describe('TagDetailsRepository', () => {
       new Map<ShortId, TagDetailValues>([
         [mitte.id, { ...none, ...place, merchant_id: rewe.id }],
         [home.id, { ...none, ...place, address: 'Weg 1' }],
-        [rewe.id, { ...none, default_category_id: food.id }],
-        [edeka.id, none],
+        [rewe.id, { ...none, default_category_id: food.id, auto_match: true }],
+        [edeka.id, { ...none, auto_match: true }],
         [rome.id, { ...none, start_date: '2026-05-01' }],
       ]),
     )
@@ -521,5 +522,18 @@ describe('TagDetailsRepository', () => {
     expect(found).toMatchObject({ autoMatch: false })
     const food = await tags.create({ kind: 'category', name: 'Food' })
     expect((await repo.values(food.id, 'category')).auto_match).toBeNull()
+  })
+
+  it('stores whether a merchant matches imported lines automatically, on by default', async () => {
+    const rewe = await tags.create({ kind: 'merchant', name: 'Rewe' })
+    await repo.setMerchant(rewe.id, { default_category_id: null })
+    expect((await repo.getMerchant(rewe.id))!.auto_match).toBe(true)
+    await repo.setMerchant(rewe.id, { default_category_id: null, auto_match: false })
+    expect((await repo.getMerchant(rewe.id))!.auto_match).toBe(false)
+    expect((await repo.values(rewe.id, 'merchant')).auto_match).toBe(false)
+    expect((await repo.detailsByTag()).get(rewe.id)!.auto_match).toBe(false)
+    // A merchant without a details row matches too.
+    const edeka = await tags.create({ kind: 'merchant', name: 'Edeka' })
+    expect((await repo.values(edeka.id, 'merchant')).auto_match).toBe(true)
   })
 })

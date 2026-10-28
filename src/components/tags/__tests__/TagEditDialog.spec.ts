@@ -315,6 +315,16 @@ describe('TagEditDialog', () => {
     expect((await detailsRepo.getLocation(market.id))!.auto_match).toBe(false)
   })
 
+  it('turns automatic matching off for a merchant', async () => {
+    const shop = await tagsRepo.create({ kind: 'merchant', name: 'Shop' })
+    await open('merchant', shop)
+    expect(input('tag-auto-match').checked).toBe(true)
+    input('tag-auto-match').click()
+    await settle()
+    await save()
+    expect((await detailsRepo.getMerchant(shop.id))!.auto_match).toBe(false)
+  })
+
   it("edits a location's radius; empty is the default", async () => {
     const shop = await tagsRepo.create({ kind: 'location', name: 'Shop' })
     await open('location', shop)

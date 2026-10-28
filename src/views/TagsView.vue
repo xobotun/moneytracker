@@ -144,7 +144,10 @@ watch(
   { immediate: true },
 )
 
-/** What a detailed row lists under the names: a location's place, a journey's dates. */
+/**
+ * What a detailed row lists under the names: a location's place, a journey's
+ * dates, and when a location or merchant is not matched automatically.
+ */
 function factsOf(tag: Tag): RowFact[] {
   if (tag.kind === 'location') {
     const d = store.detailsById.get(tag.id)
@@ -160,6 +163,10 @@ function factsOf(tag: Tag): RowFact[] {
     }
     if (d.auto_match === false) facts.push({ text: 'not matched automatically', derived: false })
     return facts
+  }
+  if (tag.kind === 'merchant') {
+    const d = store.detailsById.get(tag.id)
+    return d?.auto_match === false ? [{ text: 'not matched automatically', derived: false }] : []
   }
   if (tag.kind === 'journey') {
     const dates = journeyDates.value.get(tag.id)

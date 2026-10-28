@@ -21,7 +21,7 @@ export interface TagDraft {
   latitude: number | null
   longitude: number | null
   radius_metres: number | null // a location's; empty = the default
-  auto_match: boolean | null // a location's; null for other kinds
+  auto_match: boolean | null // a location's or merchant's; null for other kinds
   merchant_id: ShortId | null
   default_category_id: ShortId | null
   start_date: string | null // 'YYYY-MM-DD'; null = derived from the journey's transactions
@@ -65,7 +65,7 @@ export function newTagDraft(
     latitude: null,
     longitude: null,
     radius_metres: kind === 'location' ? DEFAULT_LOCATION_RADIUS_METRES : null,
-    auto_match: kind === 'location' ? true : null,
+    auto_match: kind === 'location' || kind === 'merchant' ? true : null,
     merchant_id: null,
     default_category_id: null,
     start_date: null,

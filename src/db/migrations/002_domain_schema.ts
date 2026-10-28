@@ -50,6 +50,7 @@ export const migration: Migration = {
     CREATE TABLE merchant_details (
       tag_id              TEXT PRIMARY KEY REFERENCES tags(id) ON DELETE RESTRICT, -- short id of a merchant tag
       default_category_id TEXT REFERENCES tags(id) ON DELETE RESTRICT,   -- short id of a category tag (repository-checked); NULL = none
+      auto_match          INTEGER NOT NULL DEFAULT 1 CHECK (auto_match IN (0, 1)), -- boolean: an imported line (statement, receipt) naming it gets this merchant by itself
       created_at_utc      TEXT NOT NULL,                                 -- ISO 8601 UTC instant
       updated_at_utc      TEXT NOT NULL,                                 -- ISO 8601 UTC instant
       deleted_at_utc      TEXT                                           -- ISO 8601 UTC instant; NULL = live

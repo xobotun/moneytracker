@@ -39,6 +39,7 @@ type LocationDetailsRow = {
 type MerchantDetailsRow = {
   tag_id: string
   default_category_id: string | null
+  auto_match: number
 }
 
 type JourneyDetailsRow = {
@@ -104,7 +105,7 @@ async function readLocation(ex: SqlExecutor, id: ShortId): Promise<LocationDetai
 
 async function readMerchant(ex: SqlExecutor, id: ShortId): Promise<MerchantDetails | null> {
   const rows = await ex.exec<MerchantDetailsRow>(
-    `SELECT tag_id, default_category_id FROM merchant_details
+    `SELECT tag_id, default_category_id, auto_match FROM merchant_details
      WHERE tag_id = ? AND deleted_at_utc IS NULL`,
     [id],
   )
@@ -113,6 +114,7 @@ async function readMerchant(ex: SqlExecutor, id: ShortId): Promise<MerchantDetai
   return {
     tag_id: shortIdFromColumn(row.tag_id),
     default_category_id: shortIdFromNullableColumn(row.default_category_id),
+    auto_match: booleanFromColumn(row.auto_match),
   }
 }
 
@@ -134,7 +136,7 @@ async function readJourney(ex: SqlExecutor, id: ShortId): Promise<JourneyDetails
 /** The detail fields each kind of tag has; the other kinds have none. */
 export const DETAIL_FIELDS_BY_KIND: Record<TagKind, readonly TagDetailField[]> = {
   location: ['address', 'position', 'merchant_id', 'radius_metres', 'auto_match'],
-  merchant: ['default_category_id'],
+  merchant: ['default_category_id', 'auto_match'],
   journey: ['start_date', 'end_date'],
   category: [],
   tag: [],
@@ -174,7 +176,9 @@ export async function readDetailValues(
     values.radius_metres = d?.radius_metres ?? DEFAULT_LOCATION_RADIUS_METRES
     values.auto_match = d?.auto_match ?? true
   } else if (kind === 'merchant') {
-    values.default_category_id = (await readMerchant(ex, id))?.default_category_id ?? null
+    const d = await readMerchant(ex, id)
+    values.default_category_id = d?.default_category_id ?? null
+    values.auto_match = d?.auto_match ?? true
   } else if (kind === 'journey') {
     const d = await readJourney(ex, id)
     values.start_date = d?.start_date ?? null
@@ -291,12 +295,14 @@ export async function writeDetailValues(
     )
   } else if (kind === 'merchant') {
     await ex.run(
-      `INSERT INTO merchant_details (tag_id, default_category_id, created_at_utc, updated_at_utc)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO merchant_details (tag_id, default_category_id, auto_match, created_at_utc,
+                                     updated_at_utc)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(tag_id) DO UPDATE SET
          default_category_id = excluded.default_category_id,
+         auto_match = excluded.auto_match,
          updated_at_utc = excluded.updated_at_utc, deleted_at_utc = NULL`,
-      [id, v.default_category_id, now, now],
+      [id, v.default_category_id, booleanToColumn(v.auto_match ?? true), now, now],
     )
   } else if (kind === 'journey') {
     await ex.run(
@@ -336,7 +342,7 @@ export class TagDetailsRepository {
          FROM location_details ${live}`,
       ),
       this.db.exec<MerchantDetailsRow>(
-        `SELECT tag_id, default_category_id FROM merchant_details ${live}`,
+        `SELECT tag_id, default_category_id, auto_match FROM merchant_details ${live}`,
       ),
       this.db.exec<JourneyDetailsRow>(
         `SELECT tag_id, start_date, end_date FROM journey_details ${live}`,
@@ -361,6 +367,7 @@ export class TagDetailsRepository {
       byTag.set(shortIdFromColumn(row.tag_id), {
         ...noDetails(),
         default_category_id: shortIdFromNullableColumn(row.default_category_id),
+        auto_match: booleanFromColumn(row.auto_match),
       })
     }
     for (const row of journeys) {
@@ -413,12 +420,17 @@ export class TagDetailsRepository {
 
   /**
    * Stores the details of a merchant tag; `default_category_id` must be a
-   * category, live unless the merchant already has it.
+   * category, live unless the merchant already has it. Imported lines naming
+   * the merchant get it automatically unless `auto_match` is false.
    */
-  async setMerchant(id: ShortId, d: Omit<MerchantDetails, 'tag_id'>): Promise<void> {
+  async setMerchant(
+    id: ShortId,
+    d: Omit<MerchantDetails, 'tag_id' | 'auto_match'> & { auto_match?: boolean },
+  ): Promise<void> {
     await this.write(id, 'merchant', 'Merchant details', {
       ...noDetails(),
       default_category_id: d.default_category_id,
+      auto_match: d.auto_match ?? true,
     })
   }
 

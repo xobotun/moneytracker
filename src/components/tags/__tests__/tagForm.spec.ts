@@ -15,11 +15,12 @@ import {
 const PARENT = asShortId('parent000001')
 
 describe('newTagDraft', () => {
-  it('starts a location at the default radius; other kinds have none', () => {
+  it('starts a location at the default radius; locations and merchants matching on', () => {
     expect(newTagDraft('location', null).radius_metres).toBe(10)
     expect(newTagDraft('location', null).auto_match).toBe(true)
     expect(newTagDraft('merchant', null).radius_metres).toBeNull()
-    expect(newTagDraft('merchant', null).auto_match).toBeNull()
+    expect(newTagDraft('merchant', null).auto_match).toBe(true)
+    expect(newTagDraft('category', null).auto_match).toBeNull()
   })
 
   it("gives a top-level tag a preset colour and its kind's icon", () => {

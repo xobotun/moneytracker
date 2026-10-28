@@ -104,6 +104,7 @@ export const SYNC_COLUMNS: Record<string, ColumnDescriptor[]> = {
   merchant_details: [
     { name: 'tag_id', sqlType: 'TEXT', nullable: true },
     { name: 'default_category_id', sqlType: 'TEXT', nullable: true },
+    { name: 'auto_match', sqlType: 'INTEGER', nullable: false },
     { name: 'created_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'updated_at_utc', sqlType: 'TEXT', nullable: false },
     { name: 'deleted_at_utc', sqlType: 'TEXT', nullable: true },

@@ -297,6 +297,17 @@ describe('TagsView', () => {
       expect(facts('Spot')).toBe('52.52, 13.405 · within 10 m')
     })
 
+    it('detailed rows say when a merchant is not matched automatically', async () => {
+      await rewe()
+      const kiosk = await tagsRepo.create({ kind: 'merchant', name: 'Kiosk' })
+      await detailsRepo.setMerchant(kiosk.id, { default_category_id: null, auto_match: false })
+      await mountView('/tags?kind=merchant')
+      const facts = (name: string) =>
+        rowOf(name).querySelector('[data-facts]')?.textContent?.replace(/\s+/g, ' ').trim()
+      expect(facts('Kiosk')).toBe('not matched automatically')
+      expect(facts('Rewe')).toBeUndefined()
+    })
+
     it("detailed rows list a journey's dates, derived ones fainter", async () => {
       const summer = await tagsRepo.create({ kind: 'journey', name: 'Summer' })
       const lisbon = await tagsRepo.create({

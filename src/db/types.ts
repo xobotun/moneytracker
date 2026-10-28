@@ -60,6 +60,7 @@ export interface LocationDetails {
 export interface MerchantDetails {
   tag_id: ShortId
   default_category_id: ShortId | null // a `category` tag suggested for its transactions; null = none
+  auto_match: boolean // an imported line (statement, receipt) naming it gets this merchant by itself (on by default)
 }
 
 /** Side data of a `journey` tag: dates the user typed over the derived ones. */
@@ -75,7 +76,7 @@ export interface TagDetailValues {
   position: { latitude: number; longitude: number } | null // the two coordinates as one value
   merchant_id: ShortId | null
   radius_metres: number | null // a location's radius (its default when unset); null for other kinds
-  auto_match: boolean | null // a location's automatic matching (on when unset); null for other kinds
+  auto_match: boolean | null // a location's or merchant's automatic matching (on when unset); null for other kinds
   default_category_id: ShortId | null
   start_date: string | null
   end_date: string | null

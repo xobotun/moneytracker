@@ -170,10 +170,8 @@ function detailsOfKind(kind: TagKind, values: TagDetailValues): TagDetailValues 
   next.address = optionalTextToColumn(next.address)
   next.start_date = optionalTextToColumn(next.start_date)
   next.end_date = optionalTextToColumn(next.end_date)
-  if (kind === 'location') {
-    next.radius_metres ??= DEFAULT_LOCATION_RADIUS_METRES
-    next.auto_match ??= true
-  }
+  if (kind === 'location') next.radius_metres ??= DEFAULT_LOCATION_RADIUS_METRES
+  if (kind === 'location' || kind === 'merchant') next.auto_match ??= true
   return next
 }
 
